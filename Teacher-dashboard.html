@@ -1,0 +1,4636 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<title>Teacher Dashboard — Maths Bank Tutor</title>
+<meta name="description" content="แดชบอร์ดครู — จัดการกลุ่มเรียน นักเรียน ตารางคาบ">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<!-- QR Code library (for online check-in) -->
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+
+<style>
+/* ===========================================================
+   DESIGN SYSTEM — Maths Bank Tutor (ห้ามเปลี่ยน)
+   =========================================================== */
+:root {
+  --bg:           #FCFBF9;
+  --bg-soft:      #F5F3EF;
+  --bg-canvas:    #ECEAE6;
+  --black:        #17150F;
+  --orange:       #E8571F;
+  --gray-dark:    #6B675E;
+  --gray-soft:    #A8A49B;
+  --line:         #D8D4CC;
+  --line-strong:  #17150F;
+  --danger:       #B83C0A;
+  --danger-bg:    #FFF1E8;
+  --success:      #2D6A4F;
+  --success-bg:   #E8F3EE;
+
+  --radius-pill:  999px;
+  --radius-card:  18px;
+  --radius-sm:    10px;
+
+  --shadow-card:  0 1px 0 rgba(23,21,15,.04), 0 12px 28px -16px rgba(23,21,15,.18);
+  --shadow-pop:   0 24px 60px -20px rgba(23,21,15,.40);
+
+  --font-thai:    'Anuphan', system-ui, sans-serif;
+  --font-num:     'Space Grotesk', system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg-canvas); color: var(--black); font-family: var(--font-thai); -webkit-font-smoothing: antialiased; }
+body { font-size: 14px; line-height: 1.55; min-height: 100vh; }
+a { color: inherit; text-decoration: none; }
+button { font-family: inherit; cursor: pointer; border: 0; background: transparent; color: inherit; }
+input, select { font-family: inherit; font-size: 14px; color: var(--black); }
+.num { font-family: var(--font-num); font-feature-settings: 'tnum' 1, 'lnum' 1; }
+
+/* ===========================================================
+   LOGIN SCREEN
+   =========================================================== */
+.login-wrap {
+  min-height: 100vh; display: grid; place-items: center;
+  padding: 24px;
+}
+.login-card {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 40px 36px;
+  max-width: 420px; width: 100%;
+  box-shadow: var(--shadow-card);
+  text-align: center;
+}
+.login-logo {
+  width: 64px; height: 64px;
+  background: var(--black); color: var(--bg);
+  border-radius: 16px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-num); font-weight: 700; font-size: 26px;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  margin: 0 auto 16px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.login-logo span { color: var(--orange); }
+.login-title { font-size: 22px; font-weight: 700; }
+.login-sub { color: var(--gray-dark); font-size: 13px; margin-top: 4px; }
+.login-eyebrow {
+  font-family: var(--font-num); font-size: 11px;
+  letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--orange); font-weight: 600;
+  margin-bottom: 8px; display: block;
+}
+
+.pin-display {
+  display: flex; gap: 8px; justify-content: center;
+  margin: 24px 0 16px;
+}
+.pin-dot {
+  width: 44px; height: 56px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  display: grid; place-items: center;
+  font-family: var(--font-num); font-size: 22px; font-weight: 600;
+  background: var(--bg);
+  transition: all .15s;
+}
+.pin-dot.filled { border-color: var(--black); }
+.pin-dot.error { border-color: var(--danger); background: var(--danger-bg); animation: shake .3s; }
+@keyframes shake {
+  0%,100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+/* keypad */
+.keypad {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 8px; max-width: 280px; margin: 0 auto;
+}
+.keypad button {
+  background: var(--bg-soft); border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px 0; font-size: 20px; font-weight: 600;
+  font-family: var(--font-num);
+  transition: all .12s;
+}
+.keypad button:hover { background: var(--bg-canvas); border-color: var(--line-strong); }
+.keypad button:active { transform: scale(.96); }
+.keypad button.clear { color: var(--danger); }
+.keypad button.back { color: var(--gray-dark); }
+
+.login-warn {
+  margin-top: 16px; padding: 10px 14px;
+  background: var(--danger-bg); border-radius: 10px;
+  font-size: 13px; color: var(--danger);
+  display: none;
+}
+.login-warn.show { display: block; }
+
+.login-hint {
+  margin-top: 20px; padding-top: 16px;
+  border-top: 1px solid var(--line);
+  font-size: 12px; color: var(--gray-dark);
+}
+.login-hint code {
+  background: var(--bg-soft); padding: 2px 8px;
+  border-radius: 4px; font-family: var(--font-num);
+  color: var(--orange); font-weight: 600;
+}
+
+/* ===========================================================
+   APP LAYOUT
+   =========================================================== */
+.app {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  min-height: 100vh;
+}
+
+/* ===== Sidebar ===== */
+.sidebar {
+  background: var(--bg);
+  border-right: 1px solid var(--line);
+  display: flex; flex-direction: column;
+  position: sticky; top: 0; height: 100vh;
+}
+.sidebar__head {
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--line-strong);
+  display: flex; align-items: center; gap: 10px;
+}
+.sidebar__logo {
+  width: 32px; height: 32px;
+  background: var(--black); color: var(--bg);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-num); font-weight: 700; font-size: 13px;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.sidebar__logo span { color: var(--orange); }
+.sidebar__title { font-size: 14px; font-weight: 600; line-height: 1.2; }
+.sidebar__title small { display: block; font-size: 10px; color: var(--gray-dark); letter-spacing: 0.16em; text-transform: uppercase; font-weight: 500; margin-top: 2px; }
+
+.sidebar__actions {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  display: flex; gap: 6px;
+}
+.sidebar__actions .btn { flex: 1; }
+
+.sidebar__section-label {
+  padding: 14px 20px 6px;
+  font-family: var(--font-num); font-size: 11px;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--gray-dark); font-weight: 600;
+  display: flex; justify-content: space-between; align-items: center;
+}
+
+.group-list { flex: 1; overflow-y: auto; padding: 0 12px 16px; }
+.group-item {
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  display: flex; align-items: center; gap: 10px;
+  cursor: pointer; transition: all .12s;
+  margin-bottom: 2px;
+  border: 1px solid transparent;
+}
+.group-item:hover { background: var(--bg-soft); }
+.group-item.is-active {
+  background: var(--black); color: var(--bg);
+  border-color: var(--black);
+}
+.group-item.is-active .group-item__meta { color: var(--gray-soft); }
+.group-item__dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px;
+}
+.group-item__dot.done { background: var(--black); }
+.group-item.is-active .group-item__dot.done { background: var(--bg); }
+.group-item__dot.current { background: var(--orange); }
+.group-item__dot.upcoming { background: transparent; border: 1.5px solid var(--line); }
+.group-item.is-active .group-item__dot.upcoming { border-color: var(--gray-soft); }
+.group-item__name { font-size: 13px; font-weight: 500; line-height: 1.25; flex: 1; }
+.group-item__meta { font-size: 11px; color: var(--gray-dark); margin-top: 2px; }
+
+.sidebar__foot {
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  display: flex; gap: 6px;
+}
+
+/* ===== Main panel ===== */
+.main {
+  display: flex; flex-direction: column;
+  min-width: 0;
+}
+.main__head {
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  padding: 14px 28px;
+  display: flex; align-items: center; gap: 12px;
+  position: sticky; top: 0; z-index: 10;
+}
+.main__head h1 { font-size: 18px; font-weight: 700; flex: 1; }
+.main__head .eyebrow {
+  font-family: var(--font-num); font-size: 10px;
+  letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--orange); font-weight: 600;
+  display: block;
+}
+
+.mode-badge {
+  padding: 4px 10px; border-radius: var(--radius-pill);
+  background: var(--black); color: var(--bg);
+  font-size: 11px; font-weight: 600;
+  font-family: var(--font-num); letter-spacing: 0.08em;
+}
+
+.main__body { padding: 24px 28px 80px; flex: 1; }
+
+/* ===========================================================
+   CARDS / SECTIONS
+   =========================================================== */
+.card {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 22px;
+  margin-bottom: 18px;
+}
+.card__head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px; gap: 12px;
+}
+.card__title {
+  font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+  font-family: var(--font-num); color: var(--gray-dark); font-weight: 600;
+}
+.card__title b { color: var(--black); }
+.card__count {
+  font-family: var(--font-num); font-size: 12px;
+  padding: 3px 10px; border-radius: var(--radius-pill);
+  background: var(--bg-soft); color: var(--gray-dark);
+}
+
+/* group header card */
+.group-header {
+  display: grid; grid-template-columns: 1fr auto;
+  gap: 20px; align-items: start;
+}
+.group-header__name {
+  font-size: 24px; font-weight: 700;
+  border: 0; background: transparent;
+  padding: 4px 0; outline: none;
+  border-bottom: 2px dashed transparent;
+  width: 100%;
+}
+.group-header__name:focus { border-bottom-color: var(--orange); }
+.group-header__name.editing { border-bottom-color: var(--orange); }
+.group-header__meta { color: var(--gray-dark); font-size: 13px; margin-top: 4px; }
+
+.level-badge {
+  padding: 6px 14px; border-radius: var(--radius-pill);
+  font-family: var(--font-num); font-size: 12px; font-weight: 600;
+  background: var(--bg-soft); color: var(--black);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.level-badge.lv-4 { background: #FFF1E8; border-color: #FFD2B8; color: #B83C0A; }
+.level-badge.lv-5 { background: #EFEFE0; border-color: #D8D4CC; color: #4A463C; }
+.level-badge.lv-6 { background: #17150F; border-color: #17150F; color: var(--bg); }
+
+/* form rows */
+.form-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+.form-field { display: flex; flex-direction: column; gap: 4px; }
+.form-field label {
+  font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--gray-dark); font-weight: 600;
+  font-family: var(--font-num);
+}
+.form-field input, .form-field select {
+  padding: 8px 12px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg);
+  outline: none; transition: border-color .15s;
+}
+.form-field input:focus, .form-field select:focus { border-color: var(--black); }
+.form-field .hint { font-size: 11px; color: var(--gray-dark); }
+
+/* buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px 14px; border-radius: var(--radius-pill);
+  font-size: 13px; font-weight: 600;
+  transition: all .15s;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.btn--primary { background: var(--black); color: var(--bg); }
+.btn--primary:hover { background: var(--orange); }
+.btn--ghost { background: var(--bg); color: var(--black); border-color: var(--line-strong); }
+.btn--ghost:hover { background: var(--bg-soft); }
+.btn--danger { background: var(--danger-bg); color: var(--danger); border-color: transparent; }
+.btn--danger:hover { background: var(--danger); color: var(--bg); }
+.btn--sm { padding: 6px 10px; font-size: 12px; }
+.btn--xs { padding: 4px 8px; font-size: 11px; }
+.btn--block { width: 100%; }
+.btn--icon { padding: 8px; width: 32px; height: 32px; }
+
+/* progress bar */
+.progress {
+  height: 8px; background: var(--bg-canvas); border-radius: var(--radius-pill);
+  overflow: hidden; border: 1px solid var(--line);
+}
+.progress__fill { height: 100%; background: var(--orange); border-radius: var(--radius-pill); }
+
+/* ===========================================================
+   STUDENT LIST
+   =========================================================== */
+.student-add-row {
+  display: flex; gap: 8px; margin-bottom: 14px;
+}
+.student-add-row input {
+  flex: 1; padding: 9px 14px;
+  border: 1px solid var(--line); border-radius: var(--radius-pill);
+  outline: none;
+}
+.student-add-row input:focus { border-color: var(--black); }
+
+.student-list {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 6px;
+}
+.student-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-soft); border-radius: var(--radius-pill);
+  font-size: 13px;
+}
+.student-row__num {
+  font-family: var(--font-num); font-size: 11px; color: var(--gray-soft);
+  width: 22px;
+}
+.student-row__name { flex: 1; font-weight: 500; }
+.student-row__del {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: transparent; color: var(--gray-soft);
+  display: grid; place-items: center; font-size: 14px;
+  transition: all .15s;
+}
+.student-row__del:hover { background: var(--danger); color: var(--bg); }
+
+.student-row__pin {
+  padding: 4px 10px; border-radius: var(--radius-pill);
+  background: var(--bg); border: 1px solid var(--line);
+  display: inline-flex; align-items: center; gap: 4px;
+  cursor: pointer; transition: all .12s;
+}
+.student-row__pin:hover {
+  background: var(--bg-soft);
+  border-color: var(--orange);
+  transform: translateY(-1px);
+}
+
+/* ===========================================================
+   SESSION TABLE
+   =========================================================== */
+.session-tools {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;
+}
+.session-table-wrap {
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+}
+.session-table { width: 100%; border-collapse: collapse; }
+.session-table th {
+  background: var(--bg-soft);
+  text-align: left;
+  font-family: var(--font-num); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--gray-dark); font-weight: 600;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.session-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: middle; }
+.session-table tr:last-child td { border-bottom: 0; }
+.session-table tr.is-holiday td { background: var(--danger-bg); }
+.session-table tr.is-current td { background: #FFF6F0; }
+
+.session-no-print {
+  font-family: var(--font-num); font-weight: 600;
+  display: inline-block; width: 24px; text-align: center;
+}
+
+.session-input {
+  padding: 5px 8px;
+  border: 1px solid transparent; border-radius: 6px;
+  background: transparent;
+  font-family: var(--font-num); font-size: 13px;
+  outline: none; width: 100%;
+  min-width: 90px;
+}
+.session-input:hover { border-color: var(--line); }
+.session-input:focus { border-color: var(--orange); background: var(--bg); }
+
+.status-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px; border-radius: var(--radius-pill);
+  font-size: 11px; font-weight: 500;
+}
+.status-pill.done { background: var(--black); color: var(--bg); }
+.status-pill.current { background: var(--orange); color: var(--bg); }
+.status-pill.upcoming { background: var(--bg-canvas); color: var(--gray-dark); }
+.status-pill.holiday { background: var(--danger); color: var(--bg); }
+
+.row-actions { display: flex; gap: 4px; justify-content: flex-end; }
+.row-actions button {
+  width: 28px; height: 28px; border-radius: 6px;
+  display: grid; place-items: center;
+  background: var(--bg-soft); color: var(--gray-dark);
+  font-size: 13px; transition: all .12s;
+}
+.row-actions button:hover { background: var(--black); color: var(--bg); }
+.row-actions button.danger:hover { background: var(--danger); }
+
+/* ===========================================================
+   OVERVIEW MODE (read-only summary)
+   =========================================================== */
+.overview-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+.overview-card {
+  background: var(--bg); border: 1px solid var(--line);
+  border-radius: var(--radius-card); padding: 20px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.overview-card__top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.overview-card__name { font-size: 17px; font-weight: 700; }
+.overview-card__meta { font-size: 12px; color: var(--gray-dark); margin-top: 2px; }
+.overview-card__progress { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--gray-dark); }
+.overview-card__progress b { font-family: var(--font-num); font-size: 15px; color: var(--black); }
+.overview-card__progress .pct { font-family: var(--font-num); color: var(--orange); font-weight: 600; }
+
+/* ===========================================================
+   MODAL (confirm / form)
+   =========================================================== */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(23,21,15,.55); backdrop-filter: blur(4px);
+  display: none; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.modal-backdrop.is-open { display: flex; }
+.modal {
+  background: var(--bg); border-radius: var(--radius-card);
+  max-width: 440px; width: 100%; padding: 24px;
+  box-shadow: var(--shadow-pop);
+  animation: pop .18s ease-out;
+}
+@keyframes pop { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+.modal__title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+.modal__body { color: var(--gray-dark); font-size: 14px; margin-bottom: 20px; }
+.modal__actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* ===========================================================
+   TOAST
+   =========================================================== */
+.toast {
+  position: fixed; bottom: 24px; left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  background: var(--black); color: var(--bg);
+  padding: 12px 20px; border-radius: var(--radius-pill);
+  font-size: 13px; font-weight: 500;
+  z-index: 200; opacity: 0; transition: all .3s;
+  box-shadow: var(--shadow-pop);
+}
+.toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+.toast.success { background: var(--success); }
+.toast.error { background: var(--danger); }
+
+/* ===========================================================
+   EMPTY STATE
+   =========================================================== */
+.empty {
+  text-align: center; padding: 60px 24px;
+  color: var(--gray-dark);
+}
+.empty h3 { font-size: 18px; color: var(--black); margin-bottom: 6px; }
+.empty p { font-size: 14px; margin-bottom: 16px; }
+
+/* ===========================================================
+   RESPONSIVE
+   =========================================================== */
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar {
+    position: relative; height: auto;
+    border-right: 0; border-bottom: 1px solid var(--line-strong);
+  }
+  .group-list { max-height: 240px; }
+  .main__body { padding: 16px; }
+  .main__head { padding: 12px 16px; }
+  .group-header { grid-template-columns: 1fr; }
+  .session-table th:nth-child(4),
+  .session-table td:nth-child(4) { display: none; }
+}
+@media (max-width: 480px) {
+  .form-grid { grid-template-columns: 1fr; }
+  .student-list { grid-template-columns: 1fr; }
+  .session-table th:nth-child(3),
+  .session-table td:nth-child(3) { display: none; }
+}
+
+/* ===========================================================
+   PRINT
+   =========================================================== */
+@media screen {
+  .print-only { display: none !important; }
+}
+@media print {
+  @page { size: A4; margin: 12mm 14mm; }
+  body { background: white !important; font-size: 11pt; }
+  .app, .login-wrap { display: none !important; }
+  .print-only { display: block !important; }
+  .print-report { color: #000; font-family: var(--font-thai); }
+  .print-report__head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    border-bottom: 2px solid #000; padding-bottom: 12px; margin-bottom: 14px;
+  }
+  .print-brand { display: flex; align-items: center; gap: 10px; }
+  .print-brand__logo {
+    width: 36px; height: 36px; background: #000; color: #fff;
+    border-radius: 8px; display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-num); font-weight: 700; font-size: 15px;
+    letter-spacing: -0.04em; line-height: 1; overflow: hidden; white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .print-brand__logo span { color: var(--orange); }
+  .print-brand__name b { font-size: 13pt; }
+  .print-brand__name small { font-size: 9pt; color: #555; display: block; margin-top: 2px; }
+  .print-report__meta { text-align: right; font-size: 9pt; color: #555; }
+  .print-report__meta b { display: block; color: #000; font-size: 10pt; }
+  .print-report__title { font-size: 16pt; font-weight: 700; margin: 14px 0 4px; }
+  .print-report__sub { color: #444; font-size: 10pt; margin-bottom: 14px; }
+  .print-stats {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    border: 1px solid #000; border-radius: 8px; overflow: hidden; margin-bottom: 14px;
+  }
+  .print-stats__cell { padding: 8px 10px; border-right: 1px solid #000; }
+  .print-stats__cell:last-child { border-right: 0; }
+  .print-stats__label { font-size: 8pt; color: #666; letter-spacing: 0.08em; text-transform: uppercase; }
+  .print-stats__value { font-family: var(--font-num); font-size: 13pt; font-weight: 600; margin-top: 2px; }
+  .print-stats__value span { color: var(--orange); }
+  .print-section-title {
+    font-size: 10pt; letter-spacing: 0.16em; text-transform: uppercase;
+    font-family: var(--font-num); font-weight: 600;
+    border-bottom: 1px solid #000; padding-bottom: 4px; margin: 14px 0 8px;
+  }
+  .print-table { width: 100%; border-collapse: collapse; font-size: 10pt; }
+  .print-table th {
+    background: #f0eeea; text-align: left;
+    padding: 6px 8px; border: 1px solid #000; font-weight: 600; font-size: 9pt;
+  }
+  .print-table td { padding: 6px 8px; border: 1px solid #999; }
+  .print-table tr.is-holiday td { background: #ffeae0; }
+  .print-table tr.is-current td { background: #fff4ec; }
+  .print-students {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px 12px; font-size: 10pt;
+  }
+  .print-student {
+    padding: 3px 0; border-bottom: 1px dotted #ccc;
+    display: flex; align-items: baseline; gap: 6px;
+  }
+  .print-student__n { font-family: var(--font-num); font-size: 8pt; color: #999; min-width: 16px; }
+  .print-footer {
+    margin-top: 18px; padding-top: 10px; border-top: 1px solid #000;
+    display: flex; justify-content: space-between; font-size: 9pt; color: #555;
+  }
+  .print-footer b { color: #000; }
+  .print-signature {
+    margin-top: 24px; display: flex; justify-content: space-between; gap: 24px;
+  }
+  .print-signature__cell { text-align: center; flex: 1; }
+  .print-signature__line { border-top: 1px solid #000; margin-top: 40px; padding-top: 4px; font-size: 9pt; }
+}
+
+/* ===========================================================
+   ATTENDANCE — Kiosk + Summary
+   =========================================================== */
+
+/* QR Code display in online check-in monitor */
+.qr-container {
+  background: var(--bg);
+  padding: 16px;
+  border-radius: 12px;
+  display: inline-block;
+  margin: 12px auto;
+}
+.qr-container img,
+.qr-container canvas {
+  display: block;
+  margin: 0 auto;
+}
+.qr-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Method toggle (QR vs URL) */
+.method-toggle {
+  display: inline-flex;
+  background: rgba(255,255,255,.1);
+  border-radius: var(--radius-pill);
+  padding: 4px;
+  gap: 4px;
+  margin-top: 12px;
+}
+.method-toggle button {
+  padding: 8px 16px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gray-soft);
+  transition: all .15s;
+  font-family: var(--font-thai);
+}
+.method-toggle button.is-active {
+  background: var(--bg);
+  color: var(--black);
+}
+.method-toggle button:hover:not(.is-active) {
+  color: var(--bg);
+}
+
+/* Kiosk mode (full-screen PIN check-in) */
+.kiosk {
+  background: var(--bg);
+  min-height: calc(100vh - 60px);
+  padding: 24px;
+  display: flex; flex-direction: column;
+  gap: 16px;
+}
+.kiosk__head {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line-strong);
+}
+.kiosk__title {
+  font-size: 18px; font-weight: 700;
+}
+.kiosk__meta {
+  color: var(--gray-dark); font-size: 13px; margin-top: 2px;
+}
+.kiosk__live {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--font-num); font-size: 14px; font-weight: 600;
+  background: var(--black); color: var(--bg);
+  padding: 8px 14px; border-radius: var(--radius-pill);
+}
+.kiosk__live::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--orange); animation: pulse 1.2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.kiosk__progress {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;
+  background: var(--bg-soft); border-radius: 12px;
+  overflow: hidden;
+}
+.kiosk__stat {
+  padding: 12px 16px;
+  border-right: 1px solid var(--line);
+  display: flex; flex-direction: column;
+}
+.kiosk__stat:last-child { border-right: 0; }
+.kiosk__stat-label {
+  font-family: var(--font-num); font-size: 10px;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--gray-dark); margin-bottom: 4px;
+}
+.kiosk__stat-value {
+  font-family: var(--font-num); font-size: 24px; font-weight: 600;
+}
+.kiosk__stat-value.present { color: var(--success); }
+.kiosk__stat-value.late    { color: var(--orange); }
+.kiosk__stat-value.absent  { color: var(--danger); }
+.kiosk__stat-value.pending { color: var(--gray-dark); }
+
+/* Kiosk body: PIN pad + checked-in list */
+.kiosk__body {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+  flex: 1;
+}
+.kiosk__left {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: var(--bg-soft); border-radius: var(--radius-card);
+  padding: 32px 20px;
+  text-align: center;
+}
+.kiosk__prompt {
+  font-size: 14px; color: var(--gray-dark); margin-bottom: 8px;
+}
+.kiosk__student-name {
+  font-size: 28px; font-weight: 700; min-height: 36px;
+  letter-spacing: -0.01em;
+}
+.kiosk__student-status {
+  margin-top: 8px; min-height: 22px;
+  font-size: 14px; font-weight: 500;
+}
+.kiosk__student-status.ok    { color: var(--success); }
+.kiosk__student-status.late  { color: var(--orange); }
+.kiosk__student-status.error { color: var(--danger); }
+
+/* Kiosk PIN display (big) */
+.kiosk__pin-display {
+  display: flex; gap: 10px; justify-content: center;
+  margin: 24px 0 16px;
+}
+.kiosk__pin-dot {
+  width: 56px; height: 70px;
+  border: 2px solid var(--line-strong);
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-num); font-size: 30px; font-weight: 600;
+  background: var(--bg);
+}
+.kiosk__pin-dot.filled { border-color: var(--black); }
+.kiosk__pin-dot.success { border-color: var(--success); background: var(--success-bg); }
+.kiosk__pin-dot.error   { border-color: var(--danger);   background: var(--danger-bg); animation: shake .3s; }
+
+/* Kiosk keypad (big) */
+.kiosk__keypad {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 10px; max-width: 360px; margin: 0 auto;
+  width: 100%;
+}
+.kiosk__keypad button {
+  background: var(--bg); border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  padding: 24px 0; font-size: 28px; font-weight: 600;
+  font-family: var(--font-num);
+  transition: all .12s;
+}
+.kiosk__keypad button:hover { background: var(--bg-canvas); }
+.kiosk__keypad button:active { transform: scale(.96); background: var(--orange); color: var(--bg); }
+.kiosk__keypad button.clear { color: var(--danger); }
+.kiosk__keypad button.back { color: var(--gray-dark); }
+
+/* Kiosk right: checked-in list */
+.kiosk__right {
+  display: flex; flex-direction: column;
+  background: var(--bg); border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.kiosk__right-head {
+  padding: 14px 18px;
+  background: var(--bg-soft); border-bottom: 1px solid var(--line);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.kiosk__right-title {
+  font-family: var(--font-num); font-size: 11px;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--gray-dark); font-weight: 600;
+}
+.kiosk__right-body {
+  flex: 1; overflow-y: auto; padding: 8px;
+  max-height: 500px;
+}
+.checkin-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  border: 1px solid transparent;
+  margin-bottom: 2px;
+}
+.checkin-row.is-present { background: var(--success-bg); }
+.checkin-row.is-late    { background: #FFF6F0; }
+.checkin-row.is-absent  { background: var(--danger-bg); }
+.checkin-row.is-pending { background: transparent; color: var(--gray-dark); }
+.checkin-row.is-leave   { background: #EAF2FB; }
+.checkin-row__num {
+  font-family: var(--font-num); font-size: 11px;
+  color: var(--gray-soft); width: 24px;
+}
+.checkin-row__name { flex: 1; font-weight: 500; }
+.checkin-row__time {
+  font-family: var(--font-num); font-size: 13px;
+  color: var(--gray-dark);
+}
+.checkin-row__badge {
+  padding: 3px 10px; border-radius: var(--radius-pill);
+  font-size: 11px; font-weight: 600;
+}
+.checkin-row__badge.present { background: var(--success); color: var(--bg); }
+.checkin-row__badge.late    { background: var(--orange);  color: var(--bg); }
+.checkin-row__badge.absent  { background: var(--danger);  color: var(--bg); }
+.checkin-row__badge.pending { background: var(--bg-canvas); color: var(--gray-dark); }
+.checkin-row__badge.leave   { background: #2B6CB0; color: var(--bg); }
+
+.kiosk__actions {
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+.kiosk__actions .btn { flex: 1; min-width: 140px; }
+
+/* Attendance summary view */
+.att-summary-grid {
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  gap: 0; margin-bottom: 18px;
+  background: var(--black); color: var(--bg);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.att-summary-cell {
+  padding: 18px 22px;
+  border-right: 1px solid rgba(255,255,255,.08);
+}
+.att-summary-cell:last-child { border-right: 0; }
+.att-summary-label {
+  font-family: var(--font-num); font-size: 10px;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--gray-soft); margin-bottom: 4px;
+}
+.att-summary-value {
+  font-family: var(--font-num); font-size: 26px; font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.att-summary-value span { color: var(--orange); font-size: 16px; }
+
+/* Attendance table */
+.att-table-wrap {
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  overflow-x: auto;
+}
+.att-table { width: 100%; border-collapse: collapse; min-width: 600px; }
+.att-table th {
+  background: var(--bg-soft);
+  text-align: center;
+  font-family: var(--font-num); font-size: 10px;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--gray-dark); font-weight: 600;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--line);
+  position: sticky; top: 0;
+}
+.att-table th:first-child { text-align: left; padding-left: 14px; }
+.att-table td {
+  padding: 8px; border-bottom: 1px solid var(--line);
+  font-size: 13px; text-align: center;
+  vertical-align: middle;
+}
+.att-table td:first-child { text-align: left; padding-left: 14px; }
+.att-table tr:last-child td { border-bottom: 0; }
+.att-table tr:hover td { background: var(--bg-soft); }
+
+.att-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px; height: 26px; border-radius: 6px;
+  font-family: var(--font-num); font-size: 12px; font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform .12s, box-shadow .12s;
+  position: relative;
+  vertical-align: middle;
+}
+.att-cell:hover {
+  transform: scale(1.15);
+  box-shadow: 0 4px 10px rgba(23,21,15,.18);
+  z-index: 2;
+}
+.att-cell.present { background: var(--success); color: var(--bg); }
+.att-cell.late    { background: var(--orange);  color: var(--bg); }
+.att-cell.absent  { background: var(--danger);  color: var(--bg); }
+.att-cell.holiday { background: var(--bg-canvas); color: var(--gray-soft); }
+.att-cell.pending { background: transparent; color: var(--gray-soft); border: 1px dashed var(--line); }
+.att-cell.leave   { background: #2B6CB0; color: var(--bg); }
+
+/* Tooltip on hover — shows check-in time */
+.att-cell::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--black);
+  color: var(--bg);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--font-thai);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(23,21,15,.25);
+}
+.att-cell::before {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: var(--black);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s;
+  z-index: 100;
+}
+.att-cell:hover::after,
+.att-cell:hover::before {
+  opacity: 1;
+}
+
+.att-rate {
+  font-family: var(--font-num); font-weight: 600;
+}
+.att-rate.good { color: var(--success); }
+.att-rate.warn { color: var(--orange); }
+.att-rate.bad  { color: var(--danger); }
+
+.att-student-name { font-weight: 500; }
+.att-student-meta { font-size: 11px; color: var(--gray-dark); margin-top: 2px; }
+
+@media (max-width: 900px) {
+  .kiosk__body { grid-template-columns: 1fr; }
+  .kiosk__right-body { max-height: 300px; }
+  .att-summary-grid { grid-template-columns: repeat(2, 1fr); }
+  .att-summary-cell:nth-child(2) { border-right: 0; }
+  .att-summary-cell:nth-child(1), .att-summary-cell:nth-child(2) {
+    border-bottom: 1px solid rgba(255,255,255,.08);
+  }
+}
+@media (max-width: 480px) {
+  .kiosk__pin-dot { width: 40px; height: 54px; font-size: 22px; }
+  .kiosk__keypad button { padding: 18px 0; font-size: 22px; }
+  .kiosk__progress { grid-template-columns: repeat(2, 1fr); }
+  .kiosk__stat:nth-child(2) { border-right: 0; }
+  .kiosk__stat:nth-child(1), .kiosk__stat:nth-child(2) { border-bottom: 1px solid var(--line); }
+}
+</style>
+</head>
+<body>
+
+<!-- ============== LOGIN VIEW ============== -->
+<div class="login-wrap" id="loginView">
+  <div class="login-card">
+    <div class="login-logo">M<span>B</span></div>
+    <span class="login-eyebrow">Teacher Access</span>
+    <h1 class="login-title">Teacher Dashboard</h1>
+    <p class="login-sub">กรอกรหัส PIN 6 หลักเพื่อเข้าใช้งาน</p>
+
+    <div class="pin-display" id="pinDisplay">
+      <div class="pin-dot"></div>
+      <div class="pin-dot"></div>
+      <div class="pin-dot"></div>
+      <div class="pin-dot"></div>
+      <div class="pin-dot"></div>
+      <div class="pin-dot"></div>
+    </div>
+
+    <div class="keypad" id="keypad">
+      <button data-key="1">1</button>
+      <button data-key="2">2</button>
+      <button data-key="3">3</button>
+      <button data-key="4">4</button>
+      <button data-key="5">5</button>
+      <button data-key="6">6</button>
+      <button data-key="7">7</button>
+      <button data-key="8">8</button>
+      <button data-key="9">9</button>
+      <button class="clear" data-key="clear">ล้าง</button>
+      <button data-key="0">0</button>
+      <button class="back" data-key="back">←</button>
+    </div>
+
+    <div class="login-warn" id="loginWarn"></div>
+
+    <div class="login-hint">
+      PIN เริ่มต้น: <code>123456</code> · เปลี่ยนได้ในเมนูหลังเข้าสู่ระบบ<br>
+      กรอกผิด 5 ครั้ง → ล็อค 10 นาที
+    </div>
+  </div>
+</div>
+
+<!-- ============== APP VIEW ============== -->
+<div class="app" id="appView" style="display:none;">
+
+  <!-- ===== SIDEBAR ===== -->
+  <aside class="sidebar">
+    <div class="sidebar__head">
+      <div class="sidebar__logo">M<span>B</span></div>
+      <div class="sidebar__title">
+        Maths Bank Tutor
+        <small>Teacher Mode</small>
+      </div>
+    </div>
+
+    <div class="sidebar__actions">
+      <button class="btn btn--ghost btn--sm" id="btnOverview" style="flex:1;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        ภาพรวม
+      </button>
+      <button class="btn btn--primary btn--sm" id="btnAddGroup" style="flex:1;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        กลุ่มใหม่
+      </button>
+    </div>
+
+    <div class="sidebar__actions" style="padding-top:0; border-bottom:0;">
+      <button class="btn btn--ghost btn--sm" id="btnAttendance" style="flex:1; background: var(--orange); color: var(--bg); border-color: var(--orange);">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        เช็คชื่อ
+      </button>
+    </div>
+
+    <div class="sidebar__section-label">
+      กลุ่มเรียน <span class="num" id="sidebarGroupCount">0</span>
+    </div>
+
+    <div class="group-list" id="groupList"></div>
+
+    <div class="sidebar__foot">
+      <button class="btn btn--ghost btn--sm" id="btnSync" style="flex:1;" title="อัปโหลดขึ้น Google Sheet">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Sync
+      </button>
+      <button class="btn btn--ghost btn--sm" id="btnSettings" title="ตั้งค่า">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+      <button class="btn btn--ghost btn--sm btn--danger" id="btnLogout" title="ออกจากระบบ">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ===== MAIN PANEL ===== -->
+  <main class="main">
+    <header class="main__head">
+      <div>
+        <span class="eyebrow" id="mainEyebrow">Group Detail</span>
+        <h1 id="mainTitle">เลือกกลุ่มจากแถบซ้าย</h1>
+      </div>
+      <span class="mode-badge">TEACHER</span>
+    </header>
+
+    <div class="main__body" id="mainBody">
+      <!-- Dynamic content injected here -->
+    </div>
+  </main>
+
+</div>
+
+<!-- ============== MODAL ============== -->
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal" id="modalContent"></div>
+</div>
+
+<!-- ============== TOAST ============== -->
+<div class="toast" id="toast"></div>
+
+<!-- ============== PRINT REPORT ============== -->
+<div class="print-only" id="printReport"></div>
+
+<script>
+/* ===========================================================
+   CONFIG
+   =========================================================== */
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzh0M26XbDfjrVuUjUgn1Dr-Z209ms9UibPAxfd-YiB7oHnD-1ubzc3PNtadO7tULjm/exec';  // ← ใส่ URL ของ Google Apps Script ที่นี่ (เว้นว่าง = ไม่ sync)
+const TEACHER_TOKEN = ‘Bank’2569-Bankying1510@;  // ← ตั้งเอง — ต้องตรงกับ TEACHER_TOKEN ใน apps-script-complete.gs
+const DEFAULT_PIN = '123456';
+const STORAGE_KEY = 'mathsBankTeacherData';
+const PIN_KEY = 'mathsBankTeacherPin';
+const LOCK_KEY = 'mathsBankTeacherLock';
+const SESSION_KEY = 'mathsBankTeacherAuth';
+const MAX_ATTEMPTS = 5;
+const LOCK_MINUTES = 10;
+
+/* ===========================================================
+   DEFAULT DATA — ใช้เมื่อ localStorage ไม่มีข้อมูล
+   =========================================================== */
+const DEFAULT_DATA = {
+  groups: [
+    {
+      id: 'm4-wed-1630',
+      name: 'ม.4 วันพุธ 16.30',
+      level: 'ม.4',
+      dayOfWeek: 'พุธ',
+      startTime: '16.30',
+      endTime: '19.00',
+      sessionsTotal: 10,
+      startDate: '2026-06-10',
+      students: [
+        {id: 's1', name: 'เต้'},
+        {id: 's2', name: 'ปราง'},
+        {id: 's3', name: 'กวิน'},
+        {id: 's4', name: 'เอิร์ธ'},
+        {id: 's5', name: 'นัน'},
+        {id: 's6', name: 'พลอย'},
+        {id: 's7', name: 'ฟ้า'},
+        {id: 's8', name: 'เมญา'},
+        {id: 's9', name: 'ภูมิ'},
+        {id: 's10', name: 'ใบหมึก'},
+        {id: 's11', name: 'เจน'},
+        {id: 's12', name: 'หยดน้ำ'},
+        {id: 's13', name: 'บอมบ์'},
+        {id: 's14', name: 'มิ้นต์'},
+        {id: 's15', name: 'แฮปปี้'}
+      ],
+      sessions: [] // จะสร้างอัตโนมัติ
+    },
+    {
+      id: 'm6-sun-1000',
+      name: 'ม.6 วันอาทิตย์ 10.00',
+      level: 'ม.6',
+      dayOfWeek: 'อาทิตย์',
+      startTime: '10.00',
+      endTime: '12.30',
+      sessionsTotal: 20,
+      startDate: '2026-02-01',
+      students: [
+        {id: 'u1', name: 'เต้'}, {id: 'u2', name: 'ปราง'}, {id: 'u3', name: 'กวิน'},
+        {id: 'u4', name: 'เอิร์ธ'}, {id: 'u5', name: 'นัน'}, {id: 'u6', name: 'พลอย'},
+        {id: 'u7', name: 'ฟ้า'}, {id: 'u8', name: 'เมญา'}, {id: 'u9', name: 'ภูมิ'},
+        {id: 'u10', name: 'ใบหมึก'}, {id: 'u11', name: 'เจน'}, {id: 'u12', name: 'หยดน้ำ'},
+        {id: 'u13', name: 'บอมบ์'}, {id: 'u14', name: 'มิ้นต์'}, {id: 'u15', name: 'แฮปปี้'}
+      ],
+      sessions: []
+    }
+  ]
+};
+
+/* ===========================================================
+   STATE
+   =========================================================== */
+const state = {
+  data: { groups: [] },
+  selectedGroupId: null,
+  view: 'detail', // 'detail' | 'overview' | 'attendance' | 'kiosk'
+  pin: '',
+  today: new Date(),
+  // attendance kiosk state
+  kiosk: {
+    groupId: null,
+    sessionNo: null,
+    pin: '',
+    mode: 'pin',      // 'pin' | 'face'
+    lastResult: null, // {studentName, status, message}
+    startedAt: null
+  }
+};
+
+/* ===========================================================
+   ATTENDANCE CONFIG
+   =========================================================== */
+const ATTENDANCE_CONFIG = {
+  lateThresholdMinutes: 10,    // เกิน 10 นาที = สาย
+  autoAbsentOnFinish: true    // กด "จบคาบ" → คนที่ยังไม่เช็คอิน = ขาด อัตโนมัติ
+};
+
+/* ===========================================================
+   FACE SCAN CONFIG — เช็คชื่อด้วยใบหน้า (face-api.js)
+   =========================================================== */
+const FACE_CONFIG = {
+  libUrl: 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js',
+  modelUrl: 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights',
+  matchThreshold: 0.5,   // ยิ่งต่ำยิ่งเข้มงวด (0.4–0.6)
+  captureCount: 3,       // จำนวนภาพตอนลงทะเบียน
+  scanIntervalMs: 700    // ความถี่สแกนในโหมด kiosk
+};
+const FACE_STORE_KEY = 'mathsBankFaceData';
+
+/* ===========================================================
+   HELPERS — Date formatting (Thai Buddhist calendar)
+   =========================================================== */
+const THAI_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+const THAI_DAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัส','ศุกร์','เสาร์'];
+
+function parseDate(s) {
+  if (!s) return new Date();
+  const [y,m,d] = s.split('-').map(Number);
+  return new Date(y, m-1, d);
+}
+function dateToStr(dt) {
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth()+1).padStart(2,'0');
+  const d = String(dt.getDate()).padStart(2,'0');
+  return `${y}-${m}-${d}`;
+}
+function thDate(s) {
+  const dt = parseDate(s);
+  const y = (dt.getFullYear() + 543) % 100;
+  return `${dt.getDate()} ${THAI_MONTHS[dt.getMonth()]} ${String(y).padStart(2,'0')}`;
+}
+function thDateFull(s) {
+  const dt = parseDate(s);
+  const y = dt.getFullYear() + 543;
+  return `${dt.getDate()} ${THAI_MONTHS[dt.getMonth()]} ${y}`;
+}
+function thDayName(s) {
+  return THAI_DAYS[parseDate(s).getDay()];
+}
+function todayStr() {
+  return dateToStr(state.today);
+}
+function addDays(dateStr, n) {
+  const dt = parseDate(dateStr);
+  dt.setDate(dt.getDate() + n);
+  return dateToStr(dt);
+}
+function uid(prefix) {
+  return (prefix || 'id') + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+}
+
+/* ===========================================================
+   STORAGE — localStorage
+   =========================================================== */
+function loadData() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return JSON.parse(JSON.stringify(DEFAULT_DATA));
+    const data = JSON.parse(raw);
+    if (!data.groups) data.groups = [];
+    return data;
+  } catch(e) {
+    console.error('loadData error:', e);
+    return JSON.parse(JSON.stringify(DEFAULT_DATA));
+  }
+}
+
+function saveData() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
+    return true;
+  } catch(e) {
+    console.error('saveData error:', e);
+    toast('ไม่สามารถบันทึกข้อมูลได้', 'error');
+    return false;
+  }
+}
+
+/* ===========================================================
+   SESSION SCHEDULER — สร้าง/อัปเดตคาบเรียน
+   =========================================================== */
+function ensureSessions(group) {
+  if (!group.sessions) group.sessions = [];
+  if (group.sessions.length === 0 && group.sessionsTotal > 0) {
+    for (let i = 0; i < group.sessionsTotal; i++) {
+      const dateStr = addDays(group.startDate, i * 7);
+      group.sessions.push({
+        no: i + 1,
+        date: dateStr,
+        customTime: null, // null = ใช้เวลาของกลุ่ม
+        status: 'upcoming', // done | current | upcoming | holiday
+        note: ''
+      });
+    }
+  }
+  // ตัด/เพิ่มให้ตรง sessionsTotal
+  while (group.sessions.length < group.sessionsTotal) {
+    const last = group.sessions[group.sessions.length - 1];
+    const newDate = last ? addDays(last.date, 7) : group.startDate;
+    group.sessions.push({
+      no: group.sessions.length + 1,
+      date: newDate,
+      customTime: null,
+      status: 'upcoming',
+      note: ''
+    });
+  }
+  while (group.sessions.length > group.sessionsTotal) {
+    group.sessions.pop();
+  }
+  // renumber
+  group.sessions.forEach((s, i) => s.no = i + 1);
+  // คำนวณ endDate
+  if (group.sessions.length > 0) {
+    group.endDate = group.sessions[group.sessions.length - 1].date;
+  }
+}
+
+function getGroupStatus(group) {
+  const today = todayStr();
+  ensureSessions(group);
+  const start = group.startDate;
+  const end = group.endDate || start;
+  if (today < start) return 'upcoming';
+  if (today > end) {
+    // ตรวจดูว่ายังมีคาบ upcoming อยู่ไหม (กรณีเลื่อนวันหยุด)
+    const hasUpcoming = group.sessions.some(s => s.status !== 'holiday' && s.status !== 'done' && s.date >= today);
+    return hasUpcoming ? 'current' : 'done';
+  }
+  return 'current';
+}
+
+function getSessionTime(session, group) {
+  if (session.customTime) return session.customTime;
+  return `${group.startTime}–${group.endTime} น.`;
+}
+
+/* ===========================================================
+   HOLIDAY LOGIC — เลื่อนคาบถัดไป +7 วันอัตโนมัติ
+   =========================================================== */
+function markHoliday(groupId, sessionNo, note) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+  ensureSessions(g);
+  const idx = g.sessions.findIndex(s => s.no === sessionNo);
+  if (idx === -1) return;
+
+  // ทำเครื่องหมายคาบนี้เป็น holiday
+  g.sessions[idx].status = 'holiday';
+  g.sessions[idx].note = note || 'หยุด';
+
+  // เลื่อนคาบถัดไปทั้งหมด +7 วัน (ยกเว้นคาบที่เป็น holiday อยู่แล้ว)
+  for (let i = idx + 1; i < g.sessions.length; i++) {
+    if (g.sessions[i].status !== 'holiday') {
+      g.sessions[i].date = addDays(g.sessions[i].date, 7);
+    }
+  }
+  // อัปเดต endDate
+  g.endDate = g.sessions[g.sessions.length - 1].date;
+  saveData();
+  toast(`บันทึกวันหยุด คาบที่ ${sessionNo} · เลื่อนคาบถัดไป +7 วัน`, 'success');
+}
+
+function unmarkHoliday(groupId, sessionNo) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+  ensureSessions(g);
+  const idx = g.sessions.findIndex(s => s.no === sessionNo);
+  if (idx === -1) return;
+
+  // ยกเลิก holiday
+  g.sessions[idx].status = 'upcoming';
+  g.sessions[idx].note = '';
+
+  // เลื่อนคาบถัดไปกลับ -7 วัน (ยกเว้นคาบที่เป็น holiday อยู่)
+  for (let i = idx + 1; i < g.sessions.length; i++) {
+    if (g.sessions[i].status !== 'holiday') {
+      g.sessions[i].date = addDays(g.sessions[i].date, -7);
+    }
+  }
+  g.endDate = g.sessions[g.sessions.length - 1].date;
+  saveData();
+  toast(`ยกเลิกวันหยุด คาบที่ ${sessionNo} · เลื่อนคาบถัดไปกลับ -7 วัน`, 'success');
+}
+
+/* ===========================================================
+   LOGIN — PIN + ล็อค 5 ครั้งผิด
+   =========================================================== */
+function getLock() {
+  try {
+    const raw = localStorage.getItem(LOCK_KEY);
+    return raw ? JSON.parse(raw) : { attempts: 0, lockedUntil: 0 };
+  } catch(e) {
+    return { attempts: 0, lockedUntil: 0 };
+  }
+}
+function setLock(lock) {
+  localStorage.setItem(LOCK_KEY, JSON.stringify(lock));
+}
+function getPin() {
+  return localStorage.getItem(PIN_KEY) || DEFAULT_PIN;
+}
+function setPin(pin) {
+  localStorage.setItem(PIN_KEY, pin);
+}
+
+function tryLogin(pin) {
+  const lock = getLock();
+  const now = Date.now();
+  if (lock.lockedUntil > now) {
+    const mins = Math.ceil((lock.lockedUntil - now) / 60000);
+    showLoginWarn(`ระบบล็อค กรุณารอ ${mins} นาที`);
+    return false;
+  }
+  if (pin === getPin()) {
+    setLock({ attempts: 0, lockedUntil: 0 });
+    sessionStorage.setItem(SESSION_KEY, '1');
+    showApp();
+    return true;
+  } else {
+    lock.attempts++;
+    if (lock.attempts >= MAX_ATTEMPTS) {
+      lock.lockedUntil = now + LOCK_MINUTES * 60000;
+      lock.attempts = 0;
+      setLock(lock);
+      showLoginWarn(`กรอกผิด 5 ครั้ง → ล็อค ${LOCK_MINUTES} นาที`);
+      shakePin();
+    } else {
+      setLock(lock);
+      const left = MAX_ATTEMPTS - lock.attempts;
+      showLoginWarn(`PIN ไม่ถูกต้อง · เหลือ ${left} ครั้ง`);
+      shakePin();
+    }
+    return false;
+  }
+}
+
+function showLoginWarn(msg) {
+  const el = document.getElementById('loginWarn');
+  el.textContent = msg;
+  el.classList.add('show');
+}
+function shakePin() {
+  document.querySelectorAll('.pin-dot').forEach(d => {
+    d.classList.add('error');
+    setTimeout(() => d.classList.remove('error'), 400);
+  });
+}
+
+function renderPinDisplay() {
+  const dots = document.querySelectorAll('.pin-dot');
+  dots.forEach((d, i) => {
+    if (i < state.pin.length) {
+      d.textContent = state.pin[i];
+      d.classList.add('filled');
+    } else {
+      d.textContent = '';
+      d.classList.remove('filled');
+    }
+  });
+}
+
+function handleKeypad(key) {
+  if (key === 'clear') {
+    state.pin = '';
+  } else if (key === 'back') {
+    state.pin = state.pin.slice(0, -1);
+  } else if (state.pin.length < 6) {
+    state.pin += key;
+    if (state.pin.length === 6) {
+      setTimeout(() => {
+        const ok = tryLogin(state.pin);
+        if (!ok) state.pin = '';
+        renderPinDisplay();
+      }, 150);
+    }
+  }
+  renderPinDisplay();
+}
+
+function showApp() {
+  document.getElementById('loginView').style.display = 'none';
+  document.getElementById('appView').style.display = 'grid';
+  state.data = loadData();
+  // สร้าง sessions ให้ครบทุกกลุ่ม
+  state.data.groups.forEach(g => ensureSessions(g));
+  saveData();
+  // โหลด last sync time
+  try {
+    state.lastSync = localStorage.getItem('mathsBankLastSync') || null;
+  } catch(e) { state.lastSync = null; }
+  updateSyncIndicator();
+  // เลือกกลุ่มแรกอัตโนมัติ
+  if (state.data.groups.length > 0) {
+    state.selectedGroupId = state.data.groups[0].id;
+  }
+  renderAll();
+}
+
+function logout() {
+  sessionStorage.removeItem(SESSION_KEY);
+  state.pin = '';
+  renderPinDisplay();
+  document.getElementById('loginWarn').classList.remove('show');
+  document.getElementById('appView').style.display = 'none';
+  document.getElementById('loginView').style.display = 'grid';
+}
+
+/* ===========================================================
+   RENDER — SIDEBAR (group list)
+   =========================================================== */
+function renderSidebar() {
+  const list = document.getElementById('groupList');
+  document.getElementById('sidebarGroupCount').textContent = state.data.groups.length;
+  list.innerHTML = '';
+
+  if (state.data.groups.length === 0) {
+    list.innerHTML = '<div style="padding:24px; text-align:center; color:var(--gray-dark); font-size:13px;">ยังไม่มีกลุ่ม<br>กด "กลุ่มใหม่" เพื่อเพิ่ม</div>';
+    return;
+  }
+
+  state.data.groups.forEach(g => {
+    const status = getGroupStatus(g);
+    const sessions = g.sessions || [];
+    const done = sessions.filter(s => s.status === 'done' || s.status === 'current').length;
+    const total = sessions.length;
+    const item = document.createElement('div');
+    item.className = 'group-item' + (g.id === state.selectedGroupId ? ' is-active' : '');
+    item.innerHTML = `
+      <span class="group-item__dot ${status}"></span>
+      <div style="flex:1; min-width:0;">
+        <div class="group-item__name">${g.name}</div>
+        <div class="group-item__meta">${g.level} · ${done}/${total} คาบ · ${g.startTime}–${g.endTime}</div>
+      </div>
+    `;
+    item.addEventListener('click', () => {
+      state.selectedGroupId = g.id;
+      state.view = 'detail';
+      renderAll();
+    });
+    list.appendChild(item);
+  });
+}
+
+/* ===========================================================
+   RENDER — MAIN PANEL (detail)
+   =========================================================== */
+function renderMain() {
+  const body = document.getElementById('mainBody');
+  const title = document.getElementById('mainTitle');
+  const eyebrow = document.getElementById('mainEyebrow');
+
+  if (state.view === 'overview') {
+    eyebrow.textContent = 'Overview';
+    title.textContent = 'ภาพรวมทุกกลุ่ม';
+    renderOverview(body);
+    return;
+  }
+
+  if (state.view === 'attendance') {
+    eyebrow.textContent = 'Attendance';
+    title.textContent = 'สรุปการเข้าเรียน';
+    renderAttendanceSummary(body);
+    return;
+  }
+
+  if (state.view === 'kiosk') {
+    eyebrow.textContent = 'Check-in Kiosk';
+    title.textContent = 'เช็คชื่อนักเรียน';
+    renderKiosk(body);
+    return;
+  }
+
+  if (state.view === 'onlineCheckin') {
+    eyebrow.textContent = 'Online Check-in';
+    title.textContent = 'เช็คชื่อออนไลน์ — Real-time';
+    renderOnlineCheckin(body);
+    return;
+  }
+
+  const g = state.data.groups.find(x => x.id === state.selectedGroupId);
+  if (!g) {
+    eyebrow.textContent = 'Group Detail';
+    title.textContent = 'เลือกกลุ่มจากแถบซ้าย';
+    body.innerHTML = `
+      <div class="empty">
+        <h3>ยังไม่ได้เลือกกลุ่ม</h3>
+        <p>คลิกกลุ่มในแถบซ้ายเพื่อดูรายละเอียด หรือกด "กลุ่มใหม่" เพื่อเพิ่ม</p>
+        <button class="btn btn--primary" onclick="addGroup()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          เพิ่มกลุ่มแรก
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  ensureSessions(g);
+  const status = getGroupStatus(g);
+  const done = (g.sessions || []).filter(s => s.status === 'done' || s.status === 'current').length;
+  const total = (g.sessions || []).length;
+  const pct = total > 0 ? Math.round(done / total * 100) : 0;
+  const levelKey = 'lv-' + g.level.replace('ม.', '').replace('M', '').replace('m', '').trim();
+
+  eyebrow.textContent = 'Group Detail';
+  title.textContent = g.name;
+
+  body.innerHTML = `
+    <!-- GROUP HEADER CARD -->
+    <div class="card">
+      <div class="group-header">
+        <div>
+          <input class="group-header__name" id="groupName" value="${g.name}" placeholder="ชื่อกลุ่ม">
+          <div class="group-header__meta">
+            ${g.dayOfWeek} · ${g.startTime}–${g.endTime} น. · ${done}/${total} คาบ · ${g.students.length} คน
+          </div>
+          <div class="progress" style="margin-top:8px; max-width:280px;">
+            <div class="progress__fill" style="width: ${pct}%"></div>
+          </div>
+        </div>
+        <span class="level-badge ${levelKey}">${g.level}</span>
+      </div>
+    </div>
+
+    <!-- GROUP SETTINGS -->
+    <div class="card">
+      <div class="card__head">
+        <span class="card__title">ตั้งค่ากลุ่ม · <b>Group Settings</b></span>
+        <span class="card__count">${status === 'done' ? 'จบคอร์ส' : status === 'current' ? 'กำลังเรียน' : 'ยังไม่เริ่ม'}</span>
+      </div>
+      <div class="form-grid">
+        <div class="form-field">
+          <label>ระดับชั้น</label>
+          <select id="groupLevel">
+            <option value="ม.4" ${g.level === 'ม.4' ? 'selected' : ''}>ม.4</option>
+            <option value="ม.5" ${g.level === 'ม.5' ? 'selected' : ''}>ม.5</option>
+            <option value="ม.6" ${g.level === 'ม.6' ? 'selected' : ''}>ม.6</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label>วันในสัปดาห์</label>
+          <select id="groupDay">
+            ${THAI_DAYS.map(d => `<option value="${d}" ${g.dayOfWeek === d ? 'selected' : ''}>${d}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-field">
+          <label>เวลาเริ่ม</label>
+          <input type="text" id="groupStart" value="${g.startTime}" placeholder="16.30">
+        </div>
+        <div class="form-field">
+          <label>เวลาเลิก</label>
+          <input type="text" id="groupEnd" value="${g.endTime}" placeholder="19.00">
+        </div>
+        <div class="form-field">
+          <label>จำนวนคาบ/คอร์ส</label>
+          <input type="number" id="groupTotal" value="${g.sessionsTotal}" min="1" max="100">
+        </div>
+        <div class="form-field">
+          <label>วันเริ่มคอร์ส</label>
+          <input type="date" id="groupStartDate" value="${g.startDate}">
+        </div>
+      </div>
+      <div style="margin-top: 14px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn btn--primary btn--sm" onclick="saveGroupSettings('${g.id}')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          บันทึกการตั้งค่า
+        </button>
+        <button class="btn btn--ghost btn--sm" onclick="regenerateSessions('${g.id}')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          สร้างตารางคาบใหม่
+        </button>
+        <button class="btn btn--danger btn--sm" onclick="confirmDeleteGroup('${g.id}')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          ลบกลุ่ม
+        </button>
+      </div>
+    </div>
+
+    <!-- STUDENTS -->
+    <div class="card">
+      <div class="card__head">
+        <span class="card__title">รายชื่อนักเรียน · <b>Students (${g.students.length})</b></span>
+        <div style="display:flex; gap:6px;">
+          <button class="btn btn--ghost btn--xs" onclick="printStudentPins('${g.id}')">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+            พิมพ์ PIN นักเรียน
+          </button>
+          <span class="card__count">${g.students.length} คน</span>
+        </div>
+      </div>
+      <div class="student-add-row">
+        <input type="text" id="newStudentName" placeholder="พิมพ์ชื่อนักเรียน แล้วกด Enter" onkeypress="if(event.key==='Enter') addStudent('${g.id}')">
+        <button class="btn btn--primary btn--sm" onclick="addStudent('${g.id}')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          เพิ่ม
+        </button>
+      </div>
+      <div style="font-size:11px; color:var(--gray-dark); margin-bottom:8px;">
+        กดที่ตัวเลขส้ม (PIN) ข้างชื่อนักเรียนเพื่อเปลี่ยน PIN ของนักเรียนคนนั้น
+      </div>
+      <div class="student-list" id="studentList"></div>
+    </div>
+
+    <!-- SESSIONS -->
+    <div class="card">
+      <div class="card__head">
+        <span class="card__title">ตารางคาบเรียน · <b>Sessions (${total})</b></span>
+        <div style="display:flex; gap:6px;">
+          <button class="btn btn--ghost btn--xs" onclick="addSession('${g.id}')">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+            เพิ่มคาบ
+          </button>
+          <button class="btn btn--ghost btn--xs" onclick="printGroupReport('${g.id}')">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+            ปริ้นรายงาน
+          </button>
+        </div>
+      </div>
+      <div class="session-tools">
+        <span style="font-size:12px; color:var(--gray-dark);">คำแนะนำ: แก้วันที่/เวลาได้โดยตรงในตาราง · กด "หยุด" เพื่อบันทึกวันหยุด (ระบบเลื่อนคาบถัดไปอัตโนมัติ)</span>
+      </div>
+      <div class="session-table-wrap">
+        <table class="session-table">
+          <thead>
+            <tr>
+              <th style="width:36px;">ที่</th>
+              <th>วันที่</th>
+              <th>เวลา</th>
+              <th>สถานะ</th>
+              <th>หมายเหตุ</th>
+              <th style="text-align:right;">การจัดการ</th>
+            </tr>
+          </thead>
+          <tbody id="sessionTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  // ผูกชื่อกลุ่ม — บันทึกเมื่อพิมพ์เสร็จ
+  const nameInput = document.getElementById('groupName');
+  nameInput.addEventListener('change', () => {
+    g.name = nameInput.value.trim() || g.name;
+    nameInput.value = g.name;
+    saveData();
+    renderSidebar();
+    document.getElementById('mainTitle').textContent = g.name;
+  });
+
+  renderStudentList(g);
+  renderSessionTable(g);
+}
+
+function renderStudentList(g) {
+  const list = document.getElementById('studentList');
+  if (!list) return;
+  list.innerHTML = '';
+  if (g.students.length === 0) {
+    list.innerHTML = '<div style="grid-column:1/-1; padding:20px; text-align:center; color:var(--gray-dark); font-size:13px;">ยังไม่มีนักเรียนในกลุ่มนี้</div>';
+    return;
+  }
+  g.students.forEach((s, i) => {
+    const pin = getStudentPin(s);
+    const isCustom = !!s.customPin;
+    const row = document.createElement('div');
+    row.className = 'student-row';
+    row.innerHTML = `
+      <span class="student-row__num">${String(i+1).padStart(2,'0')}</span>
+      <span class="student-row__name">${s.name}</span>
+      <button class="student-row__pin" onclick="showEditPinModal('${g.id}', '${s.id}')" title="แก้ PIN (ปัจจุบัน: ${pin})">
+        <span class="num" style="font-size:11px; letter-spacing:0.08em; color:var(--orange); font-weight:600;">${pin}</span>
+      </button>
+      <button class="student-row__pin" onclick="showFaceEnrollModal('${g.id}', '${s.id}')" title="${hasFaceData(s.id) ? 'ลงทะเบียนใบหน้าแล้ว — กดเพื่อถ่ายใหม่/ลบ' : 'ลงทะเบียนใบหน้า (สำหรับเช็คชื่อแบบสแกนหน้า)'}">
+        <span style="font-size:12px; ${hasFaceData(s.id) ? '' : 'filter:grayscale(1); opacity:.4;'}">📷</span>
+      </button>
+      <button class="student-row__del" onclick="removeStudent('${g.id}', '${s.id}')" title="ลบ">×</button>
+    `;
+    list.appendChild(row);
+  });
+}
+
+function renderSessionTable(g) {
+  const tbody = document.getElementById('sessionTableBody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  const today = todayStr();
+  (g.sessions || []).forEach(s => {
+    // auto-detect status based on date if not holiday
+    let status = s.status;
+    if (status !== 'holiday') {
+      if (s.date < today) status = 'done';
+      else if (s.date === today) status = 'current';
+      else status = 'upcoming';
+      s.status = status;
+    }
+
+    const tr = document.createElement('tr');
+    tr.className = s.status === 'holiday' ? 'is-holiday' : (s.status === 'current' ? 'is-current' : '');
+    tr.innerHTML = `
+      <td><span class="session-no-print">${s.no}</span></td>
+      <td>
+        <input type="date" class="session-input" value="${s.date}" onchange="updateSession('${g.id}', ${s.no}, 'date', this.value)">
+        <div style="font-size:11px; color:var(--gray-dark); margin-top:2px;">${thDayName(s.date)}</div>
+      </td>
+      <td>
+        <input type="text" class="session-input" value="${getSessionTime(s, g)}" placeholder="${g.startTime}–${g.endTime} น." onchange="updateSession('${g.id}', ${s.no}, 'time', this.value)">
+      </td>
+      <td><span class="status-pill ${s.status}">${s.status === 'done' ? 'เรียนแล้ว' : s.status === 'current' ? 'วันนี้' : s.status === 'holiday' ? 'หยุด' : 'ยังไม่ถึง'}</span></td>
+      <td>
+        <input type="text" class="session-input" value="${s.note || ''}" placeholder="หมายเหตุ" onchange="updateSession('${g.id}', ${s.no}, 'note', this.value)">
+      </td>
+      <td>
+        <div class="row-actions">
+          ${s.status === 'holiday'
+            ? `<button class="" onclick="unmarkHoliday('${g.id}', ${s.no})" title="ยกเลิกวันหยุด"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></button>`
+            : `<button onclick="markHolidayPrompt('${g.id}', ${s.no})" title="บันทึกวันหยุด"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></button>`
+          }
+          <button class="danger" onclick="deleteSession('${g.id}', ${s.no})" title="ลบคาบ"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+        </div>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+/* ===========================================================
+   RENDER — OVERVIEW MODE
+   =========================================================== */
+function renderOverview(body) {
+  if (state.data.groups.length === 0) {
+    body.innerHTML = `
+      <div class="empty">
+        <h3>ยังไม่มีกลุ่ม</h3>
+        <p>เพิ่มกลุ่มแรกเพื่อเริ่มต้น</p>
+        <button class="btn btn--primary" onclick="addGroup()">เพิ่มกลุ่มใหม่</button>
+      </div>
+    `;
+    return;
+  }
+  let html = '<div class="overview-grid">';
+  state.data.groups.forEach(g => {
+    ensureSessions(g);
+    const status = getGroupStatus(g);
+    const done = (g.sessions || []).filter(s => s.status === 'done' || s.status === 'current').length;
+    const total = (g.sessions || []).length;
+    const pct = total > 0 ? Math.round(done / total * 100) : 0;
+    const statusLabel = status === 'done' ? 'จบคอร์ส' : status === 'current' ? 'กำลังเรียน' : 'ยังไม่เริ่ม';
+    const levelKey = 'lv-' + g.level.replace('ม.', '').replace('M', '').replace('m', '').trim();
+    html += `
+      <div class="overview-card">
+        <div class="overview-card__top">
+          <div>
+            <div class="overview-card__name">${g.name}</div>
+            <div class="overview-card__meta">${g.dayOfWeek} · ${g.startTime}–${g.endTime} น.</div>
+          </div>
+          <span class="level-badge ${levelKey}">${g.level}</span>
+        </div>
+        <div>
+          <div class="progress" style="margin-bottom:6px;">
+            <div class="progress__fill" style="width:${pct}%"></div>
+          </div>
+          <div class="overview-card__progress">
+            <span><b>${done}</b> / ${total} คาบ · ${statusLabel}</span>
+            <span class="pct">${pct}%</span>
+          </div>
+        </div>
+        <div style="display:flex; gap:6px; margin-top:4px;">
+          <button class="btn btn--ghost btn--sm" style="flex:1;" onclick="selectGroup('${g.id}')">แก้ไข</button>
+          <button class="btn btn--primary btn--sm" style="flex:1;" onclick="printGroupReport('${g.id}')">ปริ้นรายงาน</button>
+        </div>
+      </div>
+    `;
+  });
+  html += '</div>';
+  body.innerHTML = html;
+}
+
+function selectGroup(id) {
+  state.selectedGroupId = id;
+  state.view = 'detail';
+  renderAll();
+}
+
+/* ===========================================================
+   ATTENDANCE — Kiosk + Summary
+   =========================================================== */
+
+/* Convert "16.30" → minutes from midnight (990) */
+function timeStrToMinutes(t) {
+  if (!t) return 0;
+  const parts = String(t).split('.');
+  const h = parseInt(parts[0]) || 0;
+  const m = parseInt(parts[1] || '0') || 0;
+  return h * 60 + m;
+}
+function minutesToTimeStr(mins) {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${String(h).padStart(2,'0')}.${String(m).padStart(2,'0')}`;
+}
+function nowTimeStr() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2,'0')}.${String(d.getMinutes()).padStart(2,'0')}`;
+}
+function nowTimestamp() {
+  return new Date().toISOString();
+}
+
+/* Get or create attendance record for a session */
+function getAttendance(groupId, sessionNo) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return null;
+  ensureSessions(g);
+  const session = (g.sessions || []).find(s => s.no === sessionNo);
+  if (!session) return null;
+  if (!session.attendance) {
+    session.attendance = {
+      startedAt: null,
+      finishedAt: null,
+      records: {} // {studentId: {status, checkInTime, note}}
+    };
+    // pre-fill all students as 'pending'
+    g.students.forEach(s => {
+      session.attendance.records[s.id] = { status: 'pending', checkInTime: null, note: '' };
+    });
+  }
+  return session.attendance;
+}
+
+/* เวลาเริ่มจริงของคาบ — ใช้ customTime ของคาบก่อน ถ้าไม่มีใช้เวลากลุ่ม */
+function sessionStartTimeStr(session, group) {
+  if (session && session.customTime) {
+    const m = String(session.customTime).match(/(\d{1,2})[.:](\d{2})/);
+    if (m) return m[1] + '.' + m[2];
+  }
+  return group.startTime;
+}
+
+/* Calculate status based on check-in time vs session start */
+function calcStatusFromTime(checkInTime, group, session) {
+  if (!checkInTime) return 'pending';
+  const sessionStart = timeStrToMinutes(sessionStartTimeStr(session, group));
+  const diff = timeStrToMinutes(checkInTime) - sessionStart;
+  return diff <= ATTENDANCE_CONFIG.lateThresholdMinutes ? 'present' : 'late';
+}
+
+/* Find student by PIN — ใช้ custom PIN ถ้ามี, ถ้าไม่มีใช้ generated PIN */
+function findStudentByPin(groupId, pin) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return null;
+  for (const s of g.students) {
+    const studentPin = getStudentPin(s);
+    if (studentPin === pin) return s;
+  }
+  return null;
+}
+
+/* Get student PIN — ถ้าครูตั้งเองใช้ของครู, ถ้าไม่ใช้ generated */
+function getStudentPin(student) {
+  if (student.customPin && /^\d{6}$/.test(student.customPin)) return student.customPin;
+  return generateStudentPin(student.id);
+}
+
+/* Set custom PIN for student — ครูตั้งเอง */
+function setStudentPin(groupId, studentId, newPin) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return false;
+  const s = g.students.find(x => x.id === studentId);
+  if (!s) return false;
+  // ตรวจ PIN 6 หลัก
+  if (!/^\d{6}$/.test(newPin)) {
+    toast('PIN ต้องเป็นตัวเลข 6 หลัก', 'error');
+    return false;
+  }
+  // ตรวตไม่ให้ซ้ำกับคนอื่นในกลุ่ม
+  for (const other of g.students) {
+    if (other.id !== studentId && getStudentPin(other) === newPin) {
+      toast(`PIN ซ้ำกับ "${other.name}" — กรุณาใช้ PIN อื่น`, 'error');
+      return false;
+    }
+  }
+  s.customPin = newPin;
+  saveData();
+  autoSync();
+  toast(`ตั้ง PIN ของ "${s.name}" เป็น ${newPin} แล้ว`, 'success');
+  return true;
+}
+
+/* Generate demo PIN for student — based on student.id hash (default) */
+function generateStudentPin(studentId) {
+  // แปลง student.id เป็นเลข 6 หลัก
+  let hash = 0;
+  for (let i = 0; i < studentId.length; i++) {
+    hash = (hash * 31 + studentId.charCodeAt(i)) & 0xFFFFFFFF;
+  }
+  // ทำให้เป็น 6 หลัก
+  const pin = (Math.abs(hash) % 1000000).toString().padStart(6, '0');
+  return pin;
+}
+
+/* PRINT — Student PIN list (PDF สำหรับแจกนักเรียน) */
+function printStudentPins(groupId) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+  ensureSessions(g);
+  const today = todayStr();
+
+  const rows = g.students.map((s, i) => {
+    const pin = getStudentPin(s);
+    const isCustom = !!s.customPin;
+    return `
+      <tr>
+        <td style="text-align:center; padding:8px; border:1px solid #999;">${i+1}</td>
+        <td style="padding:8px; border:1px solid #999;">${s.name}</td>
+        <td style="text-align:center; padding:8px; border:1px solid #999;">
+          <span style="font-family: var(--font-num); font-size:14pt; font-weight:700; letter-spacing:0.15em; color: var(--orange);">${pin}</span>
+        </td>
+        <td style="text-align:center; padding:8px; border:1px solid #999; font-size:9pt; color:#666;">
+          ${isCustom ? 'ตั้งเอง' : 'อัตโนมัติ'}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  const html = `
+    <div class="print-report">
+      <div class="print-report__head">
+        <div class="print-brand">
+          <div class="print-brand__logo">M<span>B</span></div>
+          <div class="print-brand__name">
+            <b>Maths Bank Tutor</b>
+            <small>ครูแบงค์ · ติวเตอร์คณิตศาสตร์ ม.4–ม.6 · LINE: mathsbanktutor · 081-907-0255</small>
+          </div>
+        </div>
+        <div class="print-report__meta">
+          <b>รายชื่อ PIN นักเรียน</b>
+          พิมพ์เมื่อ ${thDateFull(today)}
+        </div>
+      </div>
+
+      <div class="print-report__title">${g.name}</div>
+      <div class="print-report__sub">วัน${g.dayOfWeek} ${g.startTime}–${g.endTime} น. · ระดับชั้น${g.level} · นักเรียน ${g.students.length} คน</div>
+
+      <div style="background:#FFF6F0; border-left:4px solid var(--orange); padding:12px 16px; margin:14px 0; font-size:10pt;">
+        <b style="color:var(--orange);">วิธีใช้ PIN สำหรับนักเรียน:</b><br>
+        1. เมื่อถึงห้องเรียน เดินไปที่จอครู<br>
+        2. กรอก PIN 6 หลักของตัวเองบน keypad<br>
+        3. ระบบจะแสดงชื่อ + สถานะ (ตรงเวลา / สาย X นาที)<br>
+        4. เห็นชื่อแล้วเดินไปนั่งได้เลย<br>
+        <br>
+        <b style="color:var(--danger);">⚠ ห้ามบอก PIN ให้เพื่อน!</b> ถ้าใครใช้ PIN ของเราแทน เราจะถูกบันทึกว่ามาเรียนทั้งที่ไม่ได้มา
+      </div>
+
+      <div class="print-section-title">รายชื่อนักเรียนและ PIN</div>
+      <table class="print-table">
+        <thead>
+          <tr>
+            <th style="width:30px; text-align:center;">ที่</th>
+            <th>ชื่อนักเรียน</th>
+            <th style="width:130px; text-align:center;">PIN (6 หลัก)</th>
+            <th style="width:80px; text-align:center;">ประเภท</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+
+      <div style="margin-top:14px; font-size:9pt; color:#666; font-style:italic;">
+        * "อัตโนมัติ" = ระบบสร้างให้ · "ตั้งเอง" = ครูเปลี่ยนให้<br>
+        * ครูสามารถเปลี่ยน PIN ของนักเรียนได้โดยกดที่ชื่อนักเรียน → "แก้ PIN"
+      </div>
+
+      <div class="print-footer">
+        <div>Maths Bank Tutor · ครูแบงค์</div>
+        <div>LINE: <b>mathsbanktutor</b> · โทร <b>081-907-0255</b></div>
+      </div>
+    </div>
+  `;
+  document.getElementById('printReport').innerHTML = html;
+  window.scrollTo(0, 0);
+  setTimeout(() => window.print(), 100);
+}
+
+/* Show modal — edit student PIN */
+function showEditPinModal(groupId, studentId) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+  const s = g.students.find(x => x.id === studentId);
+  if (!s) return;
+  const currentPin = getStudentPin(s);
+  const isCustom = !!s.customPin;
+
+  showModal({
+    title: `แก้ PIN: ${s.name}`,
+    body: `
+      <div style="background:var(--bg-soft); padding:12px 16px; border-radius:8px; margin-bottom:14px;">
+        <div style="font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--gray-dark); font-family:var(--font-num); margin-bottom:4px;">PIN ปัจจุบัน</div>
+        <div style="font-family:var(--font-num); font-size:24px; font-weight:700; letter-spacing:0.2em; color:var(--orange);">${currentPin}</div>
+        <div style="font-size:11px; color:var(--gray-dark); margin-top:4px;">${isCustom ? 'ตั้งเองโดยครู' : 'สร้างอัตโนมัติ'}</div>
+      </div>
+      <label style="font-size:11px; letter-spacing:0.12em; text-transform:uppercase; color:var(--gray-dark); font-weight:600; font-family:var(--font-num);">PIN ใหม่ (6 หลัก)</label>
+      <input type="text" id="newStudentPin" maxlength="6" pattern="[0-9]*" placeholder="เช่น 123456"
+             style="width:100%; padding:12px 14px; margin-top:6px; border:1px solid var(--line); border-radius:8px; outline:none; font-family:var(--font-num); letter-spacing:0.3em; text-align:center; font-size:20px; font-weight:600;"
+             oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+      <p style="margin-top:10px; font-size:12px; color:var(--gray-dark);">
+        คำแนะนำ: ใช้เลขที่จำง่าย เช่น วันเกิด 6 หลัก (เช่น 150825 วันที่ 15 ส.ค. 68)<br>
+        PIN ต้องไม่ซ้ำกับนักเรียนคนอื่นในกลุ่ม
+      </p>
+    `,
+    actions: [
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
+      { label: 'ใช้ PIN อัตโนมัติ', class: 'btn--ghost', onClick: () => {
+        delete s.customPin;
+        saveData();
+        autoSync();
+        closeModal();
+        toast(`ใช้ PIN อัตโนมัติสำหรับ "${s.name}" แล้ว`, 'success');
+        renderMain();
+      }},
+      { label: 'บันทึก PIN ใหม่', class: 'btn--primary', onClick: () => {
+        const newPin = document.getElementById('newStudentPin').value;
+        if (setStudentPin(groupId, studentId, newPin)) {
+          closeModal();
+          renderMain();
+        }
+      }}
+    ]
+  });
+}
+
+
+/* KIOSK — Start check-in session */
+function startKiosk(groupId, sessionNo) {
+  state.kiosk.groupId = groupId;
+  state.kiosk.sessionNo = sessionNo;
+  state.kiosk.pin = '';
+  state.kiosk.lastResult = null;
+  state.kiosk.startedAt = nowTimestamp();
+
+  const att = getAttendance(groupId, sessionNo);
+  if (!att.startedAt) {
+    att.startedAt = nowTimestamp();
+    saveData();
+  }
+
+  state.view = 'kiosk';
+  renderAll();
+}
+
+/* KIOSK — Handle PIN entry */
+function handleKioskKeypad(key) {
+  if (key === 'clear') {
+    state.kiosk.pin = '';
+  } else if (key === 'back') {
+    state.kiosk.pin = state.kiosk.pin.slice(0, -1);
+  } else if (state.kiosk.pin.length < 6) {
+    state.kiosk.pin += key;
+    if (state.kiosk.pin.length === 6) {
+      setTimeout(() => processKioskCheckin(), 200);
+    }
+  }
+  renderKioskPin();
+}
+
+function processKioskCheckin() {
+  const pin = state.kiosk.pin;
+  const groupId = state.kiosk.groupId;
+  const sessionNo = state.kiosk.sessionNo;
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+
+  const student = findStudentByPin(groupId, pin);
+  if (!student) {
+    state.kiosk.lastResult = { type: 'error', message: 'PIN ไม่ถูกต้อง' };
+    showKioskResult('error', 'ไม่พบนักเรียน', 'PIN ไม่ถูกต้อง ลองใหม่อีกครั้ง');
+    setTimeout(() => {
+      state.kiosk.pin = '';
+      state.kiosk.lastResult = null;
+      renderKioskPin();
+      renderKioskList();
+    }, 1500);
+    return;
+  }
+
+  // Already checked in?
+  const att = getAttendance(groupId, sessionNo);
+  const existing = att.records[student.id];
+  if (existing && existing.status !== 'pending') {
+    state.kiosk.lastResult = { type: 'error', message: `${student.name} เช็คชื่อแล้ว (${statusLabel(existing.status)})` };
+    showKioskResult('error', student.name, `เช็คชื่อแล้วเมื่อ ${existing.checkInTime || ''} · ${statusLabel(existing.status)}`);
+    setTimeout(() => {
+      state.kiosk.pin = '';
+      state.kiosk.lastResult = null;
+      renderKioskPin();
+    }, 2000);
+    return;
+  }
+
+  // Calculate status from current time vs session start
+  const checkInTime = nowTimeStr();
+  const kioskSession = (g.sessions || []).find(s => s.no === sessionNo);
+  const status = calcStatusFromTime(checkInTime, g, kioskSession);
+
+  att.records[student.id] = {
+    status: status,
+    checkInTime: checkInTime,
+    note: ''
+  };
+  att.finishedAt = att.finishedAt || null;
+  saveData();
+  autoSync(); // ← Auto-sync ขึ้น Sheet
+
+  const msg = status === 'present'
+    ? `ตรงเวลา · ${checkInTime} น.`
+    : `สาย · ${checkInTime} น. · +${timeStrToMinutes(checkInTime) - timeStrToMinutes(sessionStartTimeStr(kioskSession, g))} นาที`;
+
+  state.kiosk.lastResult = { type: status, message: msg, studentName: student.name };
+  showKioskResult(status, student.name, msg);
+
+  setTimeout(() => {
+    state.kiosk.pin = '';
+    state.kiosk.lastResult = null;
+    renderKioskPin();
+    renderKioskList();
+    renderKioskStats();
+  }, 1500);
+}
+
+function statusLabel(s) {
+  return s === 'present' ? 'ตรงเวลา' : s === 'late' ? 'สาย' : s === 'absent' ? 'ขาด' : s === 'leave' ? 'ลา' : s === 'holiday' ? 'หยุด' : 'รอเช็คชื่อ';
+}
+
+function showKioskResult(type, name, msg) {
+  const nameEl = document.getElementById('kioskStudentName');
+  const statusEl = document.getElementById('kioskStudentStatus');
+  if (!nameEl || !statusEl) return;
+  nameEl.textContent = name;
+  statusEl.className = 'kiosk__student-status ' + (type === 'present' ? 'ok' : type === 'late' ? 'late' : 'error');
+  statusEl.textContent = msg;
+
+  // Color the PIN dots
+  const dots = document.querySelectorAll('.kiosk__pin-dot');
+  dots.forEach(d => {
+    d.classList.remove('filled', 'success', 'error');
+    d.classList.add(type === 'present' || type === 'late' ? 'success' : 'error');
+  });
+}
+
+function renderKioskPin() {
+  const dots = document.querySelectorAll('.kiosk__pin-dot');
+  dots.forEach((d, i) => {
+    d.classList.remove('success', 'error');
+    if (i < state.kiosk.pin.length) {
+      d.textContent = '•';  // ซ่อน PIN — กันคนต่อคิวมองเห็น
+      d.classList.add('filled');
+    } else {
+      d.textContent = '';
+      d.classList.remove('filled');
+    }
+  });
+
+  // Reset student name/status if no result
+  if (!state.kiosk.lastResult) {
+    const nameEl = document.getElementById('kioskStudentName');
+    const statusEl = document.getElementById('kioskStudentStatus');
+    if (nameEl) nameEl.textContent = '';
+    if (statusEl) {
+      statusEl.className = 'kiosk__student-status';
+      statusEl.textContent = state.kiosk.pin.length === 0 ? 'กรอก PIN 6 หลักเพื่อเช็คชื่อ' : 'กำลังพิมพ์...';
+    }
+  }
+}
+
+function renderKioskList() {
+  const body = document.getElementById('kioskListBody');
+  if (!body) return;
+  const g = state.data.groups.find(x => x.id === state.kiosk.groupId);
+  if (!g) return;
+  const att = getAttendance(state.kiosk.groupId, state.kiosk.sessionNo);
+
+  body.innerHTML = g.students.map((s, i) => {
+    const r = att.records[s.id] || { status: 'pending' };
+    return `
+      <div class="checkin-row is-${r.status}">
+        <span class="checkin-row__num">${String(i+1).padStart(2,'0')}</span>
+        <span class="checkin-row__name">${s.name}</span>
+        ${r.checkInTime ? `<span class="checkin-row__time">${r.checkInTime}</span>` : ''}
+        <span class="checkin-row__badge ${r.status}">${statusLabel(r.status)}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderKioskStats() {
+  const g = state.data.groups.find(x => x.id === state.kiosk.groupId);
+  if (!g) return;
+  const att = getAttendance(state.kiosk.groupId, state.kiosk.sessionNo);
+  let present = 0, late = 0, absent = 0, leave = 0, pending = 0;
+  g.students.forEach(s => {
+    const r = att.records[s.id];
+    if (!r || r.status === 'pending') pending++;
+    else if (r.status === 'present') present++;
+    else if (r.status === 'late') late++;
+    else if (r.status === 'absent') absent++;
+    else if (r.status === 'leave') leave++;
+  });
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  set('kioskStatPresent', present);
+  set('kioskStatLate', late);
+  set('kioskStatAbsent', absent);
+  set('kioskStatLeave', leave);
+  set('kioskStatPending', pending);
+}
+
+/* KIOSK — Finish session (auto-mark absent) */
+function finishKiosk() {
+  stopFaceScan();
+  const g = state.data.groups.find(x => x.id === state.kiosk.groupId);
+  if (!g) return;
+  const att = getAttendance(state.kiosk.groupId, state.kiosk.sessionNo);
+  let markedAbsent = 0;
+  g.students.forEach(s => {
+    const r = att.records[s.id];
+    if (!r || r.status === 'pending') {
+      att.records[s.id] = { status: 'absent', checkInTime: null, note: 'ไม่มาเรียน' };
+      markedAbsent++;
+    }
+  });
+  att.finishedAt = nowTimestamp();
+  // Mark session as done
+  const session = (g.sessions || []).find(s => s.no === state.kiosk.sessionNo);
+  if (session) session.status = 'done';
+  saveData();
+  autoSync(); // ← Auto-sync ขึ้น Sheet
+  toast(`จบคาบเรียน · บันทึกขาด ${markedAbsent} คน อัตโนมัติ`, 'success');
+  state.view = 'attendance';
+  renderAll();
+}
+
+/* KIOSK — Manual override (teacher clicks student to change status) */
+function kioskManualOverride(studentId, newStatus, note) {
+  const att = getAttendance(state.kiosk.groupId, state.kiosk.sessionNo);
+  if (!att) return;
+  const r = att.records[studentId];
+  if (!r) return;
+  r.status = newStatus;
+  r.checkInTime = (newStatus === 'absent' || newStatus === 'leave') ? null : nowTimeStr();
+  r.note = note || 'ครูแก้ไข';
+  saveData();
+  autoSync(); // ← Auto-sync ขึ้น Sheet
+  renderKioskList();
+  renderKioskStats();
+  toast(`แก้เป็น ${statusLabel(newStatus)} แล้ว`, 'success');
+}
+
+/* KIOSK render */
+function renderKiosk(body) {
+  const g = state.data.groups.find(x => x.id === state.kiosk.groupId);
+  if (!g) {
+    body.innerHTML = `<div class="empty"><h3>ยังไม่ได้เลือกกลุ่ม</h3><p>กลับไปเลือกกลุ่มก่อน</p></div>`;
+    return;
+  }
+  ensureSessions(g);
+  const session = (g.sessions || []).find(s => s.no === state.kiosk.sessionNo);
+  if (!session) {
+    body.innerHTML = `<div class="empty"><h3>ไม่พบคาบที่เลือก</h3></div>`;
+    return;
+  }
+
+  const att = getAttendance(g.id, state.kiosk.sessionNo);
+  body.innerHTML = `
+    <div class="kiosk">
+      <div class="kiosk__head">
+        <div>
+          <div class="kiosk__title">${g.name} · คาบที่ ${session.no}</div>
+          <div class="kiosk__meta">
+            ${thDateFull(session.date)} · วัน${thDayName(session.date)} · เวลา ${g.startTime}–${g.endTime} น. ·
+            สายเกิน ${ATTENDANCE_CONFIG.lateThresholdMinutes} นาที · ยังไม่เช็คตอนจบคาบ = ขาด
+          </div>
+        </div>
+        <div class="kiosk__live">LIVE · ${nowTimeStr()} น.</div>
+      </div>
+
+      <div class="kiosk__progress">
+        <div class="kiosk__stat">
+          <div class="kiosk__stat-label">ตรงเวลา</div>
+          <div class="kiosk__stat-value present num" id="kioskStatPresent">0</div>
+        </div>
+        <div class="kiosk__stat">
+          <div class="kiosk__stat-label">สาย</div>
+          <div class="kiosk__stat-value late num" id="kioskStatLate">0</div>
+        </div>
+        <div class="kiosk__stat">
+          <div class="kiosk__stat-label">ขาด</div>
+          <div class="kiosk__stat-value absent num" id="kioskStatAbsent">0</div>
+        </div>
+        <div class="kiosk__stat">
+          <div class="kiosk__stat-label">ลา</div>
+          <div class="kiosk__stat-value num" id="kioskStatLeave" style="color:#2B6CB0;">0</div>
+        </div>
+        <div class="kiosk__stat">
+          <div class="kiosk__stat-label">รอเช็คชื่อ</div>
+          <div class="kiosk__stat-value pending num" id="kioskStatPending">0</div>
+        </div>
+      </div>
+
+      <div class="kiosk__body">
+        <div class="kiosk__left">
+          <div style="display:flex; gap:6px; justify-content:center; margin-bottom:14px;">
+            <button class="btn btn--sm btn--primary" id="kioskModePinBtn" onclick="setKioskMode('pin')">🔢 PIN</button>
+            <button class="btn btn--sm btn--ghost" id="kioskModeFaceBtn" onclick="setKioskMode('face')">📷 สแกนหน้า</button>
+          </div>
+
+          <div id="kioskPinPanel">
+            <div class="kiosk__prompt">นักเรียนกรอก PIN 6 หลักเพื่อเช็คชื่อ</div>
+            <div class="kiosk__student-name" id="kioskStudentName"></div>
+            <div class="kiosk__student-status" id="kioskStudentStatus">กรอก PIN 6 หลักเพื่อเช็คชื่อ</div>
+
+            <div class="kiosk__pin-display" id="kioskPinDisplay">
+              <div class="kiosk__pin-dot"></div>
+              <div class="kiosk__pin-dot"></div>
+              <div class="kiosk__pin-dot"></div>
+              <div class="kiosk__pin-dot"></div>
+              <div class="kiosk__pin-dot"></div>
+              <div class="kiosk__pin-dot"></div>
+            </div>
+
+            <div class="kiosk__keypad" id="kioskKeypad">
+              <button data-k="1">1</button>
+              <button data-k="2">2</button>
+              <button data-k="3">3</button>
+              <button data-k="4">4</button>
+              <button data-k="5">5</button>
+              <button data-k="6">6</button>
+              <button data-k="7">7</button>
+              <button data-k="8">8</button>
+              <button data-k="9">9</button>
+              <button class="clear" data-k="clear">ล้าง</button>
+              <button data-k="0">0</button>
+              <button class="back" data-k="back">←</button>
+            </div>
+          </div>
+
+          <div id="kioskFacePanel" style="display:none;">
+            <div class="kiosk__prompt">มองกล้องตรงๆ ทีละคน — ระบบจะขึ้นชื่อให้กดยืนยัน</div>
+            <div style="position:relative; background:#000; border-radius:14px; overflow:hidden; aspect-ratio:4/3; max-width:420px; margin:0 auto;">
+              <video id="faceScanVideo" autoplay muted playsinline style="width:100%; height:100%; object-fit:cover; transform:scaleX(-1);"></video>
+            </div>
+            <div id="faceScanStatus" style="text-align:center; margin-top:12px; font-size:14px; color:var(--gray-dark); min-height:22px;">กำลังเตรียมกล้อง...</div>
+            <div id="faceCandidateBox" style="display:none; text-align:center; margin-top:12px; padding:16px; background:var(--bg-soft); border-radius:14px;"></div>
+            <div style="text-align:center; margin-top:10px; font-size:11px; color:var(--gray-soft);">จับคู่ไม่ได้? สลับไปโหมด 🔢 PIN ได้เสมอ</div>
+          </div>
+
+          <div class="kiosk__actions" style="margin-top:20px;">
+            <button class="btn btn--ghost" onclick="exitKiosk()">← กลับ</button>
+            <button class="btn btn--danger" onclick="finishKiosk()">จบคาบ · บันทึกขาดอัตโนมัติ</button>
+          </div>
+        </div>
+
+        <div class="kiosk__right">
+          <div class="kiosk__right-head">
+            <span class="kiosk__right-title">รายชื่อนักเรียน (${g.students.length})</span>
+            <span style="font-size:11px; color:var(--gray-dark);">กดชื่อเพื่อแก้สถานะ manual</span>
+          </div>
+          <div class="kiosk__right-body" id="kioskListBody"></div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Wire keypad
+  body.querySelectorAll('#kioskKeypad button').forEach(b => {
+    b.addEventListener('click', () => handleKioskKeypad(b.dataset.k));
+  });
+
+  // Wire list rows for manual override
+  renderKioskList();
+  renderKioskStats();
+  renderKioskPin();
+  setKioskMode(state.kiosk.mode || 'pin');
+
+  // Click on student row → show override options
+  body.addEventListener('click', (e) => {
+    const row = e.target.closest('.checkin-row');
+    if (!row) return;
+    const name = row.querySelector('.checkin-row__name')?.textContent;
+    if (!name) return;
+    const g2 = state.data.groups.find(x => x.id === state.kiosk.groupId);
+    const s = g2.students.find(x => x.name === name);
+    if (!s) return;
+    showOverrideModal(s.id, s.name);
+  });
+}
+
+function showOverrideModal(studentId, name) {
+  showModal({
+    title: `แก้สถานะ: ${name}`,
+    body: `<p style="margin-bottom:12px; color:var(--gray-dark);">เลือกสถานะใหม่ (ครูแก้ไข manually)</p>`,
+    actions: [
+      { label: 'ตรงเวลา', class: 'btn--ghost', onClick: () => { kioskManualOverride(studentId, 'present'); closeModal(); } },
+      { label: 'สาย', class: 'btn--ghost', onClick: () => { kioskManualOverride(studentId, 'late'); closeModal(); } },
+      { label: 'ลาป่วย', class: 'btn--ghost', onClick: () => { kioskManualOverride(studentId, 'leave', 'ลาป่วย'); closeModal(); } },
+      { label: 'ลากิจ', class: 'btn--ghost', onClick: () => { kioskManualOverride(studentId, 'leave', 'ลากิจ'); closeModal(); } },
+      { label: 'ขาด', class: 'btn--danger', onClick: () => { kioskManualOverride(studentId, 'absent'); closeModal(); } },
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal }
+    ]
+  });
+}
+
+/* ATTENDANCE SUMMARY — สรุปการเข้าเรียนทั้งคอร์ส */
+function renderAttendanceSummary(body) {
+  if (state.data.groups.length === 0) {
+    body.innerHTML = `<div class="empty"><h3>ยังไม่มีกลุ่ม</h3><p>เพิ่มกลุ่มก่อนเริ่มเช็คชื่อ</p></div>`;
+    return;
+  }
+
+  // ถ้ายังไม่ได้เลือกกลุ่ม → เลือกอันแรก
+  if (!state.selectedGroupId) state.selectedGroupId = state.data.groups[0].id;
+  const g = state.data.groups.find(x => x.id === state.selectedGroupId);
+  if (!g) return;
+  ensureSessions(g);
+
+  // ตารางสรุป attendance: rows = นักเรียน, cols = คาบ
+  let totalPresent = 0, totalLate = 0, totalAbsent = 0, totalLeave = 0, totalSessions = 0;
+  const sessionCols = (g.sessions || []).filter(s => s.status !== 'holiday');
+  totalSessions = sessionCols.length;
+
+  // Build table
+  let tableRows = g.students.map((s, idx) => {
+    let present = 0, late = 0, absent = 0, leave = 0;
+    const cells = sessionCols.map(sess => {
+      const att = sess.attendance;
+      const r = att && att.records[s.id];
+      let cellStatus = 'pending';
+      if (r) cellStatus = r.status;
+      if (cellStatus === 'present') present++;
+      else if (cellStatus === 'late') late++;
+      else if (cellStatus === 'absent') absent++;
+      else if (cellStatus === 'leave') leave++;
+      const label = cellStatus === 'present' ? 'P' : cellStatus === 'late' ? 'L' : cellStatus === 'absent' ? 'A' : cellStatus === 'leave' ? 'S' : '-';
+
+      // Build tooltip text
+      let tip = '';
+      if (cellStatus === 'present') {
+        tip = `${s.name} · ตรงเวลา · ${r.checkInTime ? 'เช็ค ' + r.checkInTime + ' น.' : ''}`;
+      } else if (cellStatus === 'late') {
+        const lateMin = r.checkInTime ? (timeStrToMinutes(r.checkInTime) - timeStrToMinutes(sessionStartTimeStr(sess, g))) : 0;
+        tip = `${s.name} · สาย ${lateMin} นาที · เช็ค ${r.checkInTime || '-'} น.`;
+      } else if (cellStatus === 'absent') {
+        tip = `${s.name} · ขาด${r.note ? ' · ' + r.note : ''}`;
+      } else if (cellStatus === 'leave') {
+        tip = `${s.name} · ลา${r.note ? ' · ' + r.note : ''}`;
+      } else {
+        tip = `${s.name} · ยังไม่เช็คชื่อ`;
+      }
+
+      return `<td><span class="att-cell ${cellStatus}" data-tip="${tip.replace(/"/g, '&quot;')}" onclick="showAttendanceDetail('${g.id}', ${sess.no}, '${s.id}')" title="${statusLabel(cellStatus)}">${label}</span></td>`;
+    }).join('');
+
+    const checkedIn = present + late;
+    const denom = totalSessions - leave;
+    const rate = denom > 0 ? Math.round(checkedIn / denom * 100) : 0;
+    const rateClass = rate >= 80 ? 'good' : rate >= 60 ? 'warn' : 'bad';
+
+    totalPresent += present;
+    totalLate += late;
+    totalAbsent += absent;
+    totalLeave += leave;
+
+    return `
+      <tr>
+        <td>
+          <div class="att-student-name">${idx+1}. ${s.name}</div>
+          <div class="att-student-meta">มา ${present} · สาย ${late} · ลา ${leave} · ขาด ${absent}</div>
+        </td>
+        ${cells}
+        <td><span class="att-rate ${rateClass}">${rate}%</span></td>
+      </tr>
+    `;
+  }).join('');
+
+  const overallDenom = totalSessions * g.students.length - totalLeave;
+  const overallRate = overallDenom > 0
+    ? Math.round((totalPresent + totalLate) / overallDenom * 100)
+    : 0;
+
+  body.innerHTML = `
+    <!-- Group selector -->
+    <div class="card" style="padding:14px 18px;">
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <span style="font-size:12px; color:var(--gray-dark); font-family:var(--font-num); letter-spacing:0.14em; text-transform:uppercase;">กลุ่ม:</span>
+        <select id="attGroupSelect" onchange="state.selectedGroupId=this.value; renderMain();" style="padding:8px 14px; border:1px solid var(--line-strong); border-radius:999px; outline:none; font-size:13px; background:var(--bg);">
+          ${state.data.groups.map(x => `<option value="${x.id}" ${x.id === state.selectedGroupId ? 'selected' : ''}>${x.name}</option>`).join('')}
+        </select>
+        <div style="margin-left:auto; display:flex; gap:6px; flex-wrap:wrap;">
+          <button class="btn btn--primary btn--sm" onclick="showStartKioskModal()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            เช็คชื่อที่จอครู
+          </button>
+          <button class="btn btn--ghost btn--sm" onclick="showStartOnlineCheckinModal()" style="background: var(--orange); color: var(--bg); border-color: var(--orange);">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
+            เช็คชื่อออนไลน์
+          </button>
+          <button class="btn btn--ghost btn--sm" onclick="showLeaveRequestsModal()" style="border-color:#2B6CB0; color:#2B6CB0;">
+            🔔 รายการแจ้งลา
+          </button>
+          <button class="btn btn--ghost btn--sm" onclick="showCopySummaryModal('${g.id}')">
+            📋 คัดลอกสรุปคาบ
+          </button>
+          <button class="btn btn--ghost btn--sm" onclick="printAttendanceReport('${g.id}')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+            ปริ้นรายงาน
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Summary stats -->
+    <div class="att-summary-grid">
+      <div class="att-summary-cell">
+        <div class="att-summary-label">Total Sessions</div>
+        <div class="att-summary-value num">${totalSessions}</div>
+      </div>
+      <div class="att-summary-cell">
+        <div class="att-summary-label">Present</div>
+        <div class="att-summary-value num"><span>${totalPresent}</span></div>
+      </div>
+      <div class="att-summary-cell">
+        <div class="att-summary-label">Late</div>
+        <div class="att-summary-value num"><span>${totalLate}</span></div>
+      </div>
+      <div class="att-summary-cell">
+        <div class="att-summary-label">Leave</div>
+        <div class="att-summary-value num"><span>${totalLeave}</span></div>
+      </div>
+      <div class="att-summary-cell">
+        <div class="att-summary-label">Overall Rate</div>
+        <div class="att-summary-value num"><span>${overallRate}%</span></div>
+      </div>
+    </div>
+
+    <!-- Attendance table -->
+    <div class="card">
+      <div class="card__head">
+        <span class="card__title">ตารางการเข้าเรียน · <b>${g.name}</b></span>
+        <div style="display:flex; gap:8px; font-size:11px;">
+          <span class="att-cell present">P</span><span style="color:var(--gray-dark);">ตรงเวลา</span>
+          <span class="att-cell late">L</span><span style="color:var(--gray-dark);">สาย</span>
+          <span class="att-cell absent">A</span><span style="color:var(--gray-dark);">ขาด</span>
+          <span class="att-cell leave">S</span><span style="color:var(--gray-dark);">ลา</span>
+          <span class="att-cell pending">-</span><span style="color:var(--gray-dark);">ยังไม่เช็ค</span>
+        </div>
+      </div>
+      <div class="att-table-wrap">
+        <table class="att-table">
+          <thead>
+            <tr>
+              <th>ชื่อ</th>
+              ${sessionCols.map(s => `<th>${s.no}</th>`).join('')}
+              <th>%</th>
+            </tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+/* ===========================================================
+   ONLINE CHECK-IN — นักเรียนเช็คจากมือถือตัวเอง
+   =========================================================== */
+
+/* State for online check-in monitor */
+state.onlineCheckin = {
+  code: null,
+  session: null,
+  pollTimer: null,
+  expiresAt: null
+};
+
+/* Show modal — start online check-in (pick session first) */
+function showStartOnlineCheckinModal() {
+  const g = state.data.groups.find(x => x.id === state.selectedGroupId);
+  if (!g) return;
+  ensureSessions(g);
+  const today = todayStr();
+
+  if (!SCRIPT_URL) {
+    showModal({
+      title: 'ยังไม่ได้เชื่อม Google Sheet',
+      body: 'ระบบเช็คชื่อออนไลน์<b>ต้องเชื่อม Google Sheet</b> ก่อน เพราะข้อมูลต้องส่งผ่าน server<br><br>ดูวิธีได้ใน SETUP-GUIDE.md (ขั้นตอนที่ 1-3)<br><br>ถ้าอยากเช็คชื่อที่จอครูเท่านั้น ใช้ปุ่ม "เช็คชื่อที่จอครู" แทน',
+      actions: [{ label: 'รับทราบ', class: 'btn--primary', onClick: closeModal }]
+    });
+    return;
+  }
+
+  let suggestedSession = (g.sessions || []).find(s => s.date === today);
+  if (!suggestedSession) suggestedSession = (g.sessions || []).find(s => s.date >= today && s.status !== 'holiday');
+  if (!suggestedSession) suggestedSession = (g.sessions || [])[(g.sessions || []).length - 1];
+
+  const sessionOptions = (g.sessions || [])
+    .filter(s => s.status !== 'holiday')
+    .map(s => `<option value="${s.no}" ${s.no === suggestedSession.no ? 'selected' : ''}>คาบที่ ${s.no} · ${thDate(s.date)} · ${thDayName(s.date)}</option>`)
+    .join('');
+
+  // หา URL ของ checkin.html
+  const checkinUrl = window.location.href.replace(/teacher-dashboard\.html.*$/, 'checkin.html');
+
+  showModal({
+    title: `เช็คชื่อออนไลน์ — ${g.name}`,
+    body: `
+      <p style="margin-bottom:10px; color:var(--gray-dark);">เลือกคาบที่จะเช็คชื่อ:</p>
+      <select id="onlineSessionSelect" style="width:100%; padding:10px 14px; border:1px solid var(--line); border-radius:8px; outline:none; font-size:14px; margin-bottom:14px;">
+        ${sessionOptions}
+      </select>
+      <div style="background:var(--bg-soft); padding:12px 16px; border-radius:8px; font-size:13px; color:var(--gray-dark);">
+        <b>วิธีใช้งาน:</b><br>
+        1. ครูกด "เริ่มเช็คชื่อออนไลน์" → ระบบสร้างรหัส 6 หลัก<br>
+        2. ครูเขียนรหัสนี้บนกระดาน หรือแชร์ลิงก์ใน LINE กลุ่ม<br>
+        3. นักเรียนเปิด <code style="background:var(--bg); padding:2px 6px; border-radius:4px; font-family:var(--font-num); font-size:11px;">${checkinUrl}</code><br>
+        4. นักเรียนใส่รหัส 6 หลัก + PIN ตัวเอง<br>
+        5. ครูเห็นรายชื่อคนเช็คแล้ว real-time ที่นี่<br>
+        6. กด "จบคาบ" → คนที่ยังไม่เช็ค = ขาด อัตโนมัติ
+      </div>
+      <p style="margin-top:12px; font-size:12px; color:var(--gray-dark);">
+        <b>หมายเหตุ:</b> รหัสหมดอายุใน 60 นาที (ป้องกันเช็คชื่อทิ้งไว้ล่วงหน้า)
+      </p>
+    `,
+    actions: [
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
+      { label: 'เริ่มเช็คชื่อออนไลน์', class: 'btn--primary', onClick: async () => {
+        const sessionNo = parseInt(document.getElementById('onlineSessionSelect').value);
+        closeModal();
+        await startOnlineCheckin(g.id, sessionNo);
+      }}
+    ]
+  });
+}
+
+/* Start online check-in — call server to create code */
+async function startOnlineCheckin(groupId, sessionNo) {
+  toast('กำลังสร้างรหัสเช็คชื่อ...', 'success');
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'startCheckin', token: TEACHER_TOKEN, groupId: groupId, sessionNo: sessionNo })
+    });
+    const result = await res.json();
+    if (result.ok) {
+      state.onlineCheckin.code = result.checkinCode;
+      state.onlineCheckin.session = result.session;
+      state.onlineCheckin.expiresAt = result.expiresAt;
+      state.view = 'onlineCheckin';
+      renderMain();
+      startOnlineCheckinPolling();
+      toast(`เริ่มเช็คชื่อแล้ว · รหัส: ${result.checkinCode}`, 'success');
+    } else {
+      toast('เริ่มไม่สำเร็จ: ' + (result.error || 'unknown'), 'error');
+    }
+  } catch(e) {
+    toast('เชื่อมต่อไม่ได้: ' + e.message, 'error');
+  }
+}
+
+/* Polling — ดึงรายชื่อคนเช็คชื่อแล้วทุก 3 วินาที */
+function startOnlineCheckinPolling() {
+  if (state.onlineCheckin.pollTimer) clearInterval(state.onlineCheckin.pollTimer);
+  state.onlineCheckin.pollTimer = setInterval(() => pollOnlineCheckin(), 3000);
+  pollOnlineCheckin(); // ทันที
+}
+
+async function pollOnlineCheckin() {
+  if (state.view !== 'onlineCheckin' || !state.onlineCheckin.code) {
+    clearInterval(state.onlineCheckin.pollTimer);
+    return;
+  }
+  try {
+    const url = `${SCRIPT_URL}?action=getCheckinUpdates&code=${state.onlineCheckin.code}&t=${Date.now()}`;
+    const res = await fetch(url);
+    const result = await res.json();
+    if (result.ok) {
+      updateOnlineCheckinDisplay(result);
+    } else if (result.error && result.error.includes('หมดอายุ')) {
+      clearInterval(state.onlineCheckin.pollTimer);
+      toast('รหัสเช็คชื่อหมดอายุแล้ว', 'error');
+      state.view = 'attendance';
+      renderAll();
+    }
+  } catch(e) {
+    console.error('Poll error:', e);
+  }
+}
+
+/* Render online check-in monitor (teacher screen) */
+function renderOnlineCheckin(body) {
+  const code = state.onlineCheckin.code;
+  const session = state.onlineCheckin.session;
+  if (!code || !session) {
+    body.innerHTML = `<div class="empty"><h3>ยังไม่ได้เริ่มเช็คชื่อ</h3></div>`;
+    return;
+  }
+
+  const checkinUrl = window.location.href.replace(/teacher-dashboard\.html.*$/, 'checkin.html');
+  const qrUrl = `${checkinUrl}?code=${code}`;
+  const expires = state.onlineCheckin.expiresAt ? new Date(state.onlineCheckin.expiresAt) : null;
+  const minsLeft = expires ? Math.max(0, Math.round((expires - new Date()) / 60000)) : 0;
+
+  body.innerHTML = `
+    <div class="kiosk">
+      <div class="kiosk__head">
+        <div>
+          <div class="kiosk__title">${session.groupName} · คาบที่ ${session.sessionNo}</div>
+          <div class="kiosk__meta">
+            ${thDateFull(session.sessionDate)} · ${session.startTime}–${session.endTime} น. ·
+            หมดอายุใน <b style="color: ${minsLeft <= 5 ? 'var(--danger)' : 'var(--orange)'};" id="expiryMin">${minsLeft}</b> นาที
+          </div>
+        </div>
+        <div class="kiosk__live">LIVE</div>
+      </div>
+
+      <!-- Check-in code display with QR + URL + Code toggle -->
+      <div style="background: var(--black); color: var(--bg); border-radius: var(--radius-card); padding: 24px 20px; text-align:center;">
+        <div style="font-family: var(--font-num); font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gray-soft); margin-bottom: 8px;">
+          วิธีเช็คชื่อ (เลือกอย่างใดอย่างหนึ่ง)
+        </div>
+
+        <div class="method-toggle" id="methodToggle">
+          <button class="is-active" data-method="qr" onclick="switchCheckinMethod('qr')">สแกน QR</button>
+          <button data-method="url" onclick="switchCheckinMethod('url')">ลิงก์ URL</button>
+          <button data-method="code" onclick="switchCheckinMethod('code')">พิมพ์รหัส</button>
+        </div>
+
+        <div id="methodQR" class="qr-wrapper">
+          <div class="qr-container" id="qrCodeContainer"></div>
+          <div style="font-size: 12px; color: var(--gray-soft); margin-top: 4px;">
+            นักเรียนสแกน QR → เปิดหน้าเช็คชื่ออัตโนมัติ → ใส่ PIN
+          </div>
+          <div style="display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; justify-content:center;">
+            <button class="btn btn--ghost btn--sm" style="background: rgba(255,255,255,.1); color: var(--bg); border-color: rgba(255,255,255,.2);" onclick="downloadQRCode('${code}', '${session.groupName}', ${session.sessionNo})">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              ดาวน์โหลด QR
+            </button>
+            <button class="btn btn--ghost btn--sm" style="background: rgba(255,255,255,.1); color: var(--bg); border-color: rgba(255,255,255,.2);" onclick="printQRCode('${code}', '${session.groupName}', ${session.sessionNo}, '${session.sessionDate}', '${session.startTime}', '${session.endTime}')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+              พิมพ์ QR (A4)
+            </button>
+          </div>
+        </div>
+
+        <div id="methodURL" style="display:none;">
+          <div style="font-family: var(--font-num); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gray-soft); margin: 16px 0 8px;">
+            URL สำหรับแชร์ใน LINE
+          </div>
+          <code style="display:inline-block; background: rgba(255,255,255,.1); padding: 10px 16px; border-radius: 8px; font-family: var(--font-num); color: var(--bg); font-size: 12px; word-break: break-all; max-width: 100%;">
+            ${qrUrl}
+          </code>
+          <div style="margin-top: 12px;">
+            <button class="btn btn--ghost btn--sm" style="background: rgba(255,255,255,.1); color: var(--bg); border-color: rgba(255,255,255,.2);" onclick="copyCheckinUrl('${qrUrl}')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              คัดลอก URL (พร้อมรหัสคาบ)
+            </button>
+          </div>
+          <div style="font-size: 12px; color: var(--gray-soft); margin-top: 10px;">
+            นักเรียนกดลิงก์ → ใส่ PIN เลย (ไม่ต้องพิมพ์รหัสคาบ)
+          </div>
+        </div>
+
+        <div id="methodCode" style="display:none;">
+          <div style="font-family: var(--font-num); font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gray-soft); margin: 16px 0 12px;">
+            รหัสเช็คชื่อ 6 หลัก (เขียนบนกระดาน)
+          </div>
+          <div style="font-family: var(--font-num); font-size: 56px; font-weight: 700; letter-spacing: 0.15em; color: var(--orange); line-height: 1;">
+            ${code}
+          </div>
+          <div style="margin-top: 12px; font-size: 13px; color: var(--gray-soft);">
+            นักเรียนเปิด: <code style="background: rgba(255,255,255,.1); padding: 4px 10px; border-radius: 6px; font-family: var(--font-num); color: var(--bg); font-size: 12px;">${checkinUrl}</code>
+          </div>
+          <div style="font-size: 12px; color: var(--gray-soft); margin-top: 8px;">
+            แล้วใส่รหัส 6 หลัก + PIN ตัวเอง
+          </div>
+        </div>
+
+        <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.1);">
+          <button class="btn btn--ghost btn--sm" style="background: rgba(255,255,255,.1); color: var(--bg); border-color: rgba(255,255,255,.2);" onclick="copyCheckinInfo('${checkinUrl}', '${code}')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            คัดลอกข้อมูลทั้งหมด (URL + รหัส 6 หลัก)
+          </button>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="kiosk__progress">
+        <div class="kiosk__stat">
+          <div class="kiosk__stat-label">ตรงเวลา</div>
+          <div class="kiosk__stat-value present num" id="onlineStatPresent">0</div>
+        </div>
+        <div class="kiosk__stat">
+          <div class="kiosk__stat-label">สาย</div>
+          <div class="kiosk__stat-value late num" id="onlineStatLate">0</div>
+        </div>
+        <div class="kiosk__stat">
+          <div class="kiosk__stat-label">ลา</div>
+          <div class="kiosk__stat-value num" id="onlineStatLeave" style="color:#2B6CB0;">0</div>
+        </div>
+        <div class="kiosk__stat">
+          <div class="kiosk__stat-label">รอเช็คชื่อ</div>
+          <div class="kiosk__stat-value pending num" id="onlineStatPending">0</div>
+        </div>
+        <div class="kiosk__stat">
+          <div class="kiosk__stat-label">รวม</div>
+          <div class="kiosk__stat-value num" id="onlineStatTotal">0</div>
+        </div>
+      </div>
+
+      <!-- Student list -->
+      <div class="kiosk__right" style="max-height: 400px;">
+        <div class="kiosk__right-head">
+          <span class="kiosk__right-title">รายชื่อนักเรียน (real-time)</span>
+          <span style="font-size:11px; color:var(--gray-dark);">อัปเดตทุก 3 วินาที</span>
+        </div>
+        <div class="kiosk__right-body" id="onlineListBody">
+          <div style="padding:20px; text-align:center; color:var(--gray-dark);">กำลังโหลด...</div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="kiosk__actions">
+        <button class="btn btn--ghost" onclick="cancelOnlineCheckin()">← ยกเลิก</button>
+        <button class="btn btn--danger" onclick="endOnlineCheckin()">จบคาบ · บันทึกขาดอัตโนมัติ</button>
+      </div>
+    </div>
+  `;
+
+  generateQRCode(qrUrl);
+}
+
+function switchCheckinMethod(method) {
+  document.querySelectorAll('#methodToggle button').forEach(b => {
+    b.classList.toggle('is-active', b.dataset.method === method);
+  });
+  document.getElementById('methodQR').style.display = method === 'qr' ? 'flex' : 'none';
+  document.getElementById('methodURL').style.display = method === 'url' ? 'block' : 'none';
+  document.getElementById('methodCode').style.display = method === 'code' ? 'block' : 'none';
+}
+
+function generateQRCode(url) {
+  const container = document.getElementById('qrCodeContainer');
+  if (!container) return;
+  container.innerHTML = '';
+  if (typeof QRCode === 'undefined') {
+    container.innerHTML = `<div style="color:var(--gray-soft); font-size:12px; padding:20px;">QR library ไม่พร้อมใช้งาน — ใช้ URL หรือรหัส 6 หลักแทน</div>`;
+    return;
+  }
+  try {
+    new QRCode(container, {
+      text: url,
+      width: 220,
+      height: 220,
+      colorDark: '#17150F',
+      colorLight: '#FCFBF9',
+      correctLevel: QRCode.CorrectLevel.M
+    });
+  } catch(e) {
+    container.innerHTML = `<div style="color:var(--gray-soft); font-size:12px; padding:20px;">QR Error: ${e.message}</div>`;
+  }
+}
+
+function copyCheckinUrl(url) {
+  navigator.clipboard.writeText(url).then(() => {
+    toast('คัดลอก URL แล้ว · ไปวางใน LINE ได้', 'success');
+  }).catch(() => {
+    toast('คัดลอกไม่สำเร็จ — คัดลอกเอง: ' + url, 'error');
+  });
+}
+
+/* Download QR Code as PNG image */
+function downloadQRCode(code, groupName, sessionNo) {
+  const container = document.getElementById('qrCodeContainer');
+  if (!container) return;
+  const canvas = container.querySelector('canvas');
+  const img = container.querySelector('img');
+  if (!canvas && !img) {
+    toast('ไม่พบ QR Code — ลองอีกครั้ง', 'error');
+    return;
+  }
+
+  // สร้าง canvas ใหม่ที่มีพื้นหลังขาว + padding + ข้อความ
+  const size = 320;
+  const padding = 40;
+  const headerH = 80;
+  const footerH = 60;
+  const totalH = size + padding * 2 + headerH + footerH;
+  const totalW = size + padding * 2;
+
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = totalW;
+  outCanvas.height = totalH;
+  const ctx = outCanvas.getContext('2d');
+
+  // พื้นหลังขาว
+  ctx.fillStyle = '#FCFBF9';
+  ctx.fillRect(0, 0, totalW, totalH);
+
+  // Header — ชื่อกลุ่ม + คาบ
+  ctx.fillStyle = '#17150F';
+  ctx.font = 'bold 18px Anuphan, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(groupName, totalW / 2, 35);
+  ctx.font = '14px Anuphan, sans-serif';
+  ctx.fillStyle = '#6B675E';
+  ctx.fillText('คาบที่ ' + sessionNo + ' · รหัสเช็คชื่อ ' + code, totalW / 2, 60);
+
+  // QR Code
+  let qrSource = canvas;
+  if (!qrSource && img) {
+    // กรณี library สร้างเป็น img แทน canvas
+    qrSource = document.createElement('canvas');
+    qrSource.width = img.naturalWidth || 220;
+    qrSource.height = img.naturalHeight || 220;
+    qrSource.getContext('2d').drawImage(img, 0, 0);
+  }
+  if (qrSource) {
+    ctx.drawImage(qrSource, padding, headerH + 10, size, size);
+  }
+
+  // Footer — คำสั่ง
+  ctx.fillStyle = '#E8571F';
+  ctx.font = 'bold 13px Anuphan, sans-serif';
+  ctx.fillText('📷 สแกน QR นี้ด้วยกล้องมือถือ → ใส่ PIN', totalW / 2, totalH - 30);
+
+  // Download
+  const link = document.createElement('a');
+  link.download = `QR-เช็คชื่อ-${groupName}-คาบ${sessionNo}-${code}.png`;
+  link.href = outCanvas.toDataURL('image/png');
+  link.click();
+  toast('ดาวน์โหลด QR แล้ว · แชร์ใน LINE ได้', 'success');
+}
+
+/* Print QR Code on A4 paper (สำหรับแปะบนกระดาน) */
+function printQRCode(code, groupName, sessionNo, sessionDate, startTime, endTime) {
+  const checkinUrl = window.location.href.replace(/teacher-dashboard\.html.*$/, 'checkin.html');
+  const qrUrl = `${checkinUrl}?code=${code}`;
+
+  // สร้าง QR ชั่วคราวใน div hidden เพื่อ render สำหรับ print
+  const tempDiv = document.createElement('div');
+  tempDiv.style.cssText = 'position:absolute; left:-9999px; top:0;';
+  document.body.appendChild(tempDiv);
+
+  if (typeof QRCode === 'undefined') {
+    toast('QR library ไม่พร้อมใช้งาน', 'error');
+    document.body.removeChild(tempDiv);
+    return;
+  }
+
+  new QRCode(tempDiv, {
+    text: qrUrl,
+    width: 400,
+    height: 400,
+    colorDark: '#17150F',
+    colorLight: '#FCFBF9',
+    correctLevel: QRCode.CorrectLevel.M
+  });
+
+  // รอ QR render
+  setTimeout(() => {
+    const qrImg = tempDiv.querySelector('img') || tempDiv.querySelector('canvas');
+    let qrDataUrl = '';
+    if (qrImg) {
+      if (qrImg.tagName === 'CANVAS') {
+        qrDataUrl = qrImg.toDataURL('image/png');
+      } else {
+        qrDataUrl = qrImg.src;
+      }
+    }
+
+    const html = `
+      <div class="print-report">
+        <div class="print-report__head">
+          <div class="print-brand">
+            <div class="print-brand__logo">M<span>B</span></div>
+            <div class="print-brand__name">
+              <b>Maths Bank Tutor</b>
+              <small>ครูแบงค์ · เช็คชื่อเข้าเรียนออนไลน์</small>
+            </div>
+          </div>
+          <div class="print-report__meta">
+            <b>รหัสเช็คชื่อ: ${code}</b>
+            พิมพ์เมื่อ ${thDateFull(todayStr())}
+          </div>
+        </div>
+
+        <div style="text-align:center; padding: 20px 0;">
+          <div style="font-size: 22pt; font-weight: 700; margin-bottom: 8px;">${groupName}</div>
+          <div style="font-size: 14pt; color: #444; margin-bottom: 6px;">คาบที่ ${sessionNo} · ${thDateFull(sessionDate)}</div>
+          <div style="font-size: 12pt; color: #666;">เวลา ${startTime}–${endTime} น.</div>
+        </div>
+
+        <div style="text-align:center; margin: 20px 0;">
+          ${qrDataUrl ? `<img src="${qrDataUrl}" style="width: 350px; height: 350px; border: 2px solid #17150F; border-radius: 12px; padding: 12px; background: #FCFBF9;" />` : '<div style="color:red;">QR Code ไม่พร้อม</div>'}
+        </div>
+
+        <div style="background: #FFF6F0; border-left: 4px solid #E8571F; padding: 14px 18px; margin: 20px 0; font-size: 11pt;">
+          <b style="color: #E8571F; font-size: 13pt;">วิธีเช็คชื่อ:</b><br>
+          <b>วิธีที่ 1 — สแกน QR:</b> เปิดกล้องมือถือ → สแกน QR ด้านบน → กดลิงก์ที่ขึ้นมา → ใส่ PIN 6 หลัก<br>
+          <b>วิธีที่ 2 — พิมพ์รหัส:</b> เปิดเว็บ <code style="background:#fff; padding:2px 6px; border-radius:3px;">${checkinUrl}</code> → ใส่รหัส <b style="color:#E8571F; font-family: var(--font-num);">${code}</b> → ใส่ PIN<br>
+          <br>
+          <b style="color: #B83C0A;">⚠ หมายเหตุ:</b> รหัสนี้ใช้ได้ 60 นาที หลังจากนั้นต้องขอรหัสใหม่จากครู
+        </div>
+
+        <div class="print-footer">
+          <div>Maths Bank Tutor · ครูแบงค์</div>
+          <div>LINE: <b>mathsbanktutor</b> · โทร <b>081-907-0255</b></div>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('printReport').innerHTML = html;
+    document.body.removeChild(tempDiv);
+    window.scrollTo(0, 0);
+    setTimeout(() => window.print(), 200);
+  }, 300);
+}
+
+function updateOnlineCheckinDisplay(data) {
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  set('onlineStatPresent', data.counts.present);
+  set('onlineStatLate', data.counts.late);
+  set('onlineStatLeave', data.counts.leave || 0);
+  set('onlineStatPending', data.counts.pending);
+  set('onlineStatTotal', data.total);
+
+  // Update expiry
+  if (state.onlineCheckin.expiresAt) {
+    const expires = new Date(state.onlineCheckin.expiresAt);
+    const minsLeft = Math.max(0, Math.round((expires - new Date()) / 60000));
+    set('expiryMin', minsLeft);
+    const expiryEl = document.getElementById('expiryMin');
+    if (expiryEl) expiryEl.style.color = minsLeft <= 5 ? 'var(--danger)' : 'var(--orange)';
+  }
+
+  // Update list — แสดง note ด้วย
+  const listBody = document.getElementById('onlineListBody');
+  if (!listBody) return;
+  listBody.innerHTML = data.students.map(s => {
+    const noteHtml = s.note && s.note !== 'เช็คออนไลน์' && s.note !== 'สาย'
+      ? `<div style="font-size:11px; color:var(--gray-dark); margin-top:2px; font-style:italic; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">"${s.note}"</div>`
+      : '';
+    return `
+      <div class="checkin-row is-${s.status}" style="flex-wrap:wrap;">
+        <span class="checkin-row__num">${String(s.no).padStart(2,'0')}</span>
+        <span class="checkin-row__name">${s.name}</span>
+        ${s.checkInTime ? `<span class="checkin-row__time">${s.checkInTime}</span>` : ''}
+        <span class="checkin-row__badge ${s.status}">${statusLabel(s.status)}</span>
+        ${noteHtml}
+      </div>
+    `;
+  }).join('');
+}
+
+function copyCheckinInfo(url, code) {
+  const text = `เช็คชื่อเข้าเรียน\nรหัส: ${code}\nลิงก์: ${url}`;
+  navigator.clipboard.writeText(text).then(() => {
+    toast('คัดลอกแล้ว · ไปวางใน LINE ได้', 'success');
+  }).catch(() => {
+    toast('คัดลอกไม่สำเร็จ — คัดลอกเอง: ' + text, 'error');
+  });
+}
+
+async function endOnlineCheckin() {
+  if (!state.onlineCheckin.code) return;
+  showModal({
+    title: 'จบคาบเช็คชื่อ?',
+    body: 'ระบบจะบันทึกคนที่ยังไม่เช็คชื่อเป็น "ขาด" อัตโนมัติ และปิดรหัสเช็คชื่อนี้',
+    actions: [
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
+      { label: 'จบคาบ', class: 'btn--danger', onClick: async () => {
+        closeModal();
+        try {
+          const res = await fetch(SCRIPT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'endCheckin', token: TEACHER_TOKEN, checkinCode: state.onlineCheckin.code })
+          });
+          const result = await res.json();
+          if (result.ok) {
+            clearInterval(state.onlineCheckin.pollTimer);
+            state.onlineCheckin.code = null;
+            state.onlineCheckin.session = null;
+            toast(`จบคาบ · บันทึกขาด ${result.markedAbsent} คน · มา ${result.totalChecked} คน`, 'success');
+            // reload data from sheet
+            await loadFromSheet();
+            state.view = 'attendance';
+            renderAll();
+          } else {
+            toast('จบคาบไม่สำเร็จ: ' + (result.error || ''), 'error');
+          }
+        } catch(e) {
+          toast('เชื่อมต่อไม่ได้: ' + e.message, 'error');
+        }
+      }}
+    ]
+  });
+}
+
+function cancelOnlineCheckin() {
+  showModal({
+    title: 'ยกเลิกการเช็คชื่อ?',
+    body: 'รหัสเช็คชื่อจะถูกลบ · ข้อมูลที่นักเรียนเช็คแล้วจะยังอยู่ แต่คนที่ยังไม่เช็คจะไม่ถูกบันทึกเป็นขาด',
+    actions: [
+      { label: 'ไม่ยกเลิก', class: 'btn--ghost', onClick: closeModal },
+      { label: 'ยกเลิก', class: 'btn--danger', onClick: async () => {
+        closeModal();
+        clearInterval(state.onlineCheckin.pollTimer);
+        // ลบ active_checkin ผ่าน endCheckin (แต่ไม่ mark absent)
+        try {
+          await fetch(SCRIPT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'endCheckin', token: TEACHER_TOKEN, checkinCode: state.onlineCheckin.code })
+          });
+        } catch(e) {}
+        state.onlineCheckin.code = null;
+        state.onlineCheckin.session = null;
+        state.view = 'attendance';
+        renderAll();
+        toast('ยกเลิกการเช็คชื่อแล้ว', 'success');
+      }}
+    ]
+  });
+}
+
+function showStartKioskModal() {
+  const g = state.data.groups.find(x => x.id === state.selectedGroupId);
+  if (!g) return;
+  ensureSessions(g);
+  const today = todayStr();
+
+  // Find today's session or next upcoming
+  let suggestedSession = (g.sessions || []).find(s => s.date === today);
+  if (!suggestedSession) suggestedSession = (g.sessions || []).find(s => s.date >= today && s.status !== 'holiday');
+  if (!suggestedSession) suggestedSession = (g.sessions || [])[(g.sessions || []).length - 1];
+
+  const sessionOptions = (g.sessions || [])
+    .filter(s => s.status !== 'holiday')
+    .map(s => `<option value="${s.no}" ${s.no === suggestedSession.no ? 'selected' : ''}>คาบที่ ${s.no} · ${thDate(s.date)} · ${thDayName(s.date)}</option>`)
+    .join('');
+
+  showModal({
+    title: `เริ่มเช็คชื่อ — ${g.name}`,
+    body: `
+      <p style="margin-bottom:10px; color:var(--gray-dark);">เลือกคาบที่จะเช็คชื่อ:</p>
+      <select id="kioskSessionSelect" style="width:100%; padding:10px 14px; border:1px solid var(--line); border-radius:8px; outline:none; font-size:14px;">
+        ${sessionOptions}
+      </select>
+      <p style="margin-top:14px; font-size:12px; color:var(--gray-dark);">
+        หลังกด "เริ่ม" จอจะเปลี่ยนเป็น kiosk ให้นักเรียนเข้ามากรอก PIN ทีละคน<br>
+        ระบบคำนวณ ตรงเวลา/สาย อัตโนมัติจากเวลาปัจจุบัน<br>
+        ครูสามารถกดชื่อนักเรียนในรายการเพื่อแก้สถานะ manual ได้
+      </p>
+    `,
+    actions: [
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
+      { label: 'เริ่มเช็คชื่อ', class: 'btn--primary', onClick: () => {
+        const sessionNo = parseInt(document.getElementById('kioskSessionSelect').value);
+        closeModal();
+        startKiosk(g.id, sessionNo);
+      }}
+    ]
+  });
+}
+
+/* Show modal — attendance detail of a student in a session */
+function showAttendanceDetail(groupId, sessionNo, studentId) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+  ensureSessions(g);
+  const session = (g.sessions || []).find(s => s.no === sessionNo);
+  if (!session) return;
+  const student = g.students.find(s => s.id === studentId);
+  if (!student) return;
+
+  const att = session.attendance;
+  const r = att && att.records[studentId];
+
+  // Status info
+  const statusInfo = {
+    present: { label: 'ตรงเวลา', color: 'var(--success)', bg: 'var(--success-bg)' },
+    late:    { label: 'สาย',     color: 'var(--orange)',  bg: '#FFF6F0' },
+    absent:  { label: 'ขาด',     color: 'var(--danger)',  bg: 'var(--danger-bg)' },
+    leave:   { label: 'ลา',      color: '#2B6CB0',        bg: '#EAF2FB' },
+    pending: { label: 'ยังไม่เช็คชื่อ', color: 'var(--gray-dark)', bg: 'var(--bg-soft)' }
+  };
+  const si = statusInfo[r ? r.status : 'pending'];
+
+  // Calculate late minutes
+  let lateMinutes = 0;
+  let timeDiffText = '';
+  if (r && r.checkInTime && r.status !== 'absent') {
+    lateMinutes = timeStrToMinutes(r.checkInTime) - timeStrToMinutes(sessionStartTimeStr(session, g));
+    if (lateMinutes > 0) {
+      timeDiffText = `สาย ${lateMinutes} นาที`;
+    } else if (lateMinutes === 0) {
+      timeDiffText = 'มาตรงเวลาเป๊ะ';
+    } else {
+      timeDiffText = `มาก่อน ${Math.abs(lateMinutes)} นาที`;
+    }
+  }
+
+  // Build history of this student across all sessions
+  const historyRows = (g.sessions || [])
+    .filter(s => s.status !== 'holiday')
+    .map(s => {
+      const a = s.attendance;
+      const rec = a && a.records[studentId];
+      const st = rec ? rec.status : 'pending';
+      const stInfo = statusInfo[st];
+      const label = st === 'present' ? 'P' : st === 'late' ? 'L' : st === 'absent' ? 'A' : st === 'leave' ? 'S' : '-';
+      const time = rec && rec.checkInTime ? rec.checkInTime + ' น.' : '-';
+      const note = rec && rec.note ? rec.note : '';
+      const isCurrent = s.no === sessionNo;
+      return `
+        <tr ${isCurrent ? 'style="background: var(--bg-canvas); font-weight: 600;"' : ''}>
+          <td style="text-align:center;">${s.no}</td>
+          <td>${thDate(s.date)}</td>
+          <td>วัน${thDayName(s.date)}</td>
+          <td style="text-align:center;">
+            <span class="att-cell ${st}" style="display:inline-flex;">${label}</span>
+          </td>
+          <td style="font-family: var(--font-num);">${time}</td>
+          <td style="font-size:12px; color:var(--gray-dark);">${note}</td>
+        </tr>
+      `;
+    }).join('');
+
+  // Per-student summary
+  let pCount = 0, lCount = 0, aCount = 0, sCount = 0;
+  (g.sessions || []).forEach(s => {
+    if (s.status === 'holiday') return;
+    const a = s.attendance;
+    const rec = a && a.records[studentId];
+    if (!rec || rec.status === 'pending') return;
+    if (rec.status === 'present') pCount++;
+    else if (rec.status === 'late') lCount++;
+    else if (rec.status === 'absent') aCount++;
+    else if (rec.status === 'leave') sCount++;
+  });
+  const totalSess = (g.sessions || []).filter(s => s.status !== 'holiday').length;
+  const rateDenom = totalSess - sCount;
+  const rate = rateDenom > 0 ? Math.round((pCount + lCount) / rateDenom * 100) : 0;
+
+  showModal({
+    title: `${student.name} · คาบที่ ${sessionNo}`,
+    body: `
+      <div style="background:${si.bg}; border-left:4px solid ${si.color}; padding:14px 16px; border-radius:8px; margin-bottom:16px;">
+        <div style="font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:${si.color}; font-family:var(--font-num); font-weight:600; margin-bottom:4px;">สถานะการเช็คชื่อ</div>
+        <div style="font-size:20px; font-weight:700; color:${si.color};">${si.label}</div>
+        ${r && r.checkInTime ? `<div style="margin-top:6px; font-size:14px;">เวลาที่เช็ค: <b style="font-family:var(--font-num);">${r.checkInTime} น.</b> ${timeDiffText ? '· ' + timeDiffText : ''}</div>` : ''}
+        ${r && r.note ? `<div style="margin-top:4px; font-size:13px; color:var(--gray-dark);">หมายเหตุ: ${r.note}</div>` : ''}
+        <div style="margin-top:8px; font-size:12px; color:var(--gray-dark);">
+          คาบเรียน: ${thDateFull(session.date)} · วัน${thDayName(session.date)} · ${g.startTime}–${g.endTime} น.
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:8px; margin-bottom:16px;">
+        <div style="background:var(--bg-soft); padding:10px; border-radius:8px; text-align:center;">
+          <div style="font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:var(--gray-dark); font-family:var(--font-num);">มา</div>
+          <div style="font-family:var(--font-num); font-size:20px; font-weight:600; color:var(--success);">${pCount}</div>
+        </div>
+        <div style="background:var(--bg-soft); padding:10px; border-radius:8px; text-align:center;">
+          <div style="font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:var(--gray-dark); font-family:var(--font-num);">สาย</div>
+          <div style="font-family:var(--font-num); font-size:20px; font-weight:600; color:var(--orange);">${lCount}</div>
+        </div>
+        <div style="background:var(--bg-soft); padding:10px; border-radius:8px; text-align:center;">
+          <div style="font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:var(--gray-dark); font-family:var(--font-num);">ลา</div>
+          <div style="font-family:var(--font-num); font-size:20px; font-weight:600; color:#2B6CB0;">${sCount}</div>
+        </div>
+        <div style="background:var(--bg-soft); padding:10px; border-radius:8px; text-align:center;">
+          <div style="font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:var(--gray-dark); font-family:var(--font-num);">ขาด</div>
+          <div style="font-family:var(--font-num); font-size:20px; font-weight:600; color:var(--danger);">${aCount}</div>
+        </div>
+        <div style="background:var(--bg-soft); padding:10px; border-radius:8px; text-align:center;">
+          <div style="font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:var(--gray-dark); font-family:var(--font-num);">อัตรามา</div>
+          <div style="font-family:var(--font-num); font-size:20px; font-weight:600;">${rate}%</div>
+        </div>
+      </div>
+
+      <div style="font-family:var(--font-num); font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--gray-dark); font-weight:600; margin-bottom:8px;">ประวัติการเช็คชื่อทั้งคอร์ส</div>
+      <div style="max-height:240px; overflow-y:auto; border:1px solid var(--line); border-radius:8px;">
+        <table class="print-table" style="font-size:12px; width:100%; border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="padding:8px; background:var(--bg-soft); border-bottom:1px solid var(--line); text-align:center; font-family:var(--font-num); font-size:10px; letter-spacing:0.12em; text-transform:uppercase;">คาบ</th>
+              <th style="padding:8px; background:var(--bg-soft); border-bottom:1px solid var(--line); text-align:left; font-family:var(--font-num); font-size:10px; letter-spacing:0.12em; text-transform:uppercase;">วันที่</th>
+              <th style="padding:8px; background:var(--bg-soft); border-bottom:1px solid var(--line); text-align:left; font-family:var(--font-num); font-size:10px; letter-spacing:0.12em; text-transform:uppercase;">วัน</th>
+              <th style="padding:8px; background:var(--bg-soft); border-bottom:1px solid var(--line); text-align:center; font-family:var(--font-num); font-size:10px; letter-spacing:0.12em; text-transform:uppercase;">สถานะ</th>
+              <th style="padding:8px; background:var(--bg-soft); border-bottom:1px solid var(--line); text-align:left; font-family:var(--font-num); font-size:10px; letter-spacing:0.12em; text-transform:uppercase;">เวลาเช็ค</th>
+              <th style="padding:8px; background:var(--bg-soft); border-bottom:1px solid var(--line); text-align:left; font-family:var(--font-num); font-size:10px; letter-spacing:0.12em; text-transform:uppercase;">หมายเหตุ</th>
+            </tr>
+          </thead>
+          <tbody>${historyRows}</tbody>
+        </table>
+      </div>
+
+      ${r ? `
+        <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line); display:flex; gap:6px; flex-wrap:wrap;">
+          <span style="font-size:12px; color:var(--gray-dark); align-self:center; margin-right:auto;">แก้สถานะคาบนี้:</span>
+          <button class="btn btn--ghost btn--xs" onclick="overrideAttendanceDetail('${groupId}', ${sessionNo}, '${studentId}', 'present')">ตรงเวลา</button>
+          <button class="btn btn--ghost btn--xs" onclick="overrideAttendanceDetail('${groupId}', ${sessionNo}, '${studentId}', 'late')">สาย</button>
+          <button class="btn btn--ghost btn--xs" style="border-color:#2B6CB0; color:#2B6CB0;" onclick="overrideAttendanceDetail('${groupId}', ${sessionNo}, '${studentId}', 'leave', 'ลาป่วย')">ลาป่วย</button>
+          <button class="btn btn--ghost btn--xs" style="border-color:#2B6CB0; color:#2B6CB0;" onclick="overrideAttendanceDetail('${groupId}', ${sessionNo}, '${studentId}', 'leave', 'ลากิจ')">ลากิจ</button>
+          <button class="btn btn--danger btn--xs" onclick="overrideAttendanceDetail('${groupId}', ${sessionNo}, '${studentId}', 'absent')">ขาด</button>
+        </div>
+      ` : ''}
+    `,
+    actions: [
+      { label: 'ปิด', class: 'btn--primary', onClick: closeModal }
+    ]
+  });
+}
+
+/* Override attendance from detail modal */
+function overrideAttendanceDetail(groupId, sessionNo, studentId, newStatus, note) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+  const session = (g.sessions || []).find(s => s.no === sessionNo);
+  if (!session) return;
+  if (!session.attendance) getAttendance(groupId, sessionNo);
+  const r = session.attendance.records[studentId];
+  if (!r) return;
+  r.status = newStatus;
+  r.checkInTime = (newStatus === 'absent' || newStatus === 'leave') ? null : (r.checkInTime || nowTimeStr());
+  r.note = note || 'ครูแก้ไข';
+  saveData();
+  autoSync();
+  closeModal();
+  toast(`แก้เป็น ${statusLabel(newStatus)} แล้ว`, 'success');
+  renderMain();
+}
+
+/* PRINT — Attendance report A4 */
+function printAttendanceReport(groupId) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+  ensureSessions(g);
+
+  const sessionCols = (g.sessions || []).filter(s => s.status !== 'holiday');
+  const today = todayStr();
+
+  // Per-student summary
+  const studentRows = g.students.map((s, idx) => {
+    let present = 0, late = 0, absent = 0, leave = 0;
+    const cells = sessionCols.map(sess => {
+      const att = sess.attendance;
+      const r = att && att.records[s.id];
+      let st = r ? r.status : 'pending';
+      if (st === 'present') present++;
+      else if (st === 'late') late++;
+      else if (st === 'absent') absent++;
+      else if (st === 'leave') leave++;
+      const sym = st === 'present' ? '/' : st === 'late' ? 'ส' : st === 'absent' ? 'X' : st === 'leave' ? 'ล' : '-';
+      return `<td style="text-align:center;">${sym}</td>`;
+    }).join('');
+    const checkedIn = present + late;
+    const prDenom = sessionCols.length - leave;
+    const rate = prDenom > 0 ? Math.round(checkedIn / prDenom * 100) : 0;
+    return `
+      <tr>
+        <td style="text-align:center;">${idx+1}</td>
+        <td>${s.name}</td>
+        ${cells}
+        <td style="text-align:center;">${present}</td>
+        <td style="text-align:center;">${late}</td>
+        <td style="text-align:center;">${leave}</td>
+        <td style="text-align:center;">${absent}</td>
+        <td style="text-align:center; font-weight:600;">${rate}%</td>
+      </tr>
+    `;
+  }).join('');
+
+  const sessionHeader = sessionCols.map(s => `<th style="text-align:center; width:24px;">${s.no}</th>`).join('');
+
+  const html = `
+    <div class="print-report">
+      <div class="print-report__head">
+        <div class="print-brand">
+          <div class="print-brand__logo">M<span>B</span></div>
+          <div class="print-brand__name">
+            <b>Maths Bank Tutor</b>
+            <small>ครูแบงค์ · ติวเตอร์คณิตศาสตร์ ม.4–ม.6 · LINE: mathsbanktutor · 081-907-0255</small>
+          </div>
+        </div>
+        <div class="print-report__meta">
+          <b>รายงานการเข้าเรียน</b>
+          พิมพ์เมื่อ ${thDateFull(today)}
+        </div>
+      </div>
+
+      <div class="print-report__title">${g.name}</div>
+      <div class="print-report__sub">วัน${g.dayOfWeek} ${g.startTime}–${g.endTime} น. · ระดับชั้น${g.level} · นักเรียน ${g.students.length} คน · ${sessionCols.length} คาบ</div>
+
+      <div class="print-section-title">ตารางการเข้าเรียน (สัญลักษณ์: / = ตรงเวลา, ส = สาย, ล = ลา, X = ขาด, - = ยังไม่เช็ค)</div>
+      <table class="print-table">
+        <thead>
+          <tr>
+            <th style="width:30px; text-align:center;">ที่</th>
+            <th>ชื่อนักเรียน</th>
+            ${sessionHeader}
+            <th style="text-align:center;">มา</th>
+            <th style="text-align:center;">สาย</th>
+            <th style="text-align:center;">ลา</th>
+            <th style="text-align:center;">ขาด</th>
+            <th style="text-align:center;">%</th>
+          </tr>
+        </thead>
+        <tbody>${studentRows}</tbody>
+      </table>
+
+      <div class="print-footer">
+        <div>Maths Bank Tutor · ครูแบงค์</div>
+        <div>LINE: <b>mathsbanktutor</b> · โทร <b>081-907-0255</b></div>
+      </div>
+    </div>
+  `;
+  document.getElementById('printReport').innerHTML = html;
+  window.scrollTo(0, 0);
+  setTimeout(() => window.print(), 100);
+}
+
+
+/* ===========================================================
+   FACE SCAN — เช็คชื่อด้วยใบหน้า (face-api.js, รันในเบราว์เซอร์)
+   ข้อมูลเก็บเป็น descriptor ตัวเลข 128 ค่า ไม่เก็บรูปภาพ
+   =========================================================== */
+let _faceApiPromise = null;
+let _faceStream = null;      // กล้องโหมด kiosk
+let _enrollStream = null;    // กล้องโหมดลงทะเบียน
+let _faceScanTimer = null;
+let _faceScanBusy = false;
+let _faceCandidate = null;   // student ที่รอยืนยัน
+let _enrollShots = [];       // descriptors ระหว่างลงทะเบียน
+
+function loadFaceStore() {
+  try { return JSON.parse(localStorage.getItem(FACE_STORE_KEY)) || {}; }
+  catch(e) { return {}; }
+}
+function saveFaceStore(store) {
+  try { localStorage.setItem(FACE_STORE_KEY, JSON.stringify(store)); return true; }
+  catch(e) { toast('บันทึกข้อมูลใบหน้าไม่สำเร็จ (พื้นที่ localStorage เต็ม?)', 'error'); return false; }
+}
+function hasFaceData(studentId) {
+  const store = loadFaceStore();
+  return !!(store[studentId] && store[studentId].length);
+}
+
+function ensureFaceApi() {
+  if (_faceApiPromise) return _faceApiPromise;
+  _faceApiPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = FACE_CONFIG.libUrl;
+    s.onload = async () => {
+      try {
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri(FACE_CONFIG.modelUrl),
+          faceapi.nets.faceLandmark68Net.loadFromUri(FACE_CONFIG.modelUrl),
+          faceapi.nets.faceRecognitionNet.loadFromUri(FACE_CONFIG.modelUrl)
+        ]);
+        resolve();
+      } catch(e) { _faceApiPromise = null; reject(e); }
+    };
+    s.onerror = () => { _faceApiPromise = null; reject(new Error('โหลด face-api.js ไม่สำเร็จ — เช็คอินเทอร์เน็ต')); };
+    document.head.appendChild(s);
+  });
+  return _faceApiPromise;
+}
+
+async function detectDescriptor(videoEl) {
+  const det = await faceapi
+    .detectSingleFace(videoEl, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
+    .withFaceLandmarks()
+    .withFaceDescriptor();
+  return det || null;
+}
+
+function euclideanDist(a, b) {
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) { const d = a[i] - b[i]; sum += d * d; }
+  return Math.sqrt(sum);
+}
+
+/* หานักเรียนในกลุ่มที่ descriptor ใกล้ที่สุด (ต้องต่ำกว่า threshold) */
+function matchFace(descriptor, group) {
+  const store = loadFaceStore();
+  let best = null;
+  group.students.forEach(s => {
+    const descs = store[s.id];
+    if (!descs || !descs.length) return;
+    descs.forEach(d => {
+      const dist = euclideanDist(descriptor, d);
+      if (!best || dist < best.distance) best = { student: s, distance: dist };
+    });
+  });
+  return (best && best.distance <= FACE_CONFIG.matchThreshold) ? best : null;
+}
+
+/* ---------- ลงทะเบียนใบหน้า (teacher dashboard) ---------- */
+async function showFaceEnrollModal(groupId, studentId) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  const s = g && g.students.find(x => x.id === studentId);
+  if (!s) return;
+  stopEnrollCamera();
+  _enrollShots = [];
+  const enrolled = hasFaceData(studentId);
+  showModal({
+    title: `ลงทะเบียนใบหน้า: ${s.name}`,
+    body: `
+      <div style="background:#EAF2FB; border-left:4px solid #2B6CB0; padding:10px 14px; border-radius:8px; font-size:12px; color:var(--gray-dark); margin-bottom:12px; line-height:1.6;">
+        เก็บเป็นรหัสตัวเลข 128 ค่า (ไม่เก็บรูปภาพ) ใช้เช็คชื่อเท่านั้น<br>
+        <b style="color:#2B6CB0;">⚠️ ควรได้รับความยินยอมจากผู้ปกครองก่อน (PDPA — ข้อมูลชีวมิติของผู้เยาว์)</b>
+      </div>
+      <div style="position:relative; background:#000; border-radius:10px; overflow:hidden; aspect-ratio:4/3;">
+        <video id="faceEnrollVideo" autoplay muted playsinline style="width:100%; height:100%; object-fit:cover; transform:scaleX(-1);"></video>
+      </div>
+      <div id="faceEnrollStatus" style="text-align:center; margin-top:10px; font-size:13px; color:var(--gray-dark); min-height:20px;">กำลังเปิดกล้อง + โหลดโมเดล (ครั้งแรก ~6MB)...</div>
+      ${enrolled ? `<div style="text-align:center; margin-top:6px; font-size:12px; color:var(--success);">✓ ลงทะเบียนไว้แล้ว — ถ่ายครบ ${FACE_CONFIG.captureCount} ภาพใหม่จะแทนที่ของเดิม</div>` : ''}
+    `,
+    actions: [
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: () => { stopEnrollCamera(); closeModal(); } },
+      ...(enrolled ? [{ label: 'ลบข้อมูลใบหน้า', class: 'btn--danger', onClick: () => { stopEnrollCamera(); closeModal(); deleteFaceData(studentId, s.name); } }] : []),
+      { label: `📷 ถ่ายภาพ (0/${FACE_CONFIG.captureCount})`, class: 'btn--primary', onClick: () => captureEnrollShot(groupId, studentId) }
+    ]
+  });
+  try {
+    const results = await Promise.all([
+      ensureFaceApi(),
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640 } })
+    ]);
+    _enrollStream = results[1];
+    const video = document.getElementById('faceEnrollVideo');
+    if (!video) { stopEnrollCamera(); return; }
+    video.srcObject = _enrollStream;
+    const st = document.getElementById('faceEnrollStatus');
+    if (st) st.textContent = `พร้อมถ่าย — มองกล้องตรงๆ กด "ถ่ายภาพ" ${FACE_CONFIG.captureCount} ครั้ง (เปลี่ยนมุมเล็กน้อยแต่ละครั้ง)`;
+  } catch(e) {
+    const st = document.getElementById('faceEnrollStatus');
+    if (st) st.textContent = 'เปิดกล้อง/โหลดโมเดลไม่สำเร็จ: ' + e.message;
+  }
+}
+
+async function captureEnrollShot(groupId, studentId) {
+  const video = document.getElementById('faceEnrollVideo');
+  const st = document.getElementById('faceEnrollStatus');
+  if (!video || !video.srcObject) return;
+  if (st) st.textContent = 'กำลังประมวลผลภาพ...';
+  let det = null;
+  try { det = await detectDescriptor(video); } catch(e) { if (st) st.textContent = 'ประมวลผลไม่สำเร็จ: ' + e.message; return; }
+  if (!det) { if (st) st.textContent = 'ไม่พบใบหน้าชัดๆ — ขยับเข้าใกล้ / เพิ่มแสง แล้วลองใหม่'; return; }
+  _enrollShots.push(Array.from(det.descriptor).map(x => Math.round(x * 1000) / 1000));
+  const n = _enrollShots.length;
+  document.querySelectorAll('#modalActions button').forEach(b => {
+    if (b.textContent.includes('ถ่ายภาพ')) b.textContent = `📷 ถ่ายภาพ (${n}/${FACE_CONFIG.captureCount})`;
+  });
+  if (n < FACE_CONFIG.captureCount) {
+    if (st) st.textContent = `เก็บภาพที่ ${n} แล้ว ✓ — เปลี่ยนมุมเล็กน้อยแล้วถ่ายอีก ${FACE_CONFIG.captureCount - n} ครั้ง`;
+    return;
+  }
+  const store = loadFaceStore();
+  store[studentId] = _enrollShots.slice();
+  if (!saveFaceStore(store)) return;
+  const g = state.data.groups.find(x => x.id === groupId);
+  const stu = g && g.students.find(x => x.id === studentId);
+  stopEnrollCamera();
+  closeModal();
+  toast(`ลงทะเบียนใบหน้า "${stu ? stu.name : ''}" สำเร็จ`, 'success');
+  renderMain();
+  syncFaceToSheet(studentId, stu ? stu.name : '');
+}
+
+function stopEnrollCamera() {
+  if (_enrollStream) { _enrollStream.getTracks().forEach(tr => tr.stop()); _enrollStream = null; }
+  _enrollShots = [];
+}
+
+function deleteFaceData(studentId, name) {
+  const store = loadFaceStore();
+  delete store[studentId];
+  saveFaceStore(store);
+  toast(`ลบข้อมูลใบหน้า "${name}" แล้ว`, 'success');
+  renderMain();
+  if (SCRIPT_URL) {
+    fetch(SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'deleteFace', token: TEACHER_TOKEN, studentId: studentId }) }).catch(() => {});
+  }
+}
+
+async function syncFaceToSheet(studentId, name) {
+  if (!SCRIPT_URL) return;
+  const store = loadFaceStore();
+  try {
+    await fetch(SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'saveFace', token: TEACHER_TOKEN, studentId: studentId, name: name, descriptors: store[studentId] || [] }) });
+  } catch(e) { console.error('syncFace error:', e); }
+}
+
+async function loadFacesFromSheet() {
+  if (!SCRIPT_URL) return;
+  try {
+    const res = await fetch(`${SCRIPT_URL}?action=listFaces&token=${encodeURIComponent(TEACHER_TOKEN)}&t=${Date.now()}`);
+    const result = await res.json();
+    if (result.ok && result.faces) {
+      const store = loadFaceStore();
+      Object.keys(result.faces).forEach(id => { store[id] = result.faces[id]; });
+      saveFaceStore(store);
+      const n = Object.keys(result.faces).length;
+      if (n > 0) toast(`โหลดข้อมูลใบหน้า ${n} คนจาก Sheet`, 'success');
+    }
+  } catch(e) { console.error('loadFaces error:', e); }
+}
+
+/* ---------- โหมดสแกนหน้าใน kiosk ---------- */
+function setKioskMode(mode) {
+  state.kiosk.mode = mode;
+  const pinPanel = document.getElementById('kioskPinPanel');
+  const facePanel = document.getElementById('kioskFacePanel');
+  const pinBtn = document.getElementById('kioskModePinBtn');
+  const faceBtn = document.getElementById('kioskModeFaceBtn');
+  if (!pinPanel || !facePanel) return;
+  const setActive = (btn, on) => {
+    if (!btn) return;
+    btn.classList.toggle('btn--primary', on);
+    btn.classList.toggle('btn--ghost', !on);
+  };
+  if (mode === 'face') {
+    pinPanel.style.display = 'none';
+    facePanel.style.display = '';
+    setActive(pinBtn, false); setActive(faceBtn, true);
+    startFaceScan();
+  } else {
+    stopFaceScan();
+    facePanel.style.display = 'none';
+    pinPanel.style.display = '';
+    setActive(faceBtn, false); setActive(pinBtn, true);
+  }
+}
+
+async function startFaceScan() {
+  stopFaceScan();
+  const statusEl = document.getElementById('faceScanStatus');
+  const g = state.data.groups.find(x => x.id === state.kiosk.groupId);
+  if (!g) return;
+  const enrolledCount = g.students.filter(s => hasFaceData(s.id)).length;
+  if (enrolledCount === 0) {
+    if (statusEl) statusEl.textContent = 'ยังไม่มีนักเรียนลงทะเบียนใบหน้าในกลุ่มนี้ — ไปที่รายชื่อนักเรียน กดปุ่ม 📷 ก่อน';
+    return;
+  }
+  if (statusEl) statusEl.textContent = `กำลังเปิดกล้อง... (ลงทะเบียนแล้ว ${enrolledCount}/${g.students.length} คน)`;
+  try {
+    const results = await Promise.all([
+      ensureFaceApi(),
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640 } })
+    ]);
+    _faceStream = results[1];
+    const video = document.getElementById('faceScanVideo');
+    if (!video) { stopFaceScan(); return; }
+    video.srcObject = _faceStream;
+    if (statusEl) statusEl.textContent = 'มองกล้องตรงๆ ทีละคน...';
+    _faceScanTimer = setInterval(faceScanTick, FACE_CONFIG.scanIntervalMs);
+  } catch(e) {
+    if (statusEl) statusEl.textContent = 'เปิดกล้องไม่สำเร็จ: ' + e.message + ' — ใช้โหมด PIN แทน';
+  }
+}
+
+async function faceScanTick() {
+  if (_faceScanBusy || _faceCandidate) return;
+  const video = document.getElementById('faceScanVideo');
+  if (!video || !video.srcObject) return;
+  _faceScanBusy = true;
+  try {
+    const det = await detectDescriptor(video);
+    const statusEl = document.getElementById('faceScanStatus');
+    if (det) {
+      const g = state.data.groups.find(x => x.id === state.kiosk.groupId);
+      const match = matchFace(Array.from(det.descriptor), g);
+      if (match) {
+        const att = getAttendance(state.kiosk.groupId, state.kiosk.sessionNo);
+        const existing = att.records[match.student.id];
+        if (existing && existing.status !== 'pending') {
+          if (statusEl) statusEl.textContent = `${match.student.name} เช็คชื่อแล้ว (${statusLabel(existing.status)}) — คนถัดไปเชิญ`;
+        } else {
+          _faceCandidate = match.student;
+          showFaceCandidate(match.student, match.distance);
+        }
+      } else {
+        if (statusEl) statusEl.textContent = 'พบใบหน้าแต่จับคู่ไม่ได้ — ขยับใกล้กล้อง เพิ่มแสง หรือใช้ PIN แทน';
+      }
+    }
+  } catch(e) { console.error('face scan error:', e); }
+  _faceScanBusy = false;
+}
+
+function showFaceCandidate(student, distance) {
+  const box = document.getElementById('faceCandidateBox');
+  if (!box) { _faceCandidate = null; return; }
+  const confidence = Math.max(0, Math.min(99, Math.round((1 - distance / FACE_CONFIG.matchThreshold) * 100)));
+  box.style.display = '';
+  box.innerHTML = `
+    <div style="font-size:24px; font-weight:700;">${student.name}</div>
+    <div style="font-size:12px; color:var(--gray-dark); margin:2px 0 12px;">ความมั่นใจ ~${confidence}% — ใช่คุณไหม?</div>
+    <div style="display:flex; gap:8px; justify-content:center;">
+      <button class="btn btn--primary" onclick="confirmFaceCheckin()">✓ ใช่ เช็คชื่อเลย</button>
+      <button class="btn btn--ghost" onclick="dismissFaceCandidate()">ไม่ใช่</button>
+    </div>
+  `;
+}
+
+function dismissFaceCandidate(keepStatus) {
+  _faceCandidate = null;
+  const box = document.getElementById('faceCandidateBox');
+  if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+  if (!keepStatus) {
+    const statusEl = document.getElementById('faceScanStatus');
+    if (statusEl) statusEl.textContent = 'มองกล้องตรงๆ ทีละคน...';
+  }
+}
+
+function confirmFaceCheckin() {
+  const student = _faceCandidate;
+  if (!student) return;
+  const g = state.data.groups.find(x => x.id === state.kiosk.groupId);
+  if (!g) return;
+  const att = getAttendance(state.kiosk.groupId, state.kiosk.sessionNo);
+  const kioskSession = (g.sessions || []).find(s => s.no === state.kiosk.sessionNo);
+  const checkInTime = nowTimeStr();
+  const status = calcStatusFromTime(checkInTime, g, kioskSession);
+  att.records[student.id] = { status: status, checkInTime: checkInTime, note: 'สแกนใบหน้า' };
+  saveData();
+  autoSync();
+  dismissFaceCandidate(true);
+  const statusEl = document.getElementById('faceScanStatus');
+  const lateMin = timeStrToMinutes(checkInTime) - timeStrToMinutes(sessionStartTimeStr(kioskSession, g));
+  if (statusEl) statusEl.textContent = `✓ ${student.name} · ${status === 'present' ? 'ตรงเวลา' : 'สาย +' + lateMin + ' นาที'} · ${checkInTime} น.`;
+  renderKioskList();
+  renderKioskStats();
+  setTimeout(() => {
+    const el = document.getElementById('faceScanStatus');
+    if (el && !_faceCandidate) el.textContent = 'มองกล้องตรงๆ ทีละคน...';
+  }, 2500);
+}
+
+function stopFaceScan() {
+  if (_faceScanTimer) { clearInterval(_faceScanTimer); _faceScanTimer = null; }
+  if (_faceStream) { _faceStream.getTracks().forEach(tr => tr.stop()); _faceStream = null; }
+  _faceCandidate = null;
+  _faceScanBusy = false;
+}
+
+function exitKiosk() {
+  stopFaceScan();
+  state.view = 'attendance';
+  renderAll();
+}
+
+/* ===========================================================
+   LEAVE REQUESTS + LINE SUMMARY
+   =========================================================== */
+function buildSessionSummaryText(g, sess) {
+  const att = sess.attendance;
+  const rec = id => (att && att.records[id]) || { status: 'pending' };
+  const startMin = timeStrToMinutes(sessionStartTimeStr(sess, g));
+  const lists = { present: [], late: [], leave: [], absent: [], pending: [] };
+  g.students.forEach(s => {
+    const r = rec(s.id);
+    if (r.status === 'late') {
+      const plus = r.checkInTime ? '+' + (timeStrToMinutes(r.checkInTime) - startMin) : '';
+      const why = r.note && r.note !== 'สาย' && r.note !== 'เช็คออนไลน์' ? ', ' + r.note : '';
+      lists.late.push(`${s.name} (${plus}${why})`);
+    } else if (r.status === 'leave') {
+      lists.leave.push(`${s.name}${r.note ? ' (' + r.note + ')' : ''}`);
+    } else if (r.status === 'absent') {
+      lists.absent.push(s.name);
+    } else if (r.status === 'present') {
+      lists.present.push(s.name);
+    } else {
+      lists.pending.push(s.name);
+    }
+  });
+  let text = `📋 ${g.name} · คาบ ${sess.no} · ${thDateFull(sess.date)}\n`;
+  text += `✅ มา ${lists.present.length} · ⏰ สาย ${lists.late.length} · 🟦 ลา ${lists.leave.length} · ❌ ขาด ${lists.absent.length}`;
+  if (lists.pending.length) text += ` · ⬜ ยังไม่เช็ค ${lists.pending.length}`;
+  if (lists.late.length)   text += `\n⏰ สาย: ${lists.late.join(', ')}`;
+  if (lists.leave.length)  text += `\n🟦 ลา: ${lists.leave.join(', ')}`;
+  if (lists.absent.length) text += `\n❌ ขาด: ${lists.absent.join(', ')}`;
+  return text;
+}
+
+function updateSummaryPreview(groupId, noStr) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  const sess = g && (g.sessions || []).find(s => s.no === Number(noStr));
+  const el = document.getElementById('summaryPreview');
+  if (g && sess && el) el.textContent = buildSessionSummaryText(g, sess);
+}
+
+function showCopySummaryModal(groupId) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+  ensureSessions(g);
+  const withAtt = (g.sessions || []).filter(s => s.status !== 'holiday' && s.attendance);
+  if (withAtt.length === 0) { toast('ยังไม่มีคาบที่เช็คชื่อแล้วในกลุ่มนี้', 'error'); return; }
+  const latest = withAtt[withAtt.length - 1];
+  showModal({
+    title: 'คัดลอกสรุปคาบ (ส่ง LINE)',
+    body: `
+      <label style="font-size:12px; color:var(--gray-dark);">เลือกคาบ</label>
+      <select id="summarySessionSelect" onchange="updateSummaryPreview('${groupId}', this.value)"
+              style="width:100%; padding:10px 12px; margin:6px 0 12px; border:1px solid var(--line); border-radius:8px; outline:none; font-size:14px; background:var(--bg);">
+        ${withAtt.map(s => `<option value="${s.no}" ${s.no === latest.no ? 'selected' : ''}>คาบ ${s.no} · ${thDate(s.date)}</option>`).join('')}
+      </select>
+      <pre id="summaryPreview" style="background:var(--bg-soft); padding:12px 14px; border-radius:8px; font-size:13px; white-space:pre-wrap; word-break:break-word; font-family:var(--font-thai); line-height:1.7; margin:0;">${buildSessionSummaryText(g, latest)}</pre>
+    `,
+    actions: [
+      { label: 'ปิด', class: 'btn--ghost', onClick: closeModal },
+      { label: '📋 คัดลอก', class: 'btn--primary', onClick: () => {
+        const no = Number(document.getElementById('summarySessionSelect').value);
+        const sess = g.sessions.find(s => s.no === no);
+        const text = buildSessionSummaryText(g, sess);
+        navigator.clipboard.writeText(text).then(
+          () => { toast('คัดลอกแล้ว — วางใน LINE ได้เลย', 'success'); closeModal(); },
+          () => toast('คัดลอกไม่สำเร็จ — เบราว์เซอร์ไม่อนุญาต', 'error')
+        );
+      }}
+    ]
+  });
+}
+
+let _leaveRequestsCache = [];
+
+async function showLeaveRequestsModal() {
+  if (!SCRIPT_URL) { toast('ต้องเชื่อม Google Sheet ก่อน (ใส่ SCRIPT_URL)', 'error'); return; }
+  toast('กำลังโหลดรายการแจ้งลา...', 'success');
+  try {
+    const url = `${SCRIPT_URL}?action=listLeave&token=${encodeURIComponent(TEACHER_TOKEN)}&t=${Date.now()}`;
+    const res = await fetch(url);
+    const result = await res.json();
+    if (!result.ok) { toast('โหลดไม่สำเร็จ: ' + (result.error || ''), 'error'); return; }
+    _leaveRequestsCache = result.requests || [];
+    renderLeaveRequestsModal();
+  } catch(e) { toast('เชื่อมต่อไม่ได้: ' + e.message, 'error'); }
+}
+
+function isLeaveApplied(r) {
+  const g = state.data.groups.find(x => x.id === r.groupId);
+  if (!g) return false;
+  const sess = (g.sessions || []).find(s => s.no === Number(r.sessionNo));
+  const rec = sess && sess.attendance && sess.attendance.records[r.studentId];
+  if (!rec) return false;
+  if (r.type === 'แจ้งสาย') return !!(rec.note && rec.note.includes('แจ้งสาย'));
+  return rec.status === 'leave';
+}
+
+function renderLeaveRequestsModal() {
+  const reqs = _leaveRequestsCache;
+  const rows = reqs.length === 0
+    ? '<div style="text-align:center; color:var(--gray-dark); padding:20px;">ไม่มีรายการแจ้งลา</div>'
+    : reqs.map((r, i) => {
+        const applied = isLeaveApplied(r);
+        const when = r.submittedAt ? String(r.submittedAt).slice(0, 16).replace('T', ' ') : '';
+        return `
+        <div style="display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; margin-bottom:8px; ${applied ? 'opacity:.55;' : ''}">
+          <div style="flex:1; min-width:0;">
+            <b>${r.studentName}</b> · <span style="color:#2B6CB0; font-weight:600;">${r.type}</span>${r.reason ? ' — ' + r.reason : ''}
+            <div style="font-size:12px; color:var(--gray-dark);">${r.groupName} · คาบ ${r.sessionNo} · ${thDate(r.sessionDate)} · แจ้งเมื่อ ${when}</div>
+          </div>
+          ${applied
+            ? '<span style="font-size:12px; color:var(--success); white-space:nowrap;">✓ บันทึกแล้ว</span>'
+            : `<button class="btn btn--primary btn--xs" onclick="applyLeaveRequest(${i})">บันทึกลงตาราง</button>`}
+        </div>`;
+      }).join('');
+  showModal({
+    title: `รายการแจ้งลา/แจ้งสาย (${reqs.length})`,
+    body: `<div style="max-height:340px; overflow-y:auto;">${rows}</div>
+           <p style="font-size:12px; color:var(--gray-dark); margin-top:10px;">
+             "บันทึกลงตาราง" = ใส่สถานะ 🟦 ลา + หมายเหตุลงคาบนั้น แล้ว sync ขึ้น Sheet อัตโนมัติ<br>
+             ประเภท "แจ้งสาย" จะบันทึกเป็นหมายเหตุ ไม่เปลี่ยนสถานะ · ถ้าครูไม่กดบันทึก ระบบก็ยังกันให้ตอน "จบคาบ" (คนแจ้งลาจะไม่ถูกนับขาด)
+           </p>`,
+    actions: [
+      { label: 'ปิด', class: 'btn--ghost', onClick: closeModal },
+      { label: 'บันทึกทั้งหมด', class: 'btn--primary', onClick: applyAllLeaveRequests }
+    ]
+  });
+}
+
+function applyLeaveRequest(idx) {
+  const r = _leaveRequestsCache[idx];
+  if (!r) return;
+  const g = state.data.groups.find(x => x.id === r.groupId);
+  if (!g) { toast('ไม่พบกลุ่ม ' + r.groupName + ' ในเครื่องนี้', 'error'); return; }
+  const att = getAttendance(g.id, Number(r.sessionNo));
+  if (!att) { toast('ไม่พบคาบที่ ' + r.sessionNo, 'error'); return; }
+  if (!att.records[r.studentId]) att.records[r.studentId] = { status: 'pending', checkInTime: null, note: '' };
+  const rec = att.records[r.studentId];
+  if (r.type === 'แจ้งสาย') {
+    if (!(rec.note && rec.note.includes('แจ้งสาย'))) {
+      rec.note = 'แจ้งสายล่วงหน้า' + (r.reason ? ': ' + r.reason : '') + (rec.note ? ' · ' + rec.note : '');
+    }
+  } else {
+    rec.status = 'leave';
+    rec.checkInTime = null;
+    rec.note = r.type + (r.reason ? ' — ' + r.reason : '');
+  }
+  saveData();
+  autoSync();
+  renderLeaveRequestsModal();
+  toast(`บันทึก ${r.studentName} (${r.type}) แล้ว`, 'success');
+}
+
+function applyAllLeaveRequests() {
+  let n = 0;
+  _leaveRequestsCache.forEach((r, i) => {
+    if (!isLeaveApplied(r)) {
+      const g = state.data.groups.find(x => x.id === r.groupId);
+      if (g) { applyLeaveRequest(i); n++; }
+    }
+  });
+  toast(`บันทึก ${n} รายการแล้ว`, 'success');
+  renderMain();
+}
+
+/* ===========================================================
+   CRUD — GROUPS
+   =========================================================== */
+function addGroup() {
+  const id = uid('grp');
+  const newGroup = {
+    id: id,
+    name: 'กลุ่มใหม่',
+    level: 'ม.4',
+    dayOfWeek: 'จันทร์',
+    startTime: '16.30',
+    endTime: '19.00',
+    sessionsTotal: 10,
+    startDate: todayStr(),
+    students: [],
+    sessions: []
+  };
+  ensureSessions(newGroup);
+  state.data.groups.push(newGroup);
+  state.selectedGroupId = id;
+  state.view = 'detail';
+  saveData();
+  renderAll();
+  toast('เพิ่มกลุ่มใหม่แล้ว · แก้ชื่อและตั้งค่าด้านขวา', 'success');
+  // focus name input
+  setTimeout(() => {
+    const input = document.getElementById('groupName');
+    if (input) { input.focus(); input.select(); }
+  }, 100);
+}
+
+function saveGroupSettings(id) {
+  const g = state.data.groups.find(x => x.id === id);
+  if (!g) return;
+  const oldTotal = g.sessionsTotal;
+  g.name = document.getElementById('groupName').value.trim() || g.name;
+  g.level = document.getElementById('groupLevel').value;
+  g.dayOfWeek = document.getElementById('groupDay').value;
+  g.startTime = document.getElementById('groupStart').value.trim() || g.startTime;
+  g.endTime = document.getElementById('groupEnd').value.trim() || g.endTime;
+  g.sessionsTotal = parseInt(document.getElementById('groupTotal').value) || g.sessionsTotal;
+  g.startDate = document.getElementById('groupStartDate').value || g.startDate;
+  ensureSessions(g);
+  saveData();
+  renderAll();
+  toast('บันทึกการตั้งค่ากลุ่มแล้ว', 'success');
+}
+
+function regenerateSessions(id) {
+  const g = state.data.groups.find(x => x.id === id);
+  if (!g) return;
+  showModal({
+    title: 'สร้างตารางคาบใหม่?',
+    body: 'ระบบจะลบตารางคาบเดิมทั้งหมดและสร้างใหม่จากวันเริ่มต้น + จำนวนคาบ (เรียนสัปดาห์ละครั้ง) · ข้อมูลวันหยุดและหมายเหตุเดิมจะหายไป',
+    actions: [
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
+      { label: 'สร้างใหม่', class: 'btn--primary', onClick: () => {
+        g.sessions = [];
+        ensureSessions(g);
+        saveData();
+        renderAll();
+        closeModal();
+        toast('สร้างตารางคาบใหม่แล้ว', 'success');
+      }}
+    ]
+  });
+}
+
+function confirmDeleteGroup(id) {
+  const g = state.data.groups.find(x => x.id === id);
+  if (!g) return;
+  showModal({
+    title: `ลบกลุ่ม "${g.name}"?`,
+    body: 'จะลบกลุ่มพร้อมรายชื่อนักเรียนและตารางคาบทั้งหมด · ไม่สามารถย้อนกลับได้',
+    actions: [
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
+      { label: 'ลบกลุ่ม', class: 'btn--danger', onClick: () => {
+        state.data.groups = state.data.groups.filter(x => x.id !== id);
+        if (state.selectedGroupId === id) {
+          state.selectedGroupId = state.data.groups[0]?.id || null;
+        }
+        saveData();
+        renderAll();
+        closeModal();
+        toast('ลบกลุ่มแล้ว', 'success');
+      }}
+    ]
+  });
+}
+
+/* ===========================================================
+   CRUD — STUDENTS
+   =========================================================== */
+function addStudent(groupId) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+  const input = document.getElementById('newStudentName');
+  const name = input.value.trim();
+  if (!name) { toast('กรุณาพิมพ์ชื่อนักเรียน', 'error'); return; }
+  let sid = uid('std');
+  let guard = 0;
+  while (g.students.some(o => getStudentPin(o) === generateStudentPin(sid)) && guard++ < 20) sid = uid('std');
+  g.students.push({ id: sid, name: name });
+  input.value = '';
+  saveData();
+  autoSync();
+  renderStudentList(g);
+  renderSidebar();
+  // อัปเดต meta ในหัวการ์ด
+  const meta = document.querySelector('.group-header__meta');
+  if (meta) {
+    const done = (g.sessions || []).filter(s => s.status === 'done' || s.status === 'current').length;
+    meta.textContent = `${g.dayOfWeek} · ${g.startTime}–${g.endTime} น. · ${done}/${g.sessions.length} คาบ · ${g.students.length} คน`;
+  }
+  toast(`เพิ่ม "${name}" แล้ว`, 'success');
+}
+
+function removeStudent(groupId, studentId) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+  const s = g.students.find(x => x.id === studentId);
+  if (!s) return;
+  showModal({
+    title: `ลบ "${s.name}"?`,
+    body: 'นักเรียนคนนี้จะถูกลบออกจากกลุ่ม · ไม่สามารถย้อนกลับได้',
+    actions: [
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
+      { label: 'ลบ', class: 'btn--danger', onClick: () => {
+        g.students = g.students.filter(x => x.id !== studentId);
+        saveData();
+        renderStudentList(g);
+        renderSidebar();
+        closeModal();
+        toast(`ลบ "${s.name}" แล้ว`, 'success');
+      }}
+    ]
+  });
+}
+
+/* ===========================================================
+   CRUD — SESSIONS
+   =========================================================== */
+function updateSession(groupId, sessionNo, field, value) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+  const s = (g.sessions || []).find(x => x.no === sessionNo);
+  if (!s) return;
+  if (field === 'date') s.date = value;
+  else if (field === 'time') s.customTime = value || null;
+  else if (field === 'note') s.note = value;
+  saveData();
+  // อัปเดต endDate ถ้าแก้คาบสุดท้าย
+  if (s.no === g.sessions.length) g.endDate = s.date;
+  toast('บันทึกแล้ว', 'success');
+}
+
+function addSession(groupId) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+  ensureSessions(g);
+  const last = g.sessions[g.sessions.length - 1];
+  const newDate = last ? addDays(last.date, 7) : g.startDate;
+  g.sessions.push({
+    no: g.sessions.length + 1,
+    date: newDate,
+    customTime: null,
+    status: 'upcoming',
+    note: ''
+  });
+  g.sessionsTotal = g.sessions.length;
+  g.endDate = g.sessions[g.sessions.length - 1].date;
+  saveData();
+  renderAll();
+  toast(`เพิ่มคาบที่ ${g.sessions.length} แล้ว`, 'success');
+}
+
+function deleteSession(groupId, sessionNo) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+  showModal({
+    title: `ลบคาบที่ ${sessionNo}?`,
+    body: 'คาบนี้จะถูกลบ · คาบถัดไปจะถูกเลื่อนลำดับขึ้น',
+    actions: [
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
+      { label: 'ลบคาบ', class: 'btn--danger', onClick: () => {
+        g.sessions = g.sessions.filter(s => s.no !== sessionNo);
+        g.sessions.forEach((s, i) => s.no = i + 1);
+        g.sessionsTotal = g.sessions.length;
+        if (g.sessions.length > 0) g.endDate = g.sessions[g.sessions.length - 1].date;
+        saveData();
+        renderAll();
+        closeModal();
+        toast(`ลบคาบที่ ${sessionNo} แล้ว`, 'success');
+      }}
+    ]
+  });
+}
+
+function markHolidayPrompt(groupId, sessionNo) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+  const s = (g.sessions || []).find(x => x.no === sessionNo);
+  if (!s) return;
+  showModal({
+    title: `บันทึกวันหยุด — คาบที่ ${sessionNo}`,
+    body: `<p style="margin-bottom:12px;">วันที่ ${thDateFull(s.date)} · ${thDayName(s.date)}</p>
+           <input type="text" id="holidayNote" placeholder="เหตุผล เช่น หยุดเทศกาลสงกรานต์" value="${s.note || ''}"
+                  style="width:100%; padding:10px 14px; border:1px solid var(--line); border-radius:8px; outline:none;"
+                  onfocus="this.style.borderColor='var(--black)'" onblur="this.style.borderColor='var(--line)'">
+           <p style="margin-top:12px; font-size:12px; color:var(--gray-dark);">ระบบจะเลื่อนคาบถัดไปทั้งหมด +7 วันอัตโนมัติ</p>`,
+    actions: [
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
+      { label: 'บันทึกวันหยุด', class: 'btn--primary', onClick: () => {
+        const note = document.getElementById('holidayNote').value.trim();
+        markHoliday(groupId, sessionNo, note);
+        closeModal();
+        renderAll();
+      }}
+    ]
+  });
+}
+
+/* ===========================================================
+   PRINT — รายงานผู้ปกครอง A4
+   =========================================================== */
+function printGroupReport(id) {
+  const g = state.data.groups.find(x => x.id === id);
+  if (!g) return;
+  ensureSessions(g);
+  const today = todayStr();
+  const done = (g.sessions || []).filter(s => s.status === 'done' || s.status === 'current').length;
+  const total = (g.sessions || []).length;
+  const levelKey = 'lv-' + g.level.replace('ม.', '').replace('M', '').replace('m', '').trim();
+
+  const rows = (g.sessions || []).map(s => {
+    let cls = s.status === 'holiday' ? 'is-holiday' : s.status === 'current' ? 'is-current' : '';
+    const label = s.status === 'done' ? 'เรียนแล้ว' : s.status === 'current' ? 'วันนี้' : s.status === 'holiday' ? 'หยุด' : 'ยังไม่ถึง';
+    return `
+      <tr class="${cls}">
+        <td style="text-align:center;">${s.no}</td>
+        <td>${thDateFull(s.date)}</td>
+        <td>วัน${thDayName(s.date)}</td>
+        <td>${getSessionTime(s, g)}</td>
+        <td>${label}${s.note ? ' · ' + s.note : ''}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const students = g.students.map((s, i) => `
+    <div class="print-student">
+      <span class="print-student__n">${String(i+1).padStart(2,'0')}.</span>
+      <span>${s.name}</span>
+    </div>
+  `).join('');
+
+  const html = `
+    <div class="print-report">
+      <div class="print-report__head">
+        <div class="print-brand">
+          <div class="print-brand__logo">M<span>B</span></div>
+          <div class="print-brand__name">
+            <b>Maths Bank Tutor</b>
+            <small>ครูแบงค์ · ติวเตอร์คณิตศาสตร์ ม.4–ม.6 · LINE: mathsbanktutor · 081-907-0255</small>
+          </div>
+        </div>
+        <div class="print-report__meta">
+          <b>รายงานตารางเรียนรายกลุ่ม</b>
+          พิมพ์เมื่อ ${thDateFull(today)}
+        </div>
+      </div>
+
+      <div class="print-report__title">${g.name}</div>
+      <div class="print-report__sub">วัน${g.dayOfWeek} ${g.startTime}–${g.endTime} น. · ระดับชั้น${g.level}</div>
+
+      <div class="print-stats">
+        <div class="print-stats__cell">
+          <div class="print-stats__label">วันเริ่มเรียน</div>
+          <div class="print-stats__value num">${thDate(g.startDate)}</div>
+        </div>
+        <div class="print-stats__cell">
+          <div class="print-stats__label">วันจบคอร์ส</div>
+          <div class="print-stats__value num">${thDate(g.endDate || g.startDate)}</div>
+        </div>
+        <div class="print-stats__cell">
+          <div class="print-stats__label">คาบที่เรียน / ทั้งหมด</div>
+          <div class="print-stats__value num"><span>${done}</span> / ${total}</div>
+        </div>
+        <div class="print-stats__cell">
+          <div class="print-stats__label">จำนวนนักเรียน</div>
+          <div class="print-stats__value num">${g.students.length} <span style="font-size:9pt; color:#666;">คน</span></div>
+        </div>
+      </div>
+
+      <div class="print-section-title">ตารางคาบเรียนทั้งคอร์ส (${total} คาบ)</div>
+      <table class="print-table">
+        <thead>
+          <tr>
+            <th style="width:36px; text-align:center;">ที่</th>
+            <th style="width:130px;">วันที่</th>
+            <th style="width:90px;">วันในสัปดาห์</th>
+            <th style="width:130px;">เวลา</th>
+            <th>สถานะ / หมายเหตุ</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+
+      <div class="print-section-title">รายชื่อนักเรียนในกลุ่ม (${g.students.length} คน)</div>
+      <div class="print-students">${students}</div>
+
+      <div class="print-signature">
+        <div class="print-signature__cell">
+          <div class="print-signature__line">ลงชื่อผู้สอน</div>
+          <div style="font-size:9pt; margin-top:2px;">(ครูแบงค์)</div>
+        </div>
+        <div class="print-signature__cell">
+          <div class="print-signature__line">ลงชื่อผู้ปกครอง</div>
+          <div style="font-size:9pt; margin-top:2px;">(...................................)</div>
+        </div>
+      </div>
+
+      <div class="print-footer">
+        <div>Maths Bank Tutor · ครูแบงค์</div>
+        <div>LINE: <b>mathsbanktutor</b> · โทร <b>081-907-0255</b></div>
+      </div>
+    </div>
+  `;
+  document.getElementById('printReport').innerHTML = html;
+  window.scrollTo(0, 0);
+  setTimeout(() => window.print(), 100);
+}
+
+/* ===========================================================
+   SYNC — อัปโหลดขึ้น Google Sheet (POST)
+   =========================================================== */
+async function syncToSheet(silent) {
+  if (!SCRIPT_URL) {
+    if (silent) return; // ไม่เตือนในโหมด auto-sync
+    showModal({
+      title: 'ยังไม่ได้เชื่อม Google Sheet',
+      body: 'ต้องใส่ SCRIPT_URL ในไฟล์ teacher-dashboard.html ก่อน (บรรทัดที่เขียนว่า <code>const SCRIPT_URL = \'\';</code>)<br><br>ดูวิธีได้ใน SETUP-GUIDE.md<br><br>ถ้ายังไม่เชื่อม Sheet ข้อมูลจะเก็บในเบราว์เซอร์ (localStorage) — ปลอดภัยตราบใดที่ไม่ล้าง cache หรือเปลี่ยนเครื่อง',
+      actions: [{ label: 'รับทราบ', class: 'btn--primary', onClick: closeModal }]
+    });
+    return;
+  }
+  if (state.onlineCheckin && state.onlineCheckin.code) {
+    if (!silent) toast('กำลังเช็คชื่อออนไลน์อยู่ — กด "จบคาบ" ก่อนแล้วค่อย Sync (กันข้อมูลเช็คชื่อหาย)', 'error');
+    return;
+  }
+  if (!silent) toast('กำลังอัปโหลดข้อมูล...', 'success');
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'syncData', token: TEACHER_TOKEN, data: state.data })
+    });
+    const result = await res.json();
+    if (result.ok) {
+      // อัปเดต last sync time
+      state.lastSync = new Date().toISOString();
+      try { localStorage.setItem('mathsBankLastSync', state.lastSync); } catch(e){}
+      updateSyncIndicator();
+      if (!silent) {
+        const attCount = result.attendanceRecords || 0;
+        toast(`อัปโหลดสำเร็จ · ${state.data.groups.length} กลุ่ม · ${attCount} รายการเช็คชื่อ`, 'success');
+      }
+    } else {
+      if (!silent) toast('อัปโหลดไม่สำเร็จ: ' + (result.error || 'unknown'), 'error');
+    }
+  } catch(e) {
+    if (!silent) toast('เชื่อมต่อไม่ได้: ' + e.message, 'error');
+  }
+}
+
+/* Auto-sync — เรียกหลังจากมีการแก้ข้อมูล (เช็คชื่อ, บันทึกวันหยุด, etc.) */
+let _autoSyncTimer = null;
+function autoSync() {
+  if (!SCRIPT_URL) return; // ไม่ auto-sync ถ้ายังไม่ได้เชื่อม Sheet
+  if (state.onlineCheckin && state.onlineCheckin.code) return; // กันเขียนทับข้อมูลเช็คชื่อออนไลน์ที่ server กำลังบันทึก
+  clearTimeout(_autoSyncTimer);
+  _autoSyncTimer = setTimeout(() => syncToSheet(true), 3000); // รอ 3 วินาทีไม่มีการแก้แล้วค่อย sync
+}
+
+/* Update sync indicator in sidebar */
+function updateSyncIndicator() {
+  const btn = document.getElementById('btnSync');
+  if (!btn) return;
+  if (!SCRIPT_URL) {
+    btn.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Local
+    `;
+    btn.title = 'เก็บในเบราว์เซอร์ (ยังไม่ได้เชื่อม Sheet)';
+    btn.style.background = '';
+    btn.style.color = '';
+  } else {
+    const last = state.lastSync ? new Date(state.lastSync) : null;
+    const timeStr = last ? `${last.getHours()}:${String(last.getMinutes()).padStart(2,'0')}` : '--:--';
+    btn.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+      ${timeStr}
+    `;
+    btn.title = `อัปโหลดขึ้น Sheet${last ? ' · ล่าสุด ' + timeStr : ''}`;
+    btn.style.background = 'var(--success-bg)';
+    btn.style.color = 'var(--success)';
+  }
+}
+
+async function loadFromSheet() {
+  if (!SCRIPT_URL) {
+    toast('ยังไม่ได้เชื่อม Google Sheet', 'error');
+    return;
+  }
+  toast('กำลังดาวน์โหลด...', 'success');
+  try {
+    const url = `${SCRIPT_URL}?action=loadData&t=${Date.now()}`;
+    const res = await fetch(url);
+    const result = await res.json();
+    if (result.ok && result.data) {
+      state.data = result.data;
+      state.data.groups.forEach(g => ensureSessions(g));
+      saveData();
+      if (state.data.groups.length > 0 && !state.selectedGroupId) {
+        state.selectedGroupId = state.data.groups[0].id;
+      }
+      renderAll();
+      toast(`ดาวน์โหลดสำเร็จ · ${state.data.groups.length} กลุ่ม`, 'success');
+      loadFacesFromSheet();
+    } else {
+      toast('ดาวน์โหลดไม่สำเร็จ: ' + (result.error || 'unknown'), 'error');
+    }
+  } catch(e) {
+    toast('เชื่อมต่อไม่ได้: ' + e.message, 'error');
+  }
+}
+
+/* ===========================================================
+   SETTINGS — เปลี่ยน PIN
+   =========================================================== */
+function showSettings() {
+  showModal({
+    title: 'ตั้งค่า',
+    body: `
+      <div style="margin-bottom:16px;">
+        <label style="font-size:11px; letter-spacing:0.12em; text-transform:uppercase; color:var(--gray-dark); font-weight:600; font-family:var(--font-num);">เปลี่ยน PIN 6 หลัก</label>
+        <input type="text" id="newPin" maxlength="6" pattern="[0-9]*" placeholder="PIN ใหม่"
+               style="width:100%; padding:10px 14px; margin-top:6px; border:1px solid var(--line); border-radius:8px; outline:none; font-family:var(--font-num); letter-spacing:0.3em; text-align:center; font-size:18px;"
+               oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:11px; letter-spacing:0.12em; text-transform:uppercase; color:var(--gray-dark); font-weight:600; font-family:var(--font-num);">ยืนยัน PIN</label>
+        <input type="text" id="confirmPin" maxlength="6" pattern="[0-9]*" placeholder="ยืนยัน PIN ใหม่"
+               style="width:100%; padding:10px 14px; margin-top:6px; border:1px solid var(--line); border-radius:8px; outline:none; font-family:var(--font-num); letter-spacing:0.3em; text-align:center; font-size:18px;"
+               oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+      </div>
+      <div style="padding-top:12px; border-top:1px solid var(--line); display:flex; gap:6px;">
+        <button class="btn btn--ghost btn--sm" onclick="loadFromSheet()" style="flex:1;">ดาวน์โหลดจาก Sheet</button>
+        <button class="btn btn--ghost btn--sm" onclick="exportData()" style="flex:1;">Export JSON</button>
+      </div>
+    `,
+    actions: [
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
+      { label: 'บันทึก PIN', class: 'btn--primary', onClick: () => {
+        const p1 = document.getElementById('newPin').value;
+        const p2 = document.getElementById('confirmPin').value;
+        if (p1.length !== 6) { toast('PIN ต้องเป็น 6 หลัก', 'error'); return; }
+        if (p1 !== p2) { toast('PIN ไม่ตรงกัน', 'error'); return; }
+        setPin(p1);
+        closeModal();
+        toast('เปลี่ยน PIN แล้ว', 'success');
+      }}
+    ]
+  });
+}
+
+function exportData() {
+  const blob = new Blob([JSON.stringify(state.data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `maths-bank-data-${todayStr()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('Export ข้อมูลแล้ว', 'success');
+}
+
+/* ===========================================================
+   MODAL + TOAST
+   =========================================================== */
+function showModal({ title, body, actions }) {
+  const modal = document.getElementById('modalContent');
+  modal.innerHTML = `
+    <div class="modal__title">${title}</div>
+    <div class="modal__body">${body}</div>
+    <div class="modal__actions" id="modalActions"></div>
+  `;
+  const actionsEl = document.getElementById('modalActions');
+  actions.forEach(a => {
+    const btn = document.createElement('button');
+    btn.className = 'btn ' + a.class;
+    btn.textContent = a.label;
+    btn.addEventListener('click', a.onClick);
+    actionsEl.appendChild(btn);
+  });
+  document.getElementById('modalBackdrop').classList.add('is-open');
+}
+function closeModal() {
+  document.getElementById('modalBackdrop').classList.remove('is-open');
+}
+document.getElementById('modalBackdrop').addEventListener('click', (e) => {
+  if (e.target.id === 'modalBackdrop') { stopEnrollCamera(); closeModal(); }
+});
+
+function toast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (type ? ' ' + type : '');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+/* ===========================================================
+   RENDER ALL
+   =========================================================== */
+function renderAll() {
+  renderSidebar();
+  renderMain();
+}
+
+/* ===========================================================
+   INIT
+   =========================================================== */
+function init() {
+  // ตรวจ session ว่า login แล้วหรือยัง
+  if (sessionStorage.getItem(SESSION_KEY) === '1') {
+    showApp();
+  } else {
+    // ตรวจ lock ก่อน
+    const lock = getLock();
+    if (lock.lockedUntil > Date.now()) {
+      const mins = Math.ceil((lock.lockedUntil - Date.now()) / 60000);
+      showLoginWarn(`ระบบล็อค กรุณารอ ${mins} นาที`);
+    }
+  }
+
+  // keypad
+  document.querySelectorAll('#keypad button').forEach(b => {
+    b.addEventListener('click', () => handleKeypad(b.dataset.key));
+  });
+
+  // keyboard support
+  document.addEventListener('keydown', (e) => {
+    // ถ้าอยู่ในหน้า login
+    if (document.getElementById('loginView').style.display !== 'none') {
+      if (e.key >= '0' && e.key <= '9') handleKeypad(e.key);
+      else if (e.key === 'Backspace') handleKeypad('back');
+      else if (e.key === 'Escape') { state.pin = ''; renderPinDisplay(); }
+    } else {
+      // ในหน้า app
+      if (e.key === 'Escape') closeModal();
+    }
+  });
+
+  // buttons
+  document.getElementById('btnOverview').addEventListener('click', () => {
+    state.view = 'overview';
+    renderAll();
+  });
+  document.getElementById('btnAttendance').addEventListener('click', () => {
+    state.view = 'attendance';
+    renderAll();
+  });
+  document.getElementById('btnAddGroup').addEventListener('click', addGroup);
+  document.getElementById('btnSync').addEventListener('click', () => syncToSheet(false));
+  document.getElementById('btnSettings').addEventListener('click', showSettings);
+  document.getElementById('btnLogout').addEventListener('click', logout);
+
+  // Kiosk keyboard support (when in kiosk mode)
+  document.addEventListener('keydown', (e) => {
+    if (state.view !== 'kiosk') return;
+    if (e.key >= '0' && e.key <= '9') handleKioskKeypad(e.key);
+    else if (e.key === 'Backspace') { e.preventDefault(); handleKioskKeypad('back'); }
+    else if (e.key === 'Escape') { state.view = 'attendance'; renderAll(); }
+  });
+}
+
+init();
+</script>
+</body>
+</html>

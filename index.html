@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maths Bank Tutor — ครูแบงค์ · ติวเตอร์คณิตศาสตร์ ม.4–ม.6</title>
+<meta name="description" content="คณิตศาสตร์ที่พิสูจน์ได้จากพื้นฐาน — ติวเตอร์คณิตศาสตร์ ม.4–ม.6 โดยครูแบงค์">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --bg: #FCFBF9; --bg-soft: #F5F3EF; --bg-canvas: #ECEAE6;
+  --black: #17150F; --orange: #E8571F;
+  --gray-dark: #6B675E; --gray-soft: #A8A49B;
+  --line: #D8D4CC; --line-strong: #17150F;
+  --font-thai: 'Anuphan', system-ui, sans-serif;
+  --font-num: 'Space Grotesk', system-ui, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--black); font-family: var(--font-thai); -webkit-font-smoothing: antialiased; }
+body { font-size: 16px; line-height: 1.6; }
+a { color: inherit; text-decoration: none; }
+button { font-family: inherit; cursor: pointer; border: 0; background: transparent; color: inherit; }
+.num { font-family: var(--font-num); font-feature-settings: 'tnum' 1, 'lnum' 1; }
+
+/* ===== HEADER ===== */
+.site-header {
+  background: var(--bg);
+  border-bottom: 1px solid var(--line-strong);
+  position: sticky; top: 0; z-index: 50;
+}
+.site-header__inner {
+  max-width: 1280px; margin: 0 auto;
+  padding: 14px 24px;
+  display: flex; align-items: center; gap: 16px;
+}
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand__logo {
+  width: 38px; height: 38px;
+  background: var(--black); color: var(--bg);
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-num); font-weight: 700; font-size: 16px;
+  letter-spacing: -0.04em; line-height: 1;
+  overflow: hidden; white-space: nowrap; flex-shrink: 0;
+}
+.brand__logo span { color: var(--orange); }
+.brand__name { display: flex; flex-direction: column; line-height: 1.15; }
+.brand__name b { font-weight: 700; font-size: 15px; }
+.brand__name small { font-size: 11px; color: var(--gray-dark); letter-spacing: 0.18em; text-transform: uppercase; }
+
+.site-nav { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.site-nav a {
+  padding: 8px 14px; border-radius: 999px;
+  font-size: 13px; color: var(--gray-dark); font-weight: 500;
+  transition: color .15s, background .15s;
+}
+.site-nav a:hover { color: var(--black); background: var(--bg-soft); }
+.menu-toggle { display: none; }
+
+/* ===== HERO ===== */
+.hero {
+  background: var(--bg);
+  border-bottom: 1px solid var(--line-strong);
+  padding: 80px 24px;
+  text-align: center;
+}
+.hero__inner { max-width: 880px; margin: 0 auto; }
+.hero__eyebrow {
+  font-family: var(--font-num); font-size: 11px;
+  letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--orange); font-weight: 600;
+  display: block; margin-bottom: 16px;
+}
+.hero__title {
+  font-size: clamp(32px, 5vw, 52px);
+  font-weight: 700; letter-spacing: -0.02em;
+  line-height: 1.15; margin-bottom: 20px;
+}
+.hero__title em { font-style: normal; color: var(--orange); }
+.hero__sub {
+  font-size: clamp(15px, 2vw, 18px);
+  color: var(--gray-dark); max-width: 620px; margin: 0 auto 32px;
+}
+.hero__cta { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 12px 22px; border-radius: 999px;
+  font-size: 14px; font-weight: 600;
+  transition: all .15s; white-space: nowrap;
+  border: 1px solid transparent;
+}
+.btn--primary { background: var(--black); color: var(--bg); }
+.btn--primary:hover { background: var(--orange); }
+.btn--ghost { background: var(--bg); color: var(--black); border-color: var(--line-strong); }
+.btn--ghost:hover { background: var(--bg-soft); }
+
+/* ===== SECTION ===== */
+section { padding: 80px 24px; border-bottom: 1px solid var(--line); }
+.section__inner { max-width: 1280px; margin: 0 auto; }
+.section__head { text-align: center; margin-bottom: 48px; }
+.section__eyebrow {
+  font-family: var(--font-num); font-size: 11px;
+  letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--orange); font-weight: 600;
+  display: block; margin-bottom: 10px;
+}
+.section__title {
+  font-size: clamp(24px, 3.5vw, 36px); font-weight: 700;
+  letter-spacing: -0.01em; margin-bottom: 12px;
+}
+.section__sub { color: var(--gray-dark); max-width: 600px; margin: 0 auto; }
+
+/* ===== TEACHING STYLE ===== */
+.style-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px;
+}
+.style-card {
+  background: var(--bg-soft); border: 1px solid var(--line);
+  border-radius: 18px; padding: 28px 22px;
+}
+.style-card__num {
+  font-family: var(--font-num); font-size: 36px; font-weight: 700;
+  color: var(--orange); line-height: 1; margin-bottom: 14px;
+}
+.style-card__title { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+.style-card__desc { font-size: 14px; color: var(--gray-dark); line-height: 1.55; }
+
+/* ===== LEVELS ===== */
+.levels-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px;
+}
+.level-card {
+  background: var(--bg); border: 1px solid var(--line);
+  border-radius: 18px; padding: 32px 28px;
+  transition: transform .15s, box-shadow .15s;
+}
+.level-card:hover { transform: translateY(-3px); box-shadow: 0 12px 28px -16px rgba(23,21,15,.18); }
+.level-card--accent { background: var(--orange); color: var(--bg); border-color: var(--orange); }
+.level-card__badge {
+  display: inline-block; padding: 4px 12px;
+  border-radius: 999px; font-family: var(--font-num); font-size: 12px; font-weight: 600;
+  background: var(--bg-soft); color: var(--black);
+  border: 1px solid var(--line); margin-bottom: 16px;
+}
+.level-card--accent .level-card__badge { background: rgba(255,255,255,.2); color: var(--bg); border-color: rgba(255,255,255,.3); }
+.level-card__title { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+.level-card__desc { font-size: 14px; color: var(--gray-dark); margin-bottom: 18px; }
+.level-card--accent .level-card__desc { color: rgba(255,255,255,.85); }
+.level-card__topics { font-size: 13px; line-height: 1.8; }
+.level-card__topics b { display: block; margin-bottom: 4px; font-weight: 600; }
+
+/* ===== VIRTUAL CLASSROOM ===== */
+.vc-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 32px;
+  align-items: center;
+}
+.vc-list { display: flex; flex-direction: column; gap: 18px; }
+.vc-item {
+  display: flex; gap: 16px; align-items: flex-start;
+}
+.vc-item__num {
+  width: 40px; height: 40px;
+  background: var(--black); color: var(--bg);
+  border-radius: 10px;
+  display: grid; place-items: center;
+  font-family: var(--font-num); font-weight: 700; font-size: 16px;
+  flex-shrink: 0;
+}
+.vc-item__title { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
+.vc-item__desc { font-size: 14px; color: var(--gray-dark); }
+.vc-visual {
+  background: var(--bg-soft); border: 1px solid var(--line);
+  border-radius: 18px; padding: 32px;
+  text-align: center;
+}
+.vc-visual__icon {
+  width: 80px; height: 80px;
+  background: var(--orange); color: var(--bg);
+  border-radius: 18px;
+  display: inline-grid; place-items: center;
+  margin-bottom: 16px;
+}
+
+/* ===== FREE LESSONS ===== */
+.lessons-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px;
+}
+.lesson-card {
+  background: var(--bg); border: 1px solid var(--line);
+  border-radius: 18px; overflow: hidden;
+  transition: transform .15s, box-shadow .15s;
+}
+.lesson-card:hover { transform: translateY(-3px); box-shadow: 0 12px 28px -16px rgba(23,21,15,.18); }
+.lesson-card__thumb {
+  aspect-ratio: 16/9;
+  background: var(--black); position: relative;
+  display: grid; place-items: center;
+  color: var(--bg);
+}
+.lesson-card__thumb::before {
+  content: ''; width: 0; height: 0;
+  border-left: 18px solid var(--orange);
+  border-top: 12px solid transparent;
+  border-bottom: 12px solid transparent;
+  margin-left: 6px;
+}
+.lesson-card__body { padding: 18px 20px; }
+.lesson-card__title { font-size: 15px; font-weight: 600; margin-bottom: 6px; line-height: 1.4; }
+.lesson-card__meta { font-size: 12px; color: var(--gray-dark); }
+
+/* ===== DASHBOARD CTA ===== */
+.cta-section {
+  background: var(--black); color: var(--bg);
+  text-align: center; padding: 80px 24px;
+}
+.cta-section .section__eyebrow { color: var(--orange); }
+.cta-section .section__title { color: var(--bg); }
+.cta-section .section__sub { color: var(--gray-soft); }
+.cta-section .btn--primary { background: var(--orange); color: var(--bg); }
+.cta-section .btn--primary:hover { background: var(--bg); color: var(--black); }
+.cta-section .btn--ghost { background: transparent; color: var(--bg); border-color: var(--gray-soft); }
+
+/* ===== STUDENT VOICES ===== */
+.voices-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px;
+}
+.voice-card {
+  background: var(--bg-soft); border: 1px solid var(--line);
+  border-radius: 18px; padding: 28px;
+}
+.voice-card__quote {
+  font-size: 15px; line-height: 1.6; margin-bottom: 18px;
+  position: relative; padding-left: 18px;
+}
+.voice-card__quote::before {
+  content: '"'; position: absolute; left: 0; top: -8px;
+  font-family: var(--font-num); font-size: 36px; color: var(--orange);
+  line-height: 1;
+}
+.voice-card__author { display: flex; align-items: center; gap: 10px; }
+.voice-card__avatar {
+  width: 36px; height: 36px;
+  background: var(--black); color: var(--bg);
+  border-radius: 50%; display: grid; place-items: center;
+  font-family: var(--font-num); font-weight: 700; font-size: 14px;
+}
+.voice-card__name { font-weight: 600; font-size: 14px; }
+.voice-card__meta { font-size: 12px; color: var(--gray-dark); }
+
+/* ===== GET STARTED ===== */
+.contact-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
+  max-width: 760px; margin: 0 auto;
+}
+.contact-card {
+  background: var(--bg-soft); border: 1px solid var(--line);
+  border-radius: 18px; padding: 28px;
+  display: flex; flex-direction: column; gap: 8px;
+  text-align: center;
+}
+.contact-card__icon {
+  width: 56px; height: 56px;
+  background: var(--orange); color: var(--bg);
+  border-radius: 14px;
+  display: inline-grid; place-items: center;
+  margin: 0 auto 8px;
+}
+.contact-card__title { font-size: 16px; font-weight: 700; }
+.contact-card__value { font-size: 14px; color: var(--gray-dark); }
+.contact-card__value b { font-family: var(--font-num); color: var(--black); }
+
+/* ===== FOOTER ===== */
+.site-footer {
+  background: var(--black); color: var(--gray-soft);
+  padding: 40px 24px 24px;
+}
+.site-footer__inner {
+  max-width: 1280px; margin: 0 auto;
+  display: flex; justify-content: space-between; align-items: center; gap: 20px;
+  flex-wrap: wrap;
+}
+.site-footer__brand { display: flex; align-items: center; gap: 10px; }
+.site-footer__links { display: flex; gap: 18px; font-size: 13px; }
+.site-footer__links a:hover { color: var(--orange); }
+.site-footer__copy { font-size: 11px; color: var(--gray-soft); margin-top: 16px; opacity: 0.6; }
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 900px) {
+  .style-grid, .levels-grid, .lessons-grid, .voices-grid { grid-template-columns: 1fr; }
+  .vc-grid { grid-template-columns: 1fr; }
+  .contact-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .site-nav { display: none; }
+  .menu-toggle {
+    display: block; margin-left: auto;
+    width: 40px; height: 40px;
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    display: grid; place-items: center;
+  }
+  .hero { padding: 56px 20px; }
+  section { padding: 56px 20px; }
+  .cta-section { padding: 56px 20px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ============== HEADER ============== -->
+<header class="site-header">
+  <div class="site-header__inner">
+    <a href="index.html" class="brand">
+      <div class="brand__logo">M<span>B</span></div>
+      <div class="brand__name">
+        <b>Maths Bank Tutor</b>
+        <small>ครูแบงค์ · ติวเตอร์</small>
+      </div>
+    </a>
+    <nav class="site-nav">
+      <a href="#teaching">Teaching Style</a>
+      <a href="#levels">Levels</a>
+      <a href="#classroom">Classroom</a>
+      <a href="#lessons">Free Lessons</a>
+      <a href="dashboard.html">Dashboard</a>
+      <a href="teacher-dashboard.html">Teacher</a>
+    </nav>
+    <button class="menu-toggle" aria-label="เมนู">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ============== HERO ============== -->
+<section class="hero">
+  <div class="hero__inner">
+    <span class="hero__eyebrow">Maths Bank Tutor · ครูแบงค์</span>
+    <h1 class="hero__title">คณิตศาสตร์ที่<em>พิสูจน์ได้</em><br>จากพื้นฐาน</h1>
+    <p class="hero__sub">ติวเตอร์คณิตศาสตร์ ม.4–ม.6 ที่สอนให้เข้าใจตั้งแต่รากฐาน พิสูจน์ทุกสูตร มองปัญหาได้หลายมุม และเรียนได้สนุกในบรรยากาศเฮฮา</p>
+    <div class="hero__cta">
+      <a href="#get-started" class="btn btn--primary">เริ่มเรียนกับครูแบงค์</a>
+      <a href="#lessons" class="btn btn--ghost">ดูคลิปฟรี</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============== TEACHING STYLE ============== -->
+<section id="teaching">
+  <div class="section__inner">
+    <div class="section__head">
+      <span class="section__eyebrow">Teaching Style</span>
+      <h2 class="section__title">สไตล์การสอนของครูแบงค์</h2>
+      <p class="section__sub">4 หลักการที่ทำให้คณิตศาสตร์ไม่ใช่เรื่องน่ากลัว</p>
+    </div>
+    <div class="style-grid">
+      <div class="style-card">
+        <div class="style-card__num">01</div>
+        <div class="style-card__title">เข้มข้น</div>
+        <p class="style-card__desc">สอนเนื้อหาแน่น ท้าทาย ไม่มาเล่น ๆ แต่ละคาบคุ้มค่าทุกนาที</p>
+      </div>
+      <div class="style-card">
+        <div class="style-card__num">02</div>
+        <div class="style-card__title">พิสูจน์</div>
+        <p class="style-card__desc">ไม่ใช่แค่สอนสูตร — พิสูจน์ทุกสูตรให้เห็นภาพ เข้าใจตั้งแต่รากฐาน</p>
+      </div>
+      <div class="style-card">
+        <div class="style-card__num">03</div>
+        <div class="style-card__title">หลายมุม</div>
+        <p class="style-card__desc">มองได้หลายมุม บางข้อมีทริคลัด — สอนให้เลือกวิธีที่เข้าใจง่ายที่สุด</p>
+      </div>
+      <div class="style-card">
+        <div class="style-card__num">04</div>
+        <div class="style-card__title">เฮฮา</div>
+        <p class="style-card__desc">เรียนสนุก เฮฮา ไม่เครียด — เพราะความสนุกคือกุญแจสู่การเรียนรู้</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== LEVELS ============== -->
+<section id="levels" style="background: var(--bg-soft);">
+  <div class="section__inner">
+    <div class="section__head">
+      <span class="section__eyebrow">Levels</span>
+      <h2 class="section__title">ระดับชั้นที่สอน</h2>
+      <p class="section__sub">ครอบคลุมหลักสูตร ม.ปลาย ทุกชั้นปี</p>
+    </div>
+    <div class="levels-grid">
+      <div class="level-card">
+        <span class="level-card__badge">ม.4</span>
+        <div class="level-card__title">มัธยมศึกษาปีที่ 4</div>
+        <p class="level-card__desc">วางรากฐานคณิตศาสตร์ ม.ปลาย ให้แน่น</p>
+        <div class="level-card__topics">
+          <b>เนื้อหา:</b>
+          จำนวนจริง · พหุนาม · อสมการ · ฟังก์ชัน · ฟังก์ชัน指数
+        </div>
+      </div>
+      <div class="level-card">
+        <span class="level-card__badge">ม.5</span>
+        <div class="level-card__title">มัธยมศึกษาปีที่ 5</div>
+        <p class="level-card__desc">ยกระดับความเข้มข้น เตรียมสู่ ม.6</p>
+        <div class="level-card__topics">
+          <b>เนื้อหา:</b>
+          ตรีโกณมิติ · เซต · ตรรกศาสตร์ · ความน่าจะเป็น · สถิติ
+        </div>
+      </div>
+      <div class="level-card level-card--accent">
+        <span class="level-card__badge">ม.6 · ล่าสุด</span>
+        <div class="level-card__title">มัธยมศึกษาปีที่ 6</div>
+        <p class="level-card__desc">เข้มข้นที่สุด — เตรียมสอบเข้ามหาวิทยาลัย</p>
+        <div class="level-card__topics">
+          <b>เนื้อหา:</b>
+          แคลคูลัส · จำนวนเชิงซ้อน · เรขาคณิตวิเคราะห์ · ภาคตัดกรวย
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== VIRTUAL CLASSROOM ============== -->
+<section id="classroom">
+  <div class="section__inner">
+    <div class="section__head">
+      <span class="section__eyebrow">Virtual Classroom</span>
+      <h2 class="section__title">ห้องเรียนออนไลน์ของครูแบงค์</h2>
+      <p class="section__sub">ระบบที่พัฒนาเพื่อนักเรียนโดยเฉพาะ</p>
+    </div>
+    <div class="vc-grid">
+      <div class="vc-list">
+        <div class="vc-item">
+          <div class="vc-item__num">1</div>
+          <div>
+            <div class="vc-item__title">Live Board เรียนเหมือนในห้อง</div>
+            <p class="vc-item__desc">กระดานเขียนแบบเรียลไทม์ เห็นทุกตัวเขียนของครูชัดเจน</p>
+          </div>
+        </div>
+        <div class="vc-item">
+          <div class="vc-item__num">2</div>
+          <div>
+            <div class="vc-item__title">แบบฝึกหัดหลังเรียน</div>
+            <p class="vc-item__desc">ฝึกทันทีหลังเรียน พร้อมเฉลยวิดีโอทุกข้อ</p>
+          </div>
+        </div>
+        <div class="vc-item">
+          <div class="vc-item__num">3</div>
+          <div>
+            <div class="vc-item__title">Dashboard ติดตามความก้าวหน้า</div>
+            <p class="vc-item__desc">ดูคะแนน อันดับ จุดต้องแก้ พัฒนาการทุกรอบ</p>
+          </div>
+        </div>
+        <div class="vc-item">
+          <div class="vc-item__num">4</div>
+          <div>
+            <div class="vc-item__title">รายงานผู้ปกครอง 5 สไตล์</div>
+            <p class="vc-item__desc">นกอินทรี · โลมา · ช้าง · นกฮูก · ผึ้ง — เลือกแบบที่เหมาะกับครอบครัว</p>
+          </div>
+        </div>
+      </div>
+      <div class="vc-visual">
+        <div class="vc-visual__icon">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </div>
+        <h3 style="font-size: 20px; font-weight: 700; margin-bottom: 8px;">เรียนได้ทุกที่ทุกเวลา</h3>
+        <p style="font-size: 14px; color: var(--gray-dark);">เปิดเว็บ ล็อกอิน แล้วเรียนได้เลย</p>
+        <a href="dashboard.html" class="btn btn--primary" style="margin-top: 16px;">เข้า Dashboard นักเรียน</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== FREE LESSONS ============== -->
+<section id="lessons" style="background: var(--bg-soft);">
+  <div class="section__inner">
+    <div class="section__head">
+      <span class="section__eyebrow">Free Lessons</span>
+      <h2 class="section__title">คลิปเรียนฟรี</h2>
+      <p class="section__sub">ลองดูสไตล์การสอนของครูแบงค์ก่อนตัดสินใจ</p>
+    </div>
+    <div class="lessons-grid">
+      <a href="https://www.youtube.com/@mathsbanktutor5848" target="_blank" class="lesson-card">
+        <div class="lesson-card__thumb"></div>
+        <div class="lesson-card__body">
+          <div class="lesson-card__title">พื้นฐานฟังก์ชัน ที่ควรรู้ก่อนขึ้น ม.4</div>
+          <div class="lesson-card__meta">YouTube · 15 นาที</div>
+        </div>
+      </a>
+      <a href="https://www.youtube.com/@mathsbanktutor5848" target="_blank" class="lesson-card">
+        <div class="lesson-card__thumb"></div>
+        <div class="lesson-card__body">
+          <div class="lesson-card__title">ตรีโกณมิติ 101 — เริ่มจากศูนย์</div>
+          <div class="lesson-card__meta">YouTube · 22 นาที</div>
+        </div>
+      </a>
+      <a href="https://www.youtube.com/@mathsbanktutor5848" target="_blank" class="lesson-card">
+        <div class="lesson-card__thumb"></div>
+        <div class="lesson-card__body">
+          <div class="lesson-card__title">แคลคูลัส — ลิมิตเบื้องต้น</div>
+          <div class="lesson-card__meta">YouTube · 28 นาที</div>
+        </div>
+      </a>
+    </div>
+    <div style="text-align: center; margin-top: 32px;">
+      <a href="https://www.youtube.com/@mathsbanktutor5848" target="_blank" class="btn btn--ghost">ดูคลิปทั้งหมดใน YouTube →</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============== DASHBOARD CTA ============== -->
+<section class="cta-section">
+  <div class="section__inner">
+    <div class="section__head">
+      <span class="section__eyebrow">Student Dashboard</span>
+      <h2 class="section__title">นักเรียนมี Dashboard ของตัวเอง</h2>
+      <p class="section__sub">ล็อกอินด้วย PIN 6 หลัก — ดูคะแนน อันดับ จุดต้องแก้ และรายงานผู้ปกครอง</p>
+    </div>
+    <div class="hero__cta">
+      <a href="dashboard.html" class="btn btn--primary">เข้า Dashboard นักเรียน</a>
+      <a href="parent.html" class="btn btn--ghost">ดูตัวอย่างรายงานผู้ปกครอง</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============== STUDENT VOICES ============== -->
+<section id="voices">
+  <div class="section__inner">
+    <div class="section__head">
+      <span class="section__eyebrow">Student Voices</span>
+      <h2 class="section__title">เสียงจากนักเรียน</h2>
+      <p class="section__sub">รีวิวจากนักเรียนที่เรียนกับครูแบงค์</p>
+    </div>
+    <div class="voices-grid">
+      <div class="voice-card">
+        <p class="voice-card__quote">เรียนกับครูแบงค์แล้วเข้าใจคณิตศาสตร์จริง ๆ ไม่ใช่แค่ทำตามสูตร — แต่รู้ว่าทำไมต้องทำแบบนี้</p>
+        <div class="voice-card__author">
+          <div class="voice-card__avatar">A</div>
+          <div>
+            <div class="voice-card__name">นักเรียน ม.5</div>
+            <div class="voice-card__meta">เรียนมา 3 เทอม</div>
+          </div>
+        </div>
+      </div>
+      <div class="voice-card">
+        <p class="voice-card__quote">คะแนนขึ้นจาก 30 เป็น 75 ใน 1 เทอม — ครูสอนเข้าใจง่าย และให้แบบฝึกหัดที่ท้าทายพอดี</p>
+        <div class="voice-card__author">
+          <div class="voice-card__avatar">B</div>
+          <div>
+            <div class="voice-card__name">นักเรียน ม.6</div>
+            <div class="voice-card__meta">เตรียมสอบเข้ามหาวิทยาลัย</div>
+          </div>
+        </div>
+      </div>
+      <div class="voice-card">
+        <p class="voice-card__quote">ชอบที่ครูพิสูจน์ทุกสูตร ทำให้จำได้โดยไม่ต้องท่อง — Dashboard ก็ช่วยให้เห็นพัฒนาการชัดเจน</p>
+        <div class="voice-card__author">
+          <div class="voice-card__avatar">C</div>
+          <div>
+            <div class="voice-card__name">นักเรียน ม.4</div>
+            <div class="voice-card__meta">เพิ่งเริ่มเรียน</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== GET STARTED ============== -->
+<section id="get-started" style="background: var(--bg-soft);">
+  <div class="section__inner">
+    <div class="section__head">
+      <span class="section__eyebrow">Get Started</span>
+      <h2 class="section__title">เริ่มเรียนกับครูแบงค์</h2>
+      <p class="section__sub">ติดต่อสอบถามหรือจองคิวเรียนได้ทันที</p>
+    </div>
+    <div class="contact-grid">
+      <a href="https://line.me/ti/p/~mathsbanktutor" target="_blank" class="contact-card">
+        <div class="contact-card__icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 5.94 2 10.8c0 2.74 1.49 5.18 3.82 6.81L5 22l4.55-2.4c.79.18 1.62.27 2.45.27 5.52 0 10-3.94 10-8.8S17.52 2 12 2z"/></svg>
+        </div>
+        <div class="contact-card__title">LINE Official</div>
+        <div class="contact-card__value"><b>mathsbanktutor</b></div>
+      </a>
+      <a href="tel:081-907-0255" class="contact-card">
+        <div class="contact-card__icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        </div>
+        <div class="contact-card__title">โทรศัพท์</div>
+        <div class="contact-card__value"><b>081-907-0255</b></div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ============== FOOTER ============== -->
+<footer class="site-footer">
+  <div class="site-footer__inner">
+    <div class="site-footer__brand">
+      <div class="brand__logo">M<span>B</span></div>
+      <div>
+        <div style="font-weight: 700; color: var(--bg);">Maths Bank Tutor</div>
+        <div style="font-size: 12px;">ครูแบงค์ · ติวเตอร์คณิตศาสตร์ ม.4–ม.6</div>
+      </div>
+    </div>
+    <div class="site-footer__links">
+      <a href="https://www.youtube.com/@mathsbanktutor5848" target="_blank">YouTube</a>
+      <a href="https://www.instagram.com/kungchin_bank/" target="_blank">Instagram</a>
+      <a href="https://line.me/ti/p/~mathsbanktutor" target="_blank">LINE</a>
+      <a href="dashboard.html">Dashboard</a>
+      <a href="teacher-dashboard.html">Teacher</a>
+    </div>
+  </div>
+  <div class="site-footer__inner">
+    <div class="site-footer__copy">© 2026 Maths Bank Tutor · ครูแบงค์ · สงวนลิขสิทธิ์</div>
+  </div>
+</footer>
+
+<script>
+// Mobile menu toggle
+document.querySelector('.menu-toggle')?.addEventListener('click', () => {
+  const nav = document.querySelector('.site-nav');
+  if (nav.style.display === 'flex') {
+    nav.style.display = '';
+  } else {
+    nav.style.display = 'flex';
+    nav.style.position = 'absolute';
+    nav.style.top = '100%';
+    nav.style.left = '0';
+    nav.style.right = '0';
+    nav.style.flexDirection = 'column';
+    nav.style.background = 'var(--bg)';
+    nav.style.padding = '16px 24px';
+    nav.style.borderBottom = '1px solid var(--line-strong)';
+  }
+});
+</script>
+</body>
+</html>
