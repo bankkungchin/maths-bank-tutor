@@ -1,2761 +1,1380 @@
 <!DOCTYPE html>
-
 <html lang="th">
-
 <head>
-
 <meta charset="UTF-8">
-
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
-
 <title>เช็คชื่อเข้าเรียน — Maths Bank Tutor</title>
-
 <meta name="description" content="หน้าเช็คชื่อสำหรับนักเรียน">
 
- 
-
 <link rel="preconnect" href="https://fonts.googleapis.com">
-
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-
 <link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 
- 
-
 <style>
-
 /* ===========================================================
-
    DESIGN SYSTEM — Maths Bank Tutor
-
    =========================================================== */
-
 :root {
-
   --bg:           #FCFBF9;
-
   --bg-soft:      #F5F3EF;
-
   --bg-canvas:    #ECEAE6;
-
   --black:        #17150F;
-
   --orange:       #E8571F;
-
   --gray-dark:    #6B675E;
-
   --gray-soft:    #A8A49B;
-
   --line:         #D8D4CC;
-
   --line-strong:  #17150F;
-
   --danger:       #B83C0A;
-
   --danger-bg:    #FFF1E8;
-
   --success:      #2D6A4F;
-
   --success-bg:   #E8F3EE;
 
- 
-
   --radius-pill:  999px;
-
   --radius-card:  18px;
-
   --radius-sm:    10px;
 
- 
-
   --shadow-card:  0 1px 0 rgba(23,21,15,.04), 0 12px 28px -16px rgba(23,21,15,.18);
-
   --shadow-pop:   0 24px 60px -20px rgba(23,21,15,.40);
 
- 
-
   --font-thai:    'Anuphan', system-ui, sans-serif;
-
   --font-num:     'Space Grotesk', system-ui, sans-serif;
-
 }
-
- 
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-
 html, body { background: var(--bg-canvas); color: var(--black); font-family: var(--font-thai); -webkit-font-smoothing: antialiased; }
-
 body { font-size: 16px; line-height: 1.55; min-height: 100vh; }
-
 a { color: inherit; text-decoration: none; }
-
 button { font-family: inherit; cursor: pointer; border: 0; background: transparent; color: inherit; }
-
 input, select { font-family: inherit; font-size: 16px; color: var(--black); }
-
 .num { font-family: var(--font-num); font-feature-settings: 'tnum' 1, 'lnum' 1; }
 
- 
-
 /* ===========================================================
-
    LAYOUT
-
    =========================================================== */
-
 .wrap {
-
   min-height: 100vh;
-
   display: flex; flex-direction: column;
-
   padding: 16px;
-
   max-width: 520px; margin: 0 auto;
-
 }
-
- 
 
 .app-header {
-
   text-align: center;
-
   padding: 16px 0 24px;
-
 }
-
 .app-logo {
-
   width: 56px; height: 56px;
-
   background: var(--black); color: var(--bg);
-
   border-radius: 14px;
-
   display: inline-flex; align-items: center; justify-content: center;
-
   font-family: var(--font-num); font-weight: 700; font-size: 22px;
-
   letter-spacing: -0.04em; line-height: 1;
-
   margin-bottom: 12px;
-
 }
-
 .app-logo span { color: var(--orange); }
-
 .app-title { font-size: 20px; font-weight: 700; }
-
 .app-sub { color: var(--gray-dark); font-size: 13px; margin-top: 4px; }
-
- 
 
 .app-body { flex: 1; }
 
- 
-
 /* ===========================================================
-
    STEP 1 — Enter check-in code
-
    =========================================================== */
-
 .card {
-
   background: var(--bg);
-
   border: 1px solid var(--line);
-
   border-radius: var(--radius-card);
-
   padding: 24px 20px;
-
   margin-bottom: 16px;
-
   box-shadow: var(--shadow-card);
-
 }
-
- 
 
 .card__label {
-
   font-family: var(--font-num); font-size: 11px;
-
   letter-spacing: 0.18em; text-transform: uppercase;
-
   color: var(--orange); font-weight: 600;
-
   display: block; margin-bottom: 8px;
-
 }
-
 .card__title { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
-
 .card__hint { font-size: 13px; color: var(--gray-dark); margin-bottom: 20px; }
 
- 
-
 .code-input-display {
-
   display: flex; gap: 8px; justify-content: center;
-
   margin: 20px 0;
-
 }
-
 .code-dot {
-
   width: 48px; height: 60px;
-
   border: 2px solid var(--line-strong);
-
   border-radius: 10px;
-
   display: flex; align-items: center; justify-content: center;
-
   font-family: var(--font-num); font-size: 24px; font-weight: 600;
-
   background: var(--bg);
-
 }
-
 .code-dot.filled { border-color: var(--black); background: var(--bg-soft); }
-
 .code-dot.success { border-color: var(--success); background: var(--success-bg); color: var(--success); }
-
 .code-dot.error   { border-color: var(--danger); background: var(--danger-bg); color: var(--danger); animation: shake .3s; }
 
- 
-
 @keyframes shake {
-
   0%,100% { transform: translateX(0); }
-
   25% { transform: translateX(-4px); }
-
   75% { transform: translateX(4px); }
-
 }
-
- 
 
 /* keypad (shared style) */
-
 .keypad {
-
   display: grid; grid-template-columns: repeat(3, 1fr);
-
   gap: 8px; max-width: 320px; margin: 0 auto;
-
 }
-
 .keypad button {
-
   background: var(--bg-soft); border: 1px solid var(--line);
-
   border-radius: 12px;
-
   padding: 18px 0; font-size: 20px; font-weight: 600;
-
   font-family: var(--font-num);
-
   transition: all .12s;
-
 }
-
 .keypad button:hover { background: var(--bg-canvas); border-color: var(--line-strong); }
-
 .keypad button:active { transform: scale(.96); }
-
 .keypad button.clear { color: var(--danger); }
-
 .keypad button.back { color: var(--gray-dark); }
 
- 
-
 /* ===========================================================
-
    STATUS MESSAGE
-
    =========================================================== */
-
 .status-msg {
-
   text-align: center;
-
   padding: 14px;
-
   border-radius: 12px;
-
   margin-top: 16px;
-
   font-size: 14px; font-weight: 500;
-
   display: none;
-
 }
-
 .status-msg.show { display: block; }
-
 .status-msg.success { background: var(--success-bg); color: var(--success); }
-
 .status-msg.error { background: var(--danger-bg); color: var(--danger); }
-
 .status-msg.info { background: var(--bg-soft); color: var(--gray-dark); }
 
- 
-
 /* ===========================================================
-
    STEP 2 — Enter PIN
-
    =========================================================== */
-
 .step-indicator {
-
   display: flex; justify-content: center; gap: 6px;
-
   margin-bottom: 16px;
-
 }
-
 .step-dot {
-
   width: 8px; height: 8px; border-radius: 50%;
-
   background: var(--line);
-
 }
-
 .step-dot.active { background: var(--orange); }
-
 .step-dot.done { background: var(--success); }
 
- 
-
 /* ===========================================================
-
    SUCCESS SCREEN
-
    =========================================================== */
-
 .success-screen {
-
   text-align: center;
-
   padding: 32px 20px 20px;
-
 }
-
 .success-icon {
-
   width: 80px; height: 80px;
-
   background: var(--success-bg); color: var(--success);
-
   border-radius: 50%;
-
   display: inline-flex; align-items: center; justify-content: center;
-
   margin-bottom: 16px;
-
 }
-
 .success-icon.late { background: #FFF6F0; color: var(--orange); }
-
 .success-name { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
-
 .success-status { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
-
 .success-status.present { color: var(--success); }
-
 .success-status.late { color: var(--orange); }
-
 .success-time { font-family: var(--font-num); font-size: 14px; color: var(--gray-dark); }
 
- 
-
 /* Note input for late students */
-
 .note-section {
-
   margin-top: 20px;
-
   padding: 16px;
-
   background: #FFF6F0;
-
   border-left: 4px solid var(--orange);
-
   border-radius: 8px;
-
   text-align: left;
-
 }
-
 .note-section__label {
-
   font-size: 13px; font-weight: 600;
-
   color: var(--orange);
-
   display: block;
-
   margin-bottom: 6px;
-
 }
-
 .note-section__hint {
-
   font-size: 11px; color: var(--gray-dark);
-
   margin-bottom: 10px;
-
 }
-
 .note-section__input {
-
   width: 100%;
-
   padding: 10px 12px;
-
   border: 1px solid var(--line);
-
   border-radius: 8px;
-
   outline: none;
-
   font-size: 14px;
-
   font-family: var(--font-thai);
-
   background: var(--bg);
-
   transition: border-color .15s;
-
 }
-
 .note-section__input:focus { border-color: var(--orange); }
-
 .note-section__presets {
-
   display: flex; flex-wrap: wrap; gap: 6px;
-
   margin-top: 8px;
-
 }
-
 .note-section__preset {
-
   padding: 6px 12px;
-
   background: var(--bg);
-
   border: 1px solid var(--line);
-
   border-radius: var(--radius-pill);
-
   font-size: 12px;
-
   color: var(--gray-dark);
-
   cursor: pointer;
-
   transition: all .12s;
-
 }
-
 .note-section__preset:hover {
-
   background: var(--orange);
-
   color: var(--bg);
-
   border-color: var(--orange);
-
 }
-
 .note-section__preset.is-active {
-
   background: var(--orange);
-
   color: var(--bg);
-
   border-color: var(--orange);
-
 }
-
 .note-section__saved {
-
   margin-top: 8px;
-
   font-size: 11px;
-
   color: var(--success);
-
   display: none;
-
 }
-
 .note-section__saved.show { display: block; }
 
- 
-
 /* ===========================================================
-
    BUTTONS
-
    =========================================================== */
-
 .btn {
-
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-
   padding: 12px 18px; border-radius: 12px;
-
   font-size: 15px; font-weight: 600; font-family: var(--font-thai);
-
   transition: all .12s; border: 1px solid transparent;
-
 }
-
 .btn:active { transform: scale(.98); }
-
 .btn--primary { background: var(--black); color: var(--bg); }
-
 .btn--ghost { background: var(--bg); border-color: var(--line); color: var(--black); }
-
 .btn--ghost:hover { border-color: var(--line-strong); }
-
 .btn--sm { padding: 9px 14px; font-size: 13px; }
-
 .btn--leave { background: #2B6CB0; color: #fff; }
 
- 
-
 .home-choice { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
-
 .home-choice .btn { width: 100%; padding: 16px; font-size: 16px; }
 
- 
-
 .leave-option {
-
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
-
   padding: 13px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg);
-
   font-size: 15px; font-weight: 600; transition: all .12s; margin-bottom: 8px;
-
 }
-
 .leave-option small { font-weight: 400; color: var(--gray-dark); font-size: 12px; }
-
 .leave-option:hover { border-color: #2B6CB0; }
-
 .leave-option.is-active { border-color: #2B6CB0; background: #EAF2FB; }
 
- 
-
 /* ===========================================================
-
    FOOTER
-
    =========================================================== */
-
 .app-footer {
-
   text-align: center;
-
   padding: 20px 0 8px;
-
   font-size: 11px;
-
   color: var(--gray-soft);
-
 }
-
 .app-footer a { color: var(--orange); }
 
- 
-
 /* ===========================================================
-
    LOADING
-
    =========================================================== */
-
 .loading {
-
   text-align: center;
-
   padding: 40px 20px;
-
   color: var(--gray-dark);
-
 }
-
 .loading__spinner {
-
   width: 40px; height: 40px;
-
   border: 3px solid var(--line);
-
   border-top-color: var(--orange);
-
   border-radius: 50%;
-
   margin: 0 auto 12px;
-
   animation: spin 0.8s linear infinite;
-
 }
-
 @keyframes spin { to { transform: rotate(360deg); } }
 
- 
-
 /* ===========================================================
-
    RESPONSIVE
-
    =========================================================== */
-
 @media (max-width: 380px) {
-
   .code-dot { width: 40px; height: 52px; font-size: 20px; }
-
   .keypad button { padding: 16px 0; font-size: 18px; }
-
 }
-
 </style>
-
 </head>
-
 <body>
-
- 
 
 <div class="wrap">
 
- 
-
   <header class="app-header">
-
     <div class="app-logo">M<span>B</span></div>
-
     <h1 class="app-title">เช็คชื่อเข้าเรียน</h1>
-
     <p class="app-sub">Maths Bank Tutor · ครูแบงค์</p>
-
   </header>
 
- 
-
   <main class="app-body" id="appBody">
-
     <!-- Dynamic content injected here -->
-
   </main>
 
- 
-
   <footer class="app-footer">
-
     <div>© Maths Bank Tutor · ครูแบงค์</div>
-
     <div style="margin-top:4px;">LINE: <a href="#" onclick="return false">mathsbanktutor</a> · 081-907-0255</div>
-
   </footer>
-
- 
 
 </div>
 
- 
-
 <script>
-
 /* ===========================================================
-
    CONFIG
-
    =========================================================== */
-
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzh0M26XbDfjrVuUjUgn1Dr-Z209ms9UibPAxfd-YiB7oHnD-1ubzc3PNtadO7tULjm/exec';  // ← ใส่ URL ของ Google Apps Script ที่นี่ (เหมือน teacher-dashboard.html)
-
- 
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzh0M26XbDfjrVuUjUgn1Dr-Z209ms9UibPAxfd-YiB7oHnD-1ubzc3PNtadO7tULjm/exec';
 
 /* face scan (มือถือนักเรียน) — จับคู่ฝั่ง server */
-
 const FACE_CONFIG = {
-
   libUrl: 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js',
-
   modelUrl: 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights',
-
   scanIntervalMs: 1200
-
 };
 
- 
-
 /* ===========================================================
-
    STATE
-
    =========================================================== */
-
 const state = {
-
   step: 'home',         // 'home' | 'code' | 'pin' | 'success' | 'leave_pin' | 'leave_form' | 'leave_success'
-
   checkinCode: '',      // 6 หลักที่ครูให้มา
-
   pin: '',              // PIN 6 หลักของนักเรียน
-
   sessionInfo: null,    // { groupId, groupName, sessionNo, sessionDate, startTime, endTime }
-
   studentInfo: null,    // { id, name }
-
   checkinResult: null,  // { status, checkInTime, lateMinutes }
-
   leavePin: '',
-
   leaveInfo: null,      // { student, group, sessions } จาก server
-
   leaveSel: { sessionNo: null, type: null },
-
   error: null
-
 };
 
- 
-
 /* ===========================================================
-
    HELPERS
-
    =========================================================== */
-
 const THAI_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-
 const THAI_DAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัส','ศุกร์','เสาร์'];
 
- 
-
 function thDate(s) {
-
   if (!s) return '';
-
   const [y,m,d] = s.split('-').map(Number);
-
   const dt = new Date(y, m-1, d);
-
   const yy = (dt.getFullYear() + 543) % 100;
-
   return `${dt.getDate()} ${THAI_MONTHS[dt.getMonth()]} ${String(yy).padStart(2,'0')}`;
-
 }
-
 function thDateFull(s) {
-
   if (!s) return '';
-
   const [y,m,d] = s.split('-').map(Number);
-
   const dt = new Date(y, m-1, d);
-
   const yy = dt.getFullYear() + 543;
-
   return `${dt.getDate()} ${THAI_MONTHS[dt.getMonth()]} ${yy}`;
-
 }
-
 function nowTimeStr() {
-
   const d = new Date();
-
   return `${String(d.getHours()).padStart(2,'0')}.${String(d.getMinutes()).padStart(2,'0')}`;
-
 }
-
 function timeStrToMinutes(t) {
-
   if (!t) return 0;
-
   const parts = String(t).split('.');
-
   const h = parseInt(parts[0]) || 0;
-
   const m = parseInt(parts[1] || '0') || 0;
-
   return h * 60 + m;
-
 }
-
- 
 
 /* ===========================================================
-
    RENDER — STEP 1: Enter check-in code
-
    =========================================================== */
-
 function renderCodeStep() {
-
   const body = document.getElementById('appBody');
-
   const hasUrlCode = state.checkinCode.length === 6;
-
   body.innerHTML = `
-
     <div class="card">
-
       <span class="card__label">Step 1 of 2</span>
-
       <h2 class="card__title">กรอกรหัสคาบเรียน</h2>
-
       <p class="card__hint">รหัส 6 หลักที่ครูให้ไว้บนกระดาน หรือส่งใน LINE กลุ่ม</p>
 
- 
-
       <div class="step-indicator">
-
         <span class="step-dot active"></span>
-
         <span class="step-dot"></span>
-
       </div>
-
- 
 
       <div class="code-input-display" id="codeDisplay">
-
         <div class="code-dot"></div>
-
         <div class="code-dot"></div>
-
         <div class="code-dot"></div>
-
         <div class="code-dot"></div>
-
         <div class="code-dot"></div>
-
         <div class="code-dot"></div>
-
       </div>
-
- 
 
       <div class="keypad" id="codeKeypad">
-
         <button data-k="1">1</button>
-
         <button data-k="2">2</button>
-
         <button data-k="3">3</button>
-
         <button data-k="4">4</button>
-
         <button data-k="5">5</button>
-
         <button data-k="6">6</button>
-
         <button data-k="7">7</button>
-
         <button data-k="8">8</button>
-
         <button data-k="9">9</button>
-
         <button class="clear" data-k="clear">ล้าง</button>
-
         <button data-k="0">0</button>
-
         <button class="back" data-k="back">←</button>
-
       </div>
-
- 
 
       <div class="status-msg" id="codeStatus"></div>
 
- 
-
       <div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--line); text-align:center;">
-
         <div style="font-size:12px; color:var(--gray-dark); margin-bottom:8px;">หรือใช้วิธีอื่น:</div>
-
         <button class="btn btn--ghost btn--sm" style="width:100%; background: var(--bg-soft);" onclick="window.location.href='checkin.html'">
-
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><line x1="14" y1="14" x2="14" y2="21"/><line x1="18" y1="14" x2="21" y2="14"/><line x1="18" y1="18" x2="21" y2="18"/></svg>
-
           เริ่มใหม่ (ล้างรหัส)
-
         </button>
-
       </div>
-
- 
 
       <div style="margin-top:12px; font-size:11px; color:var(--gray-dark); text-align:center; line-height:1.5;">
-
         💡 <b>ทางลัด:</b> ถ้าครูส่งลิงก์มาพร้อมรหัส (เช่น <code style="background:var(--bg-soft); padding:1px 4px; border-radius:3px; font-family:var(--font-num); font-size:10px;">checkin.html?code=384721</code>)<br>
-
         ระบบจะข้าม step นี้ไปใส่ PIN เลย — ไม่ต้องพิมพ์รหัสเอง
-
       </div>
-
     </div>
-
   `;
 
- 
-
   // Wire keypad
-
   body.querySelectorAll('#codeKeypad button').forEach(b => {
-
     b.addEventListener('click', () => handleCodeKeypad(b.dataset.k));
-
   });
 
- 
-
   renderCodeDisplay();
-
 }
-
- 
 
 function renderCodeDisplay() {
-
   const dots = document.querySelectorAll('#codeDisplay .code-dot');
-
   dots.forEach((d, i) => {
-
     d.classList.remove('success', 'error');
-
     if (i < state.checkinCode.length) {
-
       d.textContent = state.checkinCode[i];
-
       d.classList.add('filled');
-
     } else {
-
       d.textContent = '';
-
       d.classList.remove('filled');
-
     }
-
   });
-
 }
-
- 
 
 function handleCodeKeypad(key) {
-
   if (key === 'clear') {
-
     state.checkinCode = '';
-
   } else if (key === 'back') {
-
     state.checkinCode = state.checkinCode.slice(0, -1);
-
   } else if (state.checkinCode.length < 6) {
-
     state.checkinCode += key;
-
     if (state.checkinCode.length === 6) {
-
       setTimeout(() => verifyCheckinCode(), 200);
-
     }
-
   }
-
   renderCodeDisplay();
-
 }
-
- 
 
 async function verifyCheckinCode() {
-
   showCodeStatus('กำลังตรวจสอบรหัส...', 'info');
 
- 
-
   if (!SCRIPT_URL) {
-
     // Demo mode — รหัส 123456 ใช้ได้
-
     setTimeout(() => {
-
       if (state.checkinCode === '123456') {
-
         state.sessionInfo = {
-
           groupId: 'm4-wed-1630',
-
           groupName: 'ม.4 วันพุธ 16.30',
-
           sessionNo: 6,
-
           sessionDate: '2026-07-15',
-
           startTime: '16.30',
-
           endTime: '19.00'
-
         };
-
         showCodeStatus('รหัสถูกต้อง ✓', 'success');
-
         setTimeout(() => {
-
           state.step = 'pin';
-
           state.pin = '';
-
           renderPinStep();
-
         }, 800);
-
       } else {
-
         showCodeStatus('รหัสไม่ถูกต้อง หรือหมดอายุแล้ว', 'error');
-
         state.checkinCode = '';
-
         setTimeout(() => {
-
           renderCodeDisplay();
-
           hideCodeStatus();
-
         }, 1500);
-
       }
-
     }, 500);
-
     return;
-
   }
-
- 
 
   try {
-
     const url = `${SCRIPT_URL}?action=lookupCheckin&code=${state.checkinCode}&t=${Date.now()}`;
-
     const res = await fetch(url);
-
     const result = await res.json();
-
     if (result.ok) {
-
       state.sessionInfo = result.session;
-
       showCodeStatus('รหัสถูกต้อง ✓', 'success');
-
       setTimeout(() => {
-
         state.step = 'pin';
-
         state.pin = '';
-
         renderPinStep();
-
       }, 800);
-
     } else {
-
       showCodeStatus(result.error || 'รหัสไม่ถูกต้อง', 'error');
-
       state.checkinCode = '';
-
       setTimeout(() => {
-
         renderCodeDisplay();
-
         hideCodeStatus();
-
       }, 1500);
-
     }
-
   } catch(e) {
-
     showCodeStatus('เชื่อมต่อไม่ได้: ' + e.message, 'error');
-
     state.checkinCode = '';
-
     setTimeout(() => {
-
       renderCodeDisplay();
-
       hideCodeStatus();
-
     }, 2000);
-
   }
-
 }
-
- 
 
 function showCodeStatus(msg, type) {
-
   const el = document.getElementById('codeStatus');
-
   el.textContent = msg;
-
   el.className = 'status-msg show ' + type;
-
 }
-
 function hideCodeStatus() {
-
   const el = document.getElementById('codeStatus');
-
   el.classList.remove('show');
-
 }
-
- 
 
 /* ===========================================================
-
    RENDER — STEP 2: Enter PIN
-
    =========================================================== */
-
 function renderPinStep() {
-
   const body = document.getElementById('appBody');
-
   const s = state.sessionInfo;
-
   body.innerHTML = `
-
     <div class="card">
-
       <span class="card__label">Step 2 of 2</span>
-
       <h2 class="card__title">กรอก PIN ของคุณ</h2>
-
       <p class="card__hint">
-
         <b>${s.groupName}</b> · คาบที่ ${s.sessionNo}<br>
-
         ${thDateFull(s.sessionDate)} · ${s.startTime}–${s.endTime} น.
-
       </p>
 
- 
-
       <div class="step-indicator">
-
         <span class="step-dot done"></span>
-
         <span class="step-dot active"></span>
-
       </div>
-
- 
 
       <div class="code-input-display" id="pinDisplay">
-
         <div class="code-dot"></div>
-
         <div class="code-dot"></div>
-
         <div class="code-dot"></div>
-
         <div class="code-dot"></div>
-
         <div class="code-dot"></div>
-
         <div class="code-dot"></div>
-
       </div>
-
- 
 
       <div class="keypad" id="pinKeypad">
-
         <button data-k="1">1</button>
-
         <button data-k="2">2</button>
-
         <button data-k="3">3</button>
-
         <button data-k="4">4</button>
-
         <button data-k="5">5</button>
-
         <button data-k="6">6</button>
-
         <button data-k="7">7</button>
-
         <button data-k="8">8</button>
-
         <button data-k="9">9</button>
-
         <button class="clear" data-k="clear">ล้าง</button>
-
         <button data-k="0">0</button>
-
         <button class="back" data-k="back">←</button>
-
       </div>
-
- 
 
       <div class="status-msg" id="pinStatus"></div>
 
- 
-
       <button class="btn btn--leave btn--sm" style="margin-top:16px; width:100%;" onclick="startFaceCheckin()">
-
         📷 เช็คชื่อด้วยการสแกนหน้าแทน
-
       </button>
-
       <button class="btn btn--ghost btn--sm" id="backToCode" style="margin-top:8px; width:100%;">
-
         ← กลับไปแก้รหัสคาบ
-
       </button>
-
     </div>
-
   `;
 
- 
-
   body.querySelectorAll('#pinKeypad button').forEach(b => {
-
     b.addEventListener('click', () => handlePinKeypad(b.dataset.k));
-
   });
-
   document.getElementById('backToCode').addEventListener('click', () => {
-
     state.step = 'code';
-
     state.checkinCode = '';
-
     state.pin = '';
-
     renderCodeStep();
-
   });
-
- 
 
   renderPinDisplay();
-
 }
-
- 
 
 function renderPinDisplay() {
-
   const dots = document.querySelectorAll('#pinDisplay .code-dot');
-
   dots.forEach((d, i) => {
-
     d.classList.remove('success', 'error');
-
     if (i < state.pin.length) {
-
       d.textContent = '•';  // ซ่อน PIN
-
       d.classList.add('filled');
-
     } else {
-
       d.textContent = '';
-
       d.classList.remove('filled');
-
     }
-
   });
-
 }
-
- 
 
 function handlePinKeypad(key) {
-
   if (key === 'clear') {
-
     state.pin = '';
-
   } else if (key === 'back') {
-
     state.pin = state.pin.slice(0, -1);
-
   } else if (state.pin.length < 6) {
-
     state.pin += key;
-
     if (state.pin.length === 6) {
-
       setTimeout(() => submitCheckin(), 200);
-
     }
-
   }
-
   renderPinDisplay();
-
 }
-
- 
 
 async function submitCheckin() {
-
   showPinStatus('กำลังบันทึกการเช็คชื่อ...', 'info');
 
- 
-
   if (!SCRIPT_URL) {
-
     // Demo mode — PIN 123456 = เต้, สาย
-
     setTimeout(() => {
-
       const demoStudents = [
-
         { id: 's1', name: 'เต้', pin: '123456' },
-
         { id: 's2', name: 'ปราง', pin: '234567' },
-
         { id: 's3', name: 'กวิน', pin: '345678' },
-
         { id: 's4', name: 'เอิร์ธ', pin: '456789' },
-
         { id: 's5', name: 'นัน', pin: '567890' }
-
       ];
-
       const found = demoStudents.find(s => s.pin === state.pin);
-
       if (found) {
-
         const checkInTime = nowTimeStr();
-
         const sessionStart = timeStrToMinutes(state.sessionInfo.startTime);
-
         const checkIn = timeStrToMinutes(checkInTime);
-
         const diff = checkIn - sessionStart;
-
         const status = diff <= 10 ? 'present' : 'late';
-
         state.studentInfo = found;
-
         state.checkinResult = {
-
           status: status,
-
           checkInTime: checkInTime,
-
           lateMinutes: diff > 0 ? diff : 0
-
         };
-
         showPinStatus('บันทึกสำเร็จ ✓', 'success');
-
         setTimeout(() => {
-
           state.step = 'success';
-
           renderSuccessScreen();
-
         }, 800);
-
       } else {
-
         showPinStatus('PIN ไม่ถูกต้อง', 'error');
-
         state.pin = '';
-
         setTimeout(() => {
-
           renderPinDisplay();
-
           hidePinStatus();
-
         }, 1500);
-
       }
-
     }, 500);
-
     return;
-
   }
-
- 
 
   try {
-
     const res = await fetch(SCRIPT_URL, {
-
       method: 'POST',
-
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-
       body: JSON.stringify({
-
         action: 'submitCheckin',
-
         checkinCode: state.checkinCode,
-
         pin: state.pin
-
       })
-
     });
-
     const result = await res.json();
-
     if (result.ok) {
-
       state.studentInfo = result.student;
-
       state.checkinResult = result.checkin;
-
       showPinStatus('บันทึกสำเร็จ ✓', 'success');
-
       setTimeout(() => {
-
         state.step = 'success';
-
         renderSuccessScreen();
-
       }, 800);
-
     } else {
-
       showPinStatus(result.error || 'เช็คชื่อไม่สำเร็จ', 'error');
-
       state.pin = '';
-
       setTimeout(() => {
-
         renderPinDisplay();
-
         hidePinStatus();
-
       }, 2000);
-
     }
-
   } catch(e) {
-
     showPinStatus('เชื่อมต่อไม่ได้: ' + e.message, 'error');
-
     state.pin = '';
-
     setTimeout(() => {
-
       renderPinDisplay();
-
       hidePinStatus();
-
     }, 2000);
-
   }
-
 }
-
- 
 
 function showPinStatus(msg, type) {
-
   const el = document.getElementById('pinStatus');
-
   el.textContent = msg;
-
   el.className = 'status-msg show ' + type;
-
 }
-
 function hidePinStatus() {
-
   const el = document.getElementById('pinStatus');
-
   el.classList.remove('show');
-
 }
-
- 
 
 /* ===========================================================
-
    RENDER — SUCCESS
-
    =========================================================== */
-
 function renderSuccessScreen() {
-
   const body = document.getElementById('appBody');
-
   const r = state.checkinResult;
-
   const s = state.sessionInfo;
-
   const isLate = r.status === 'late';
 
- 
-
   // หมายเหตุสำเร็จล่วงหน้าสำหรับนักเรียนที่สาย
-
   const presetReasons = [
-
     'รถติด',
-
     'ฝนตก',
-
     'ตื่นสาย',
-
     'ธุระส่วนตัว',
-
     'รถเสีย',
-
     'อื่น ๆ'
-
   ];
 
- 
-
   const presetsHtml = isLate ? `
-
     <div class="note-section__presets">
-
       ${presetReasons.map(reason => `<button class="note-section__preset" onclick="setNotePreset(this, '${reason.replace(/'/g, "\\'")}')">${reason}</button>`).join('')}
-
     </div>
-
   ` : '';
-
- 
 
   const noteSectionHtml = isLate ? `
-
     <div class="note-section">
-
       <label class="note-section__label">เหตุผลที่สาย (แนะนำให้ระบุ)</label>
-
       <div class="note-section__hint">ครูจะเห็นหมายเหตุนี้ในรายงาน — ช่วยให้ครูเข้าใจสถานการณ์</div>
-
       <input type="text" class="note-section__input" id="lateNote" placeholder="เช่น รถติด, ฝนตก, ตื่นสาย..." value="${r.note || ''}" oninput="onNoteInput(this.value)">
-
       ${presetsHtml}
-
       <div class="note-section__saved" id="noteSaved">✓ บันทึกหมายเหตุแล้ว</div>
-
     </div>
-
   ` : '';
 
- 
-
   body.innerHTML = `
-
     <div class="card">
-
       <div class="success-screen">
-
         <div class="success-icon ${isLate ? 'late' : ''}">
-
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-
             ${isLate
-
               ? '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'
-
               : '<polyline points="20 6 9 17 4 12"/>'
-
             }
-
           </svg>
-
         </div>
-
         <div class="success-name">${state.studentInfo.name}</div>
-
         <div class="success-status ${r.status}">${isLate ? 'สาย' : 'ตรงเวลา'}</div>
-
         <div class="success-time">เวลาเช็ค: ${r.checkInTime} น.${isLate ? ' · สาย ' + r.lateMinutes + ' นาที' : ''}</div>
 
- 
-
         <div style="margin-top:16px; padding:14px; background:var(--bg-soft); border-radius:10px; font-size:13px; color:var(--gray-dark);">
-
           <b>${s.groupName}</b><br>
-
           คาบที่ ${s.sessionNo} · ${thDateFull(s.sessionDate)}
-
         </div>
-
- 
 
         ${noteSectionHtml}
 
- 
-
         <button class="btn btn--primary" style="margin-top:16px; width:100%;" onclick="resetAll()">
-
           ${isLate ? 'บันทึกและเสร็จสิ้น' : 'เสร็จสิ้น'}
-
         </button>
-
       </div>
-
     </div>
-
   `;
-
- 
 
   // ถ้ามี note อยู่แล้ว แสดง saved
-
   if (isLate && r.note) {
-
     document.getElementById('noteSaved').classList.add('show');
-
   }
-
 }
-
- 
 
 let _noteSaveTimer = null;
-
 function onNoteInput(value) {
-
   // debounce — บันทึก 1 วินาทีหลังหยุดพิมพ์
-
   clearTimeout(_noteSaveTimer);
-
   _noteSaveTimer = setTimeout(() => saveNote(value), 1000);
-
 }
-
- 
 
 function setNotePreset(btn, reason) {
-
   const input = document.getElementById('lateNote');
-
   if (!input) return;
-
   input.value = reason;
-
   // toggle active state
-
   document.querySelectorAll('.note-section__preset').forEach(b => b.classList.remove('is-active'));
-
   if (btn && btn.classList) btn.classList.add('is-active');
-
   saveNote(reason);
-
 }
-
- 
 
 async function saveNote(note) {
-
   if (!SCRIPT_URL) {
-
     // Demo mode — ไม่บันทึกจริง แค่แสดง saved
-
     const saved = document.getElementById('noteSaved');
-
     if (saved) {
-
       saved.classList.add('show');
-
       setTimeout(() => saved.classList.remove('show'), 2000);
-
     }
-
     state.checkinResult.note = note;
-
     return;
-
   }
-
   try {
-
     const res = await fetch(SCRIPT_URL, {
-
       method: 'POST',
-
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-
       body: JSON.stringify({
-
         action: 'updateCheckinNote',
-
         checkinCode: state.checkinCode,
-
         studentId: state.studentInfo.id,
-
         note: note
-
       })
-
     });
-
     const result = await res.json();
-
     if (result.ok) {
-
       const saved = document.getElementById('noteSaved');
-
       if (saved) {
-
         saved.classList.add('show');
-
         setTimeout(() => saved.classList.remove('show'), 2000);
-
       }
-
       state.checkinResult.note = note;
-
     }
-
   } catch(e) {
-
     console.error('Save note error:', e);
-
   }
-
 }
-
- 
 
 function resetAll() {
-
   // ถ้าเป็นสายและมี note ที่ยังไม่ได้ save — save ก่อนแล้วค่อย reset
-
   const noteInput = document.getElementById('lateNote');
-
   if (noteInput && noteInput.value && noteInput.value !== state.checkinResult.note) {
-
     saveNote(noteInput.value);
-
   }
-
   state.step = 'code';
-
   state.checkinCode = '';
-
   state.pin = '';
-
   state.sessionInfo = null;
-
   state.studentInfo = null;
-
   state.checkinResult = null;
-
   renderHome();
-
 }
 
- 
-
 /* ===========================================================
-
    FACE CHECK-IN — สแกนหน้าจากมือถือนักเรียน (จับคู่ฝั่ง server)
-
    =========================================================== */
-
 let _faceApiPromise = null;
-
 let _faceStream = null;
-
 let _faceTimer = null;
-
 let _faceBusy = false;
-
 let _facePending = null;   // { student, descriptor } รอนักเรียนยืนยัน
 
- 
-
 function ensureFaceApi() {
-
   if (_faceApiPromise) return _faceApiPromise;
-
   _faceApiPromise = new Promise((resolve, reject) => {
-
     const s = document.createElement('script');
-
     s.src = FACE_CONFIG.libUrl;
-
     s.onload = async () => {
-
       try {
-
         await Promise.all([
-
           faceapi.nets.tinyFaceDetector.loadFromUri(FACE_CONFIG.modelUrl),
-
           faceapi.nets.faceLandmark68Net.loadFromUri(FACE_CONFIG.modelUrl),
-
           faceapi.nets.faceRecognitionNet.loadFromUri(FACE_CONFIG.modelUrl)
-
         ]);
-
         resolve();
-
       } catch(e) { _faceApiPromise = null; reject(e); }
-
     };
-
     s.onerror = () => { _faceApiPromise = null; reject(new Error('โหลดโมเดลไม่สำเร็จ — เช็คอินเทอร์เน็ต')); };
-
     document.head.appendChild(s);
-
   });
-
   return _faceApiPromise;
-
 }
-
- 
 
 function startFaceCheckin() {
-
   if (!SCRIPT_URL) {
-
     alert('โหมดทดลองยังไม่รองรับสแกนหน้า — ต้องเชื่อมระบบจริงก่อน');
-
     return;
-
   }
-
   state.step = 'face';
-
   renderFaceStep();
-
 }
-
- 
 
 function renderFaceStep() {
-
   const s = state.sessionInfo;
-
   const body = document.getElementById('appBody');
-
   body.innerHTML = `
-
     <div class="card">
-
       <span class="card__label" style="color:#2B6CB0;">Face Check-in</span>
-
       <h2 class="card__title">สแกนหน้าเพื่อเช็คชื่อ</h2>
-
       <p class="card__hint"><b>${s.groupName}</b> · คาบที่ ${s.sessionNo} · ${thDateFull(s.sessionDate)}</p>
 
- 
-
       <div style="position:relative; background:#000; border-radius:12px; overflow:hidden; aspect-ratio:3/4; max-width:320px; margin:0 auto;">
-
         <video id="faceVideo" autoplay muted playsinline style="width:100%; height:100%; object-fit:cover; transform:scaleX(-1);"></video>
-
       </div>
-
       <div id="faceStatus" style="text-align:center; margin-top:12px; font-size:13px; color:var(--gray-dark); min-height:20px;">กำลังโหลดโมเดล (ครั้งแรก ~6MB) + เปิดกล้อง...</div>
-
       <div id="faceConfirmBox" style="display:none; text-align:center; margin-top:12px; padding:16px; background:#EAF2FB; border-radius:12px;"></div>
 
- 
-
       <button class="btn btn--ghost btn--sm" style="margin-top:16px; width:100%;" onclick="cancelFaceCheckin()">← ใช้ PIN แทน</button>
-
     </div>
-
   `;
-
   beginFaceScan();
-
 }
-
- 
 
 async function beginFaceScan() {
-
   const st = () => document.getElementById('faceStatus');
-
   try {
-
     const results = await Promise.all([
-
       ensureFaceApi(),
-
       navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 480 } })
-
     ]);
-
     _faceStream = results[1];
-
     const video = document.getElementById('faceVideo');
-
     if (!video) { stopFaceCheckin(); return; }
-
     video.srcObject = _faceStream;
-
     if (st()) st().textContent = 'มองกล้องตรงๆ ค้างไว้...';
-
     _faceTimer = setInterval(faceTick, FACE_CONFIG.scanIntervalMs);
-
   } catch(e) {
-
     if (st()) st().textContent = 'เปิดกล้องไม่สำเร็จ: ' + e.message + ' — กดปุ่มด้านล่างเพื่อใช้ PIN';
-
   }
-
 }
-
- 
 
 async function faceTick() {
-
   if (_faceBusy || _facePending) return;
-
   const video = document.getElementById('faceVideo');
-
   if (!video || !video.srcObject) return;
-
   _faceBusy = true;
-
   const st = document.getElementById('faceStatus');
-
   try {
-
     const det = await faceapi
-
       .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
-
       .withFaceLandmarks()
-
       .withFaceDescriptor();
-
     if (det) {
-
       if (st) st.textContent = 'พบใบหน้า — กำลังจับคู่กับระบบ...';
-
       const descriptor = Array.from(det.descriptor).map(x => Math.round(x * 1000) / 1000);
-
       const res = await fetch(SCRIPT_URL, {
-
         method: 'POST',
-
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-
         body: JSON.stringify({ action: 'faceCheckin', checkinCode: state.checkinCode, descriptor: descriptor })
-
       });
-
       const result = await res.json();
-
       if (result.ok && result.needConfirm) {
-
         _facePending = { student: result.student, descriptor: descriptor, confidence: result.confidence };
-
         showFaceConfirm();
-
       } else if (!result.ok) {
-
         if (st) st.textContent = result.error || 'จับคู่ไม่ได้ — ลองใหม่';
-
       }
-
     }
-
   } catch(e) {
-
     if (st) st.textContent = 'ผิดพลาด: ' + e.message;
-
   }
-
   _faceBusy = false;
-
 }
-
- 
 
 function showFaceConfirm() {
-
   const box = document.getElementById('faceConfirmBox');
-
   const p = _facePending;
-
   if (!box || !p) return;
-
   box.style.display = '';
-
   box.innerHTML = `
-
     <div style="font-size:22px; font-weight:700;">${p.student.name}</div>
-
     <div style="font-size:12px; color:var(--gray-dark); margin:2px 0 12px;">ความมั่นใจ ~${p.confidence}% — ใช่คุณไหม?</div>
-
     <div style="display:flex; gap:8px; justify-content:center;">
-
       <button class="btn btn--primary btn--sm" onclick="confirmFaceIdentity()">✓ ใช่ ฉันเอง</button>
-
       <button class="btn btn--ghost btn--sm" onclick="rejectFaceIdentity()">ไม่ใช่</button>
-
     </div>
-
   `;
-
 }
-
- 
 
 function rejectFaceIdentity() {
-
   _facePending = null;
-
   const box = document.getElementById('faceConfirmBox');
-
   if (box) { box.style.display = 'none'; box.innerHTML = ''; }
-
   const st = document.getElementById('faceStatus');
-
   if (st) st.textContent = 'ลองสแกนใหม่ — มองกล้องตรงๆ เพิ่มแสงหน่อย';
-
 }
-
- 
 
 async function confirmFaceIdentity() {
-
   const p = _facePending;
-
   if (!p) return;
-
   const st = document.getElementById('faceStatus');
-
   if (st) st.textContent = 'กำลังบันทึกการเช็คชื่อ...';
-
   try {
-
     const res = await fetch(SCRIPT_URL, {
-
       method: 'POST',
-
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-
       body: JSON.stringify({
-
         action: 'faceCheckin',
-
         checkinCode: state.checkinCode,
-
         descriptor: p.descriptor,
-
         confirmStudentId: p.student.id
-
       })
-
     });
-
     const result = await res.json();
-
     if (result.ok) {
-
       stopFaceCheckin();
-
       state.studentInfo = result.student;
-
       state.checkinResult = result.checkin;
-
       state.step = 'success';
-
       renderSuccessScreen();
-
     } else {
-
       _facePending = null;
-
       rejectFaceIdentity();
-
       if (st) st.textContent = result.error || 'บันทึกไม่สำเร็จ — ลองใหม่';
-
     }
-
   } catch(e) {
-
     if (st) st.textContent = 'เชื่อมต่อไม่ได้: ' + e.message;
-
   }
-
 }
-
- 
 
 function stopFaceCheckin() {
-
   if (_faceTimer) { clearInterval(_faceTimer); _faceTimer = null; }
-
   if (_faceStream) { _faceStream.getTracks().forEach(tr => tr.stop()); _faceStream = null; }
-
   _facePending = null;
-
   _faceBusy = false;
-
 }
-
- 
 
 function cancelFaceCheckin() {
-
   stopFaceCheckin();
-
   state.step = 'pin';
-
   state.pin = '';
-
   renderPinStep();
-
 }
 
- 
-
 /* ===========================================================
-
    HOME — เลือกโหมด
-
    =========================================================== */
-
 function renderHome() {
-
   state.step = 'home';
-
   const body = document.getElementById('appBody');
-
   const demoBanner = !SCRIPT_URL ? `<div style="background:#FFF6E5; border:1px solid #E8B931; color:#8a6d1a; border-radius:10px; padding:10px 14px; font-size:12px; margin-bottom:14px; text-align:center;">⚠️ โหมดทดลอง — ยังไม่ได้เชื่อมระบบจริง (SCRIPT_URL ว่าง)</div>` : '';
-
   body.innerHTML = `
-
     ${demoBanner}
-
     <div class="card">
-
       <h2 class="card__title" style="text-align:center; margin-bottom:16px;">วันนี้ต้องการทำอะไร?</h2>
-
       <div class="home-choice">
-
         <button class="btn btn--primary" onclick="state.step='code'; state.checkinCode=''; renderCodeStep();">
-
           ✅ เช็คชื่อเข้าเรียน
-
         </button>
-
         <button class="btn btn--leave" onclick="startLeaveFlow()">
-
           🟦 แจ้งลา / แจ้งสายล่วงหน้า
-
         </button>
-
       </div>
-
       <p style="font-size:12px; color:var(--gray-dark); text-align:center; margin-top:14px; line-height:1.6;">
-
         เช็คชื่อ: ใช้รหัสคาบ 6 หลักจากครู<br>แจ้งลา/แจ้งสาย: ใช้ PIN ของตัวเองได้เลย ไม่ต้องมีรหัสคาบ
-
       </p>
-
     </div>
-
   `;
-
 }
-
- 
 
 /* ===========================================================
-
    LEAVE FLOW — แจ้งลา / แจ้งสายล่วงหน้า
-
    =========================================================== */
-
 function startLeaveFlow() {
-
   state.step = 'leave_pin';
-
   state.leavePin = '';
-
   state.leaveInfo = null;
-
   state.leaveSel = { sessionNo: null, type: null };
-
   renderLeavePinStep();
-
 }
-
- 
 
 function renderLeavePinStep() {
-
   const body = document.getElementById('appBody');
-
   body.innerHTML = `
-
     <div class="card">
-
       <span class="card__label" style="color:#2B6CB0;">แจ้งลา / แจ้งสาย</span>
-
       <h2 class="card__title">กรอก PIN ของคุณ</h2>
-
       <p class="card__hint">ใช้ PIN 6 หลักเดียวกับที่ใช้เช็คชื่อ</p>
 
- 
-
       <div class="code-input-display" id="leavePinDisplay">
-
         <div class="code-dot"></div><div class="code-dot"></div><div class="code-dot"></div>
-
         <div class="code-dot"></div><div class="code-dot"></div><div class="code-dot"></div>
-
       </div>
-
- 
 
       <div class="keypad" id="leavePinKeypad">
-
         <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
-
         <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
-
         <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
-
         <button class="clear" data-k="clear">ล้าง</button><button data-k="0">0</button><button class="back" data-k="back">←</button>
-
       </div>
-
- 
 
       <div class="status-msg" id="leavePinStatus"></div>
 
- 
-
       <button class="btn btn--ghost btn--sm" style="margin-top:16px; width:100%;" onclick="renderHome()">← กลับหน้าแรก</button>
-
     </div>
-
   `;
-
   body.querySelectorAll('#leavePinKeypad button').forEach(b => {
-
     b.addEventListener('click', () => handleLeavePinKeypad(b.dataset.k));
-
   });
-
   renderLeavePinDisplay();
-
 }
-
- 
 
 function renderLeavePinDisplay() {
-
   const dots = document.querySelectorAll('#leavePinDisplay .code-dot');
-
   dots.forEach((d, i) => {
-
     d.classList.remove('success', 'error');
-
     if (i < state.leavePin.length) { d.textContent = '•'; d.classList.add('filled'); }
-
     else { d.textContent = ''; d.classList.remove('filled'); }
-
   });
-
 }
-
- 
 
 function handleLeavePinKeypad(key) {
-
   if (key === 'clear') state.leavePin = '';
-
   else if (key === 'back') state.leavePin = state.leavePin.slice(0, -1);
-
   else if (state.leavePin.length < 6) {
-
     state.leavePin += key;
-
     if (state.leavePin.length === 6) setTimeout(() => fetchLeaveOptions(), 200);
-
   }
-
   renderLeavePinDisplay();
-
 }
-
- 
 
 function showLeavePinStatus(msg, type) {
-
   const el = document.getElementById('leavePinStatus');
-
   if (!el) return;
-
   el.textContent = msg;
-
   el.className = 'status-msg show ' + type;
-
 }
-
- 
 
 async function fetchLeaveOptions() {
-
   showLeavePinStatus('กำลังตรวจสอบ...', 'info');
 
- 
-
   if (!SCRIPT_URL) {
-
     // Demo mode — PIN 123456
-
     setTimeout(() => {
-
       if (state.leavePin === '123456') {
-
         state.leaveInfo = {
-
           student: { id: 's1', name: 'เต้' },
-
           group: { id: 'm4-wed-1630', name: 'ม.4 วันพุธ 16.30' },
-
           sessions: [{ no: 7, date: '2026-07-22' }, { no: 8, date: '2026-07-29' }]
-
         };
-
         renderLeaveForm();
-
       } else {
-
         showLeavePinStatus('PIN ไม่ถูกต้อง (โหมดทดลองใช้ 123456)', 'error');
-
         state.leavePin = '';
-
         setTimeout(() => renderLeavePinDisplay(), 1200);
-
       }
-
     }, 400);
-
     return;
-
   }
-
- 
 
   try {
-
     const res = await fetch(SCRIPT_URL, {
-
       method: 'POST',
-
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-
       body: JSON.stringify({ action: 'leaveOptions', pin: state.leavePin })
-
     });
-
     const result = await res.json();
-
     if (result.ok) {
-
       state.leaveInfo = result;
-
       renderLeaveForm();
-
     } else {
-
       showLeavePinStatus(result.error || 'PIN ไม่ถูกต้อง', 'error');
-
       state.leavePin = '';
-
       setTimeout(() => renderLeavePinDisplay(), 1500);
-
     }
-
   } catch(e) {
-
     showLeavePinStatus('เชื่อมต่อไม่ได้: ' + e.message, 'error');
-
     state.leavePin = '';
-
     setTimeout(() => renderLeavePinDisplay(), 2000);
-
   }
-
 }
 
- 
-
 function renderLeaveForm() {
-
   state.step = 'leave_form';
-
   const info = state.leaveInfo;
-
   const body = document.getElementById('appBody');
-
   const first = info.sessions[0];
-
   if (!state.leaveSel.sessionNo) state.leaveSel.sessionNo = first.no;
 
- 
-
   const sessionsHtml = info.sessions.map(s => `
-
     <button class="leave-option ${state.leaveSel.sessionNo === s.no ? 'is-active' : ''}" onclick="selectLeaveSession(${s.no})">
-
       📅 คาบที่ ${s.no}<small style="margin-left:auto;">${thDateFull(s.date)} · วัน${THAI_DAYS[new Date(s.date.split('-')[0], s.date.split('-')[1]-1, s.date.split('-')[2]).getDay()]}</small>
-
     </button>
-
   `).join('');
-
- 
 
   const types = [
-
     { key: 'ลาป่วย', icon: '🤒', desc: 'ไม่สบาย ไปหาหมอ ฯลฯ' },
-
     { key: 'ลากิจ', icon: '📌', desc: 'ธุระครอบครัว กิจกรรมโรงเรียน ฯลฯ' },
-
     { key: 'แจ้งสาย', icon: '⏰', desc: 'มาเรียนแต่จะถึงช้า' }
-
   ];
-
   const typesHtml = types.map(x => `
-
     <button class="leave-option ${state.leaveSel.type === x.key ? 'is-active' : ''}" onclick="selectLeaveType('${x.key}')">
-
       ${x.icon} ${x.key}<small style="margin-left:auto;">${x.desc}</small>
-
     </button>
-
   `).join('');
 
- 
-
   body.innerHTML = `
-
     <div class="card">
-
       <span class="card__label" style="color:#2B6CB0;">แจ้งลา / แจ้งสาย</span>
-
       <h2 class="card__title">${info.student.name}</h2>
-
       <p class="card__hint">${info.group.name}</p>
 
- 
-
       <div style="font-size:13px; font-weight:600; margin:14px 0 8px;">1. เลือกคาบ</div>
-
       ${sessionsHtml}
 
- 
-
       <div style="font-size:13px; font-weight:600; margin:16px 0 8px;">2. ประเภท</div>
-
       ${typesHtml}
 
- 
-
       <div style="font-size:13px; font-weight:600; margin:16px 0 8px;">3. เหตุผล (แนะนำให้ระบุ)</div>
-
       <input type="text" class="note-section__input" id="leaveReason" placeholder="เช่น ไม่สบาย, ติดกิจกรรมโรงเรียน...">
-
- 
 
       <div class="status-msg" id="leaveFormStatus"></div>
 
- 
-
       <button class="btn btn--leave" style="width:100%; margin-top:16px;" onclick="submitLeaveRequest()">ส่งการแจ้ง</button>
-
       <button class="btn btn--ghost btn--sm" style="width:100%; margin-top:8px;" onclick="startLeaveFlow()">← กลับ</button>
-
     </div>
-
   `;
-
 }
-
- 
 
 function selectLeaveSession(no) {
-
   state.leaveSel.sessionNo = no;
-
   const reason = document.getElementById('leaveReason');
-
   if (reason) state.leaveSel._reason = reason.value;
-
   renderLeaveForm();
-
   restoreLeaveReason();
-
 }
-
 function selectLeaveType(type) {
-
   state.leaveSel.type = type;
-
   const reason = document.getElementById('leaveReason');
-
   if (reason) state.leaveSel._reason = reason.value;
-
   renderLeaveForm();
-
   restoreLeaveReason();
-
 }
-
 function restoreLeaveReason() {
-
   const reason = document.getElementById('leaveReason');
-
   if (reason && state.leaveSel._reason) reason.value = state.leaveSel._reason;
-
 }
-
- 
 
 async function submitLeaveRequest() {
-
   const statusEl = document.getElementById('leaveFormStatus');
-
   const show = (msg, type) => { statusEl.textContent = msg; statusEl.className = 'status-msg show ' + type; };
-
   if (!state.leaveSel.type) { show('เลือกประเภทก่อน (ลาป่วย / ลากิจ / แจ้งสาย)', 'error'); return; }
-
   const reason = (document.getElementById('leaveReason') || {}).value || '';
-
- 
 
   show('กำลังส่ง...', 'info');
 
- 
-
   if (!SCRIPT_URL) {
-
     setTimeout(() => renderLeaveSuccess(reason), 400);
-
     return;
-
   }
-
- 
 
   try {
-
     const res = await fetch(SCRIPT_URL, {
-
       method: 'POST',
-
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-
       body: JSON.stringify({
-
         action: 'submitLeave',
-
         pin: state.leavePin,
-
         sessionNo: state.leaveSel.sessionNo,
-
         type: state.leaveSel.type,
-
         reason: reason
-
       })
-
     });
-
     const result = await res.json();
-
     if (result.ok) {
-
       renderLeaveSuccess(reason);
-
     } else {
-
       show(result.error || 'ส่งไม่สำเร็จ', 'error');
-
     }
-
   } catch(e) {
-
     show('เชื่อมต่อไม่ได้: ' + e.message, 'error');
-
   }
-
 }
-
- 
 
 function renderLeaveSuccess(reason) {
-
   state.step = 'leave_success';
-
   const info = state.leaveInfo;
-
   const sess = info.sessions.find(s => s.no === state.leaveSel.sessionNo);
-
   const body = document.getElementById('appBody');
-
   body.innerHTML = `
-
     <div class="card">
-
       <div class="success-screen">
-
         <div class="success-icon" style="background:#EAF2FB; color:#2B6CB0;">
-
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-
         </div>
-
         <div class="success-name">${info.student.name}</div>
-
         <div class="success-status" style="color:#2B6CB0;">${state.leaveSel.type} · ส่งแล้ว</div>
-
         <div class="success-time">คาบที่ ${sess.no} · ${thDateFull(sess.date)}</div>
-
         ${reason ? `<div style="margin-top:8px; font-size:13px; color:var(--gray-dark);">เหตุผล: ${reason}</div>` : ''}
-
         <div style="margin-top:16px; padding:14px; background:var(--bg-soft); border-radius:10px; font-size:13px; color:var(--gray-dark);">
-
           ครูจะเห็นการแจ้งนี้ในระบบ${state.leaveSel.type === 'แจ้งสาย' ? ' — อย่าลืมเช็คชื่อตอนถึงห้องด้วย' : ' — คาบนี้จะถูกบันทึกเป็น "ลา" ไม่ใช่ "ขาด"'}
-
         </div>
-
         <button class="btn btn--primary" style="margin-top:16px; width:100%;" onclick="renderHome()">เสร็จสิ้น</button>
-
       </div>
-
     </div>
-
   `;
-
 }
-
- 
 
 /* ===========================================================
-
    INIT
-
    =========================================================== */
-
 function init() {
-
   // ถ้า URL มี ?code=XXX → กรอกให้อัตโนมัติ
-
   const params = new URLSearchParams(window.location.search);
-
   const urlCode = params.get('code');
-
   if (urlCode && /^\d{6}$/.test(urlCode)) {
-
     state.checkinCode = urlCode;
-
     renderCodeStep();
-
     renderCodeDisplay();
-
     setTimeout(() => {
-
       // แสดงข้อความว่ากำลังใช้รหัสจาก URL
-
       const statusEl = document.getElementById('codeStatus');
-
       if (statusEl) {
-
         statusEl.textContent = 'กำลังใช้รหัสจากลิงก์...';
-
         statusEl.className = 'status-msg show info';
-
       }
-
       verifyCheckinCode();
-
     }, 300);
-
   } else {
-
     renderHome();
-
   }
 
- 
-
   // Keyboard support
-
   document.addEventListener('keydown', (e) => {
-
     if (state.step === 'code') {
-
       if (e.key >= '0' && e.key <= '9') handleCodeKeypad(e.key);
-
       else if (e.key === 'Backspace') handleCodeKeypad('back');
-
     } else if (state.step === 'pin') {
-
       if (e.key >= '0' && e.key <= '9') handlePinKeypad(e.key);
-
       else if (e.key === 'Backspace') handlePinKeypad('back');
-
     } else if (state.step === 'leave_pin') {
-
       if (e.key >= '0' && e.key <= '9') handleLeavePinKeypad(e.key);
-
       else if (e.key === 'Backspace') handleLeavePinKeypad('back');
-
     }
-
   });
-
 }
 
- 
-
 init();
-
 </script>
-
 </body>
-
 </html>
-
- 

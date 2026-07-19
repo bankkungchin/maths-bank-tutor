@@ -1,1545 +1,773 @@
 <!DOCTYPE html>
-
 <html lang="th">
-
 <head>
-
 <meta charset="UTF-8">
-
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <title>Dashboard นักเรียน — Maths Bank Tutor</title>
-
 <meta name="description" content="Dashboard นักเรียน — ดูคะแนน อันดับ จุดต้องแก้ และรายงานผู้ปกครอง">
 
- 
-
 <link rel="preconnect" href="https://fonts.googleapis.com">
-
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-
 <link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 
- 
-
 <style>
-
 :root {
-
   --bg: #FCFBF9; --bg-soft: #F5F3EF; --bg-canvas: #ECEAE6;
-
   --black: #17150F; --orange: #E8571F;
-
   --gray-dark: #6B675E; --gray-soft: #A8A49B;
-
   --line: #D8D4CC; --line-strong: #17150F;
-
   --st-correct: #17150F; --st-careless: #E8A87C; --st-concept: #E8571F; --st-wrong: #7A1F04; --st-notime: #D8D4CC;
-
   --font-thai: 'Anuphan', system-ui, sans-serif;
-
   --font-num: 'Space Grotesk', system-ui, sans-serif;
-
 }
-
 * { box-sizing: border-box; margin: 0; padding: 0; }
-
 html, body { background: var(--bg-canvas); color: var(--black); font-family: var(--font-thai); -webkit-font-smoothing: antialiased; }
-
 body { font-size: 15px; line-height: 1.55; min-height: 100vh; }
-
 a { color: inherit; text-decoration: none; }
-
 button { font-family: inherit; cursor: pointer; border: 0; background: transparent; color: inherit; }
-
 input, select { font-family: inherit; font-size: 15px; color: var(--black); }
-
 .num { font-family: var(--font-num); font-feature-settings: 'tnum' 1, 'lnum' 1; }
 
- 
-
 /* ===== HEADER ===== */
-
 .site-header { background: var(--bg); border-bottom: 1px solid var(--line-strong); position: sticky; top: 0; z-index: 50; }
-
 .site-header__inner { max-width: 1100px; margin: 0 auto; padding: 12px 20px; display: flex; align-items: center; gap: 14px; }
-
 .brand { display: flex; align-items: center; gap: 10px; }
-
 .brand__logo { width: 34px; height: 34px; background: var(--black); color: var(--bg); border-radius: 9px; display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 700; font-size: 14px; letter-spacing: -0.04em; line-height: 1; overflow: hidden; white-space: nowrap; flex-shrink: 0; }
-
 .brand__logo span { color: var(--orange); }
-
 .brand__name { font-size: 14px; font-weight: 700; }
-
 .brand__name small { display: block; font-size: 10px; color: var(--gray-dark); letter-spacing: 0.16em; text-transform: uppercase; font-weight: 500; }
-
 .site-nav { margin-left: auto; display: flex; gap: 4px; }
-
 .site-nav a { padding: 8px 12px; border-radius: 999px; font-size: 12px; color: var(--gray-dark); font-weight: 500; }
-
 .site-nav a:hover { color: var(--black); background: var(--bg-soft); }
 
- 
-
 /* ===== LOGIN ===== */
-
 .login-wrap { min-height: calc(100vh - 60px); display: grid; place-items: center; padding: 24px; }
-
 .login-card { background: var(--bg); border: 1px solid var(--line); border-radius: 18px; padding: 36px 32px; max-width: 420px; width: 100%; box-shadow: 0 12px 28px -16px rgba(23,21,15,.18); text-align: center; }
-
 .login-logo { width: 56px; height: 56px; background: var(--black); color: var(--bg); border-radius: 14px; display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-weight: 700; font-size: 22px; letter-spacing: -0.04em; line-height: 1; margin: 0 auto 16px; overflow: hidden; white-space: nowrap; }
-
 .login-logo span { color: var(--orange); }
-
 .login-eyebrow { font-family: var(--font-num); font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--orange); font-weight: 600; margin-bottom: 8px; display: block; }
-
 .login-title { font-size: 22px; font-weight: 700; }
-
 .login-sub { color: var(--gray-dark); font-size: 13px; margin-top: 4px; margin-bottom: 20px; }
 
- 
-
 /* Autocomplete */
-
 .autocomplete { position: relative; margin-bottom: 14px; text-align: left; }
-
 .autocomplete input { width: 100%; padding: 12px 16px; border: 1.5px solid var(--line); border-radius: 10px; outline: none; background: var(--bg); }
-
 .autocomplete input:focus { border-color: var(--black); }
-
 .autocomplete__list { position: absolute; top: 100%; left: 0; right: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; max-height: 220px; overflow-y: auto; z-index: 10; display: none; box-shadow: 0 8px 20px -8px rgba(23,21,15,.2); }
-
 .autocomplete__list.show { display: block; }
-
 .autocomplete__item { padding: 10px 16px; cursor: pointer; font-size: 14px; border-bottom: 1px solid var(--line); }
-
 .autocomplete__item:last-child { border-bottom: 0; }
-
 .autocomplete__item:hover, .autocomplete__item.is-active { background: var(--bg-soft); }
-
 .autocomplete__item small { display: block; font-size: 11px; color: var(--gray-dark); margin-top: 2px; }
 
- 
-
 .pin-display { display: flex; gap: 8px; justify-content: center; margin: 16px 0; }
-
 .pin-dot { width: 40px; height: 52px; border: 1.5px solid var(--line); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-family: var(--font-num); font-size: 20px; font-weight: 600; background: var(--bg); transition: all .15s; }
-
 .pin-dot.filled { border-color: var(--black); }
-
 .pin-dot.error { border-color: var(--st-wrong); background: #FFF1E8; animation: shake .3s; }
-
 @keyframes shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
 
- 
-
 .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: 280px; margin: 0 auto; }
-
 .keypad button { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 12px; padding: 16px 0; font-size: 18px; font-weight: 600; font-family: var(--font-num); transition: all .12s; }
-
 .keypad button:hover { background: var(--bg-canvas); border-color: var(--line-strong); }
-
 .keypad button:active { transform: scale(.96); }
-
 .keypad button.clear { color: var(--st-wrong); }
-
 .keypad button.back { color: var(--gray-dark); }
 
- 
-
 .login-warn { margin-top: 14px; padding: 10px 14px; background: #FFF1E8; border-radius: 10px; font-size: 13px; color: var(--st-wrong); display: none; }
-
 .login-warn.show { display: block; }
-
 .login-hint { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--gray-dark); }
-
 .login-hint code { background: var(--bg-soft); padding: 2px 8px; border-radius: 4px; font-family: var(--font-num); color: var(--orange); font-weight: 600; }
 
- 
-
 /* ===== DASH ===== */
-
 .dash { max-width: 1100px; margin: 0 auto; padding: 20px; }
-
 .dash__head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 12px; flex-wrap: wrap; }
-
 .dash__user { display: flex; align-items: center; gap: 10px; }
-
 .dash__avatar { width: 40px; height: 40px; background: var(--orange); color: var(--bg); border-radius: 50%; display: grid; place-items: center; font-family: var(--font-num); font-weight: 700; font-size: 16px; }
-
 .dash__name { font-size: 16px; font-weight: 700; }
-
 .dash__group { font-size: 12px; color: var(--gray-dark); }
-
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 16px; border-radius: 999px; font-size: 13px; font-weight: 600; transition: all .15s; white-space: nowrap; border: 1px solid transparent; }
-
 .btn--primary { background: var(--black); color: var(--bg); }
-
 .btn--primary:hover { background: var(--orange); }
-
 .btn--ghost { background: var(--bg); color: var(--black); border-color: var(--line-strong); }
-
 .btn--ghost:hover { background: var(--bg-soft); }
-
 .btn--danger { background: #FFF1E8; color: var(--st-wrong); }
-
 .btn--sm { padding: 6px 12px; font-size: 12px; }
 
- 
-
 /* Tabs */
-
 .tabs { display: flex; gap: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 4px; margin-bottom: 18px; overflow-x: auto; }
-
 .tab { padding: 9px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; color: var(--gray-dark); white-space: nowrap; transition: all .15s; }
-
 .tab.is-active { background: var(--black); color: var(--bg); }
 
- 
-
 /* Stat cards */
-
 .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
-
 .stat-card { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
-
 .stat-card__label { font-family: var(--font-num); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gray-dark); margin-bottom: 6px; }
-
 .stat-card__value { font-family: var(--font-num); font-size: 26px; font-weight: 700; line-height: 1; }
-
 .stat-card__value span { color: var(--orange); }
-
 .stat-card__hint { font-size: 12px; color: var(--gray-dark); margin-top: 6px; }
 
- 
-
 /* Alert bar */
-
 .alert { background: #FFF1E8; border-left: 4px solid var(--orange); padding: 12px 16px; border-radius: 10px; margin-bottom: 18px; font-size: 14px; color: var(--black); }
-
 .alert b { color: var(--orange); }
 
- 
-
 /* Card */
-
 .card { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin-bottom: 14px; }
-
 .card__title { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; font-family: var(--font-num); color: var(--gray-dark); font-weight: 600; margin-bottom: 12px; }
 
- 
-
 /* Question grid */
-
 .q-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; }
-
 .q-cell { aspect-ratio: 1; border-radius: 6px; display: grid; place-items: center; font-family: var(--font-num); font-size: 11px; font-weight: 600; color: var(--bg); cursor: pointer; transition: transform .12s; }
-
 .q-cell:hover { transform: scale(1.15); z-index: 2; }
-
 .q-cell.correct { background: var(--st-correct); }
-
 .q-cell.careless { background: var(--st-careless); color: var(--black); }
-
 .q-cell.concept { background: var(--st-concept); }
-
 .q-cell.wrong { background: var(--st-wrong); }
-
 .q-cell.notime { background: transparent; color: var(--gray-soft); border: 1.5px solid var(--line); }
 
- 
-
 /* Subtopic bars */
-
 .subtopic { margin-bottom: 12px; }
-
 .subtopic__head { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
-
 .subtopic__bar { height: 8px; background: var(--bg-canvas); border-radius: 999px; overflow: hidden; }
-
 .subtopic__fill { height: 100%; background: var(--orange); border-radius: 999px; }
 
- 
-
 /* History graph */
-
 .history-svg { width: 100%; height: 180px; }
 
- 
-
 /* Parent report styles */
-
 .parent-style { background: var(--bg-soft); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
-
 .parent-style__title { font-weight: 700; font-size: 15px; margin-bottom: 8px; }
-
 .parent-style__body { font-size: 14px; color: var(--gray-dark); line-height: 1.6; }
 
- 
-
 /* Exam pills */
-
 .exam-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
-
 .exam-pill { padding: 6px 12px; border-radius: 999px; font-size: 12px; background: var(--bg); border: 1px solid var(--line); color: var(--gray-dark); cursor: pointer; }
-
 .exam-pill.is-active { background: var(--black); color: var(--bg); border-color: var(--black); }
 
- 
-
 @media (max-width: 768px) {
-
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
-
   .q-grid { grid-template-columns: repeat(6, 1fr); }
-
   .site-nav { display: none; }
-
 }
-
 @media print {
-
   .site-header, .tabs, .dash__head, .btn { display: none !important; }
-
   body { background: white; }
-
 }
-
 </style>
-
 </head>
-
 <body>
 
- 
-
 <!-- ============== HEADER ============== -->
-
 <header class="site-header">
-
   <div class="site-header__inner">
-
     <a href="index.html" class="brand">
-
       <div class="brand__logo">M<span>B</span></div>
-
       <div class="brand__name">Maths Bank Tutor<small>Student Dashboard</small></div>
-
     </a>
-
     <nav class="site-nav">
-
       <a href="index.html">หน้าแรก</a>
-
       <a href="parent.html">รายงานผู้ปกครอง</a>
-
       <a href="teacher-dashboard.html">Teacher</a>
-
     </nav>
-
   </div>
-
 </header>
 
- 
-
 <!-- ============== LOGIN VIEW ============== -->
-
 <div class="login-wrap" id="loginView">
-
   <div class="login-card">
-
     <div class="login-logo">M<span>B</span></div>
-
     <span class="login-eyebrow">Student Access</span>
-
     <h1 class="login-title">Dashboard นักเรียน</h1>
-
     <p class="login-sub">ล็อกอินด้วยชื่อ + PIN 6 หลัก</p>
 
- 
-
     <div class="autocomplete">
-
       <input type="text" id="nameInput" placeholder="พิมพ์ชื่อนักเรียน..." autocomplete="off">
-
       <div class="autocomplete__list" id="nameList"></div>
-
     </div>
-
- 
 
     <div class="pin-display" id="pinDisplay">
-
       <div class="pin-dot"></div><div class="pin-dot"></div><div class="pin-dot"></div>
-
       <div class="pin-dot"></div><div class="pin-dot"></div><div class="pin-dot"></div>
-
     </div>
-
- 
 
     <div class="keypad" id="keypad">
-
       <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
-
       <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
-
       <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
-
       <button class="clear" data-k="clear">ล้าง</button><button data-k="0">0</button><button class="back" data-k="back">←</button>
-
     </div>
-
- 
 
     <div class="login-warn" id="loginWarn"></div>
 
- 
-
     <div class="login-hint">
-
       ทดลอง: <code>เต้</code> / PIN <code>271828</code><br>
-
       กรอกผิด 5 ครั้ง → ล็อค 10 นาที
-
     </div>
-
   </div>
-
 </div>
-
- 
 
 <!-- ============== DASH VIEW ============== -->
-
 <div class="dash" id="dashView" style="display:none;">
-
   <div class="dash__head">
-
     <div class="dash__user">
-
       <div class="dash__avatar" id="userAvatar">?</div>
-
       <div>
-
         <div class="dash__name" id="userName">นักเรียน</div>
-
         <div class="dash__group" id="userGroup">กลุ่ม</div>
-
       </div>
-
     </div>
-
     <button class="btn btn--ghost btn--sm" id="logoutBtn">ออกจากระบบ</button>
-
   </div>
-
- 
 
   <div class="tabs" id="tabs">
-
     <button class="tab is-active" data-tab="exams">ผลสอบรายข้อ</button>
-
     <button class="tab" data-tab="practice">ฝึกเพิ่ม</button>
-
     <button class="tab" data-tab="progress">ผลการเรียน</button>
-
     <button class="tab" data-tab="parent">รายงานผู้ปกครอง</button>
-
   </div>
 
- 
-
   <div id="tabContent"></div>
-
 </div>
 
- 
-
 <script>
-
 /* ===========================================================
-
    CONFIG
-
    =========================================================== */
-
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzh0M26XbDfjrVuUjUgn1Dr-Z209ms9UibPAxfd-YiB7oHnD-1ubzc3PNtadO7tULjm/exec';  // ← ใส่ URL ของ Google Apps Script ที่นี่
-
 const STORAGE_KEY = 'mathsBankStudentSession';
-
 const LOCK_KEY = 'mathsBankStudentLock';
-
 const MAX_ATTEMPTS = 5;
-
 const LOCK_MINUTES = 10;
 
- 
-
 /* ===========================================================
-
    DEMO DATABASE (5 นักเรียนตัวอย่าง)
-
    =========================================================== */
-
 const DEMO_DB = {
-
   'เต้': {
-
     pin: '271828', group: 'วันพุธ', avatar: 'ต',
-
     exams: [
-
       {
-
         date: '2026-07-08', chapter: 'ตรีโกณมิติ ชุดที่ 2',
-
         avg: 19.4, rank: 3, groupSize: 12, score: 22,
-
         missed: {
-
           4: ['careless', 'สมการตรีโกณมิติ', 'ระดับ 3'],
-
           7: ['concept', 'เอกลักษณ์ตรีโกณ', 'ระดับ 4'],
-
           12: ['wrong', 'ฟังก์ชันตรีโกณ', 'ระดับ 5'],
-
           18: ['careless', 'มุมอ้างอิง', 'ระดับ 2'],
-
           25: ['notime', 'สมการตรีโกณ', 'ระดับ 3']
-
         },
-
         subtopics: [
-
           {name: 'เอกลักษณ์ตรีโกณมิติ', pct: 80},
-
           {name: 'สมการตรีโกณมิติ', pct: 40},
-
           {name: 'ฟังก์ชันตรีโกณมิติ', pct: 60},
-
           {name: 'มุมอ้างอิง', pct: 90}
-
         ]
-
       },
-
       {
-
         date: '2026-06-24', chapter: 'ตรีโกณมิติ ชุดที่ 1',
-
         avg: 17.2, rank: 5, groupSize: 12, score: 18,
-
         missed: {
-
           2: ['concept', 'มุมและส่วนโค้ง', 'ระดับ 2'],
-
           8: ['wrong', 'เอกลักษณ์', 'ระดับ 3'],
-
           15: ['careless', 'ฟังก์ชันตรีโกณ', 'ระดับ 2']
-
         },
-
         subtopics: [
-
           {name: 'มุมและส่วนโค้ง', pct: 70},
-
           {name: 'เอกลักษณ์ตรีโกณมิติ', pct: 60},
-
           {name: 'ฟังก์ชันตรีโกณมิติ', pct: 75}
-
         ]
-
       }
-
     ]
-
   },
-
   'ปราง': {
-
     pin: '314159', group: 'วันเสาร์ 13.00', avatar: 'ป',
-
     exams: [
-
       {
-
         date: '2026-07-08', chapter: 'ตรีโกณมิติ ชุดที่ 2',
-
         avg: 19.4, rank: 1, groupSize: 12, score: 28,
-
         missed: { 18: ['careless', 'มุมอ้างอิง', 'ระดับ 2'] },
-
         subtopics: [{name: 'เอกลักษณ์ตรีโกณมิติ', pct: 100}, {name: 'สมการตรีโกณมิติ', pct: 90}]
-
       }
-
     ]
-
   },
-
   'กวิน': { pin: '985461', group: 'วัยรุ่น 13.00', avatar: 'ก',
-
     exams: [{
-
       date: '2026-07-08', chapter: 'ตรีโกณมิติ ชุดที่ 2',
-
       avg: 19.4, rank: 7, groupSize: 12, score: 19,
-
       missed: { 4: ['careless', 'สมการ', 'ระดับ 3'], 15: ['wrong', 'ฟังก์ชัน', 'ระดับ 4'] },
-
       subtopics: [{name: 'สมการตรีโกณมิติ', pct: 60}, {name: 'ฟังก์ชันตรีโกณ', pct: 50}]
-
     }]
-
   },
-
   'เอิร์ธ': { pin: '295501', group: 'วันอาทิตย์ 10.00', avatar: 'อ',
-
     exams: [{
-
       date: '2026-07-08', chapter: 'ตรีโกณมิติ ชุดที่ 2',
-
       avg: 19.4, rank: 4, groupSize: 12, score: 21,
-
       missed: { 7: ['concept', 'เอกลักษณ์', 'ระดับ 4'], 22: ['careless', 'มุมอ้างอิง', 'ระดับ 2'] },
-
       subtopics: [{name: 'เอกลักษณ์ตรีโกณมิติ', pct: 70}, {name: 'มุมอ้างอิง', pct: 85}]
-
     }]
-
   },
-
   'นัน': { pin: '733020', group: 'วันเสาร์ 15.00', avatar: 'น',
-
     exams: [{
-
       date: '2026-07-08', chapter: 'ตรีโกณมิติ ชุดที่ 2',
-
       avg: 19.4, rank: 10, groupSize: 12, score: 14,
-
       missed: { 2: ['concept', 'มุม', 'ระดับ 2'], 5: ['wrong', 'เอกลักษณ์', 'ระดับ 3'], 8: ['wrong', 'สมการ', 'ระดับ 4'], 12: ['notime', 'ฟังก์ชัน', 'ระดับ 3'] },
-
       subtopics: [{name: 'เอกลักษณ์ตรีโกณมิติ', pct: 40}, {name: 'สมการตรีโกณมิติ', pct: 30}]
-
     }]
-
   }
-
 };
 
- 
-
 /* ===========================================================
-
    STATE
-
    =========================================================== */
-
 const state = {
-
   student: null,
-
   pin: '',
-
   activeTab: 'exams',
-
   examIdx: 0
-
 };
 
- 
-
 /* ===========================================================
-
    HELPERS
-
    =========================================================== */
-
 const THAI_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-
 function thDate(s) {
-
   const [y,m,d] = s.split('-').map(Number);
-
   const dt = new Date(y, m-1, d);
-
   return `${dt.getDate()} ${THAI_MONTHS[dt.getMonth()]} ${String((dt.getFullYear()+543)%100).padStart(2,'0')}`;
-
 }
-
 function statusLabel(s) {
-
   return s === 'correct' ? 'ถูก' : s === 'careless' ? 'สะเพร่า' : s === 'concept' ? 'คอนเซปต์' : s === 'wrong' ? 'ผิด' : 'ไม่ทัน';
-
 }
-
 function getLock() {
-
   try { return JSON.parse(localStorage.getItem(LOCK_KEY) || '{"attempts":0,"lockedUntil":0}'); }
-
   catch(e) { return {attempts:0, lockedUntil:0}; }
-
 }
-
 function setLock(l) { localStorage.setItem(LOCK_KEY, JSON.stringify(l)); }
 
- 
-
 /* ===========================================================
-
    LOGIN
-
    =========================================================== */
-
 function tryLogin(name, pin) {
-
   const lock = getLock();
-
   if (lock.lockedUntil > Date.now()) {
-
     const mins = Math.ceil((lock.lockedUntil - Date.now())/60000);
-
     showLoginWarn(`ระบบล็อค กรุณารอ ${mins} นาที`);
-
     return false;
-
   }
-
   name = name.trim();
-
   const student = DEMO_DB[name];
-
   if (student && student.pin === pin) {
-
     setLock({attempts:0, lockedUntil:0});
-
     state.student = { name, ...student };
-
     sessionStorage.setItem(STORAGE_KEY, name);
-
     showDash();
-
     return true;
-
   } else {
-
     lock.attempts++;
-
     if (lock.attempts >= MAX_ATTEMPTS) {
-
       lock.lockedUntil = Date.now() + LOCK_MINUTES * 60000;
-
       lock.attempts = 0;
-
       setLock(lock);
-
       showLoginWarn(`กรอกผิด 5 ครั้ง → ล็อค ${LOCK_MINUTES} นาที`);
-
     } else {
-
       setLock(lock);
-
       const left = MAX_ATTEMPTS - lock.attempts;
-
       showLoginWarn(`ชื่อหรือ PIN ไม่ถูกต้อง · เหลือ ${left} ครั้ง`);
-
     }
-
     shakePin();
-
     return false;
-
   }
-
 }
-
- 
 
 function showLoginWarn(msg) {
-
   const el = document.getElementById('loginWarn');
-
   el.textContent = msg; el.classList.add('show');
-
 }
-
 function shakePin() {
-
   document.querySelectorAll('.pin-dot').forEach(d => {
-
     d.classList.add('error');
-
     setTimeout(() => d.classList.remove('error'), 400);
-
   });
-
 }
-
- 
 
 function renderPinDisplay() {
-
   document.querySelectorAll('.pin-dot').forEach((d, i) => {
-
     if (i < state.pin.length) { d.textContent = state.pin[i]; d.classList.add('filled'); }
-
     else { d.textContent = ''; d.classList.remove('filled'); }
-
   });
-
 }
-
- 
 
 function handleKeypad(key) {
-
   if (key === 'clear') state.pin = '';
-
   else if (key === 'back') state.pin = state.pin.slice(0, -1);
-
   else if (state.pin.length < 6) {
-
     state.pin += key;
-
     if (state.pin.length === 6) {
-
       const name = document.getElementById('nameInput').value.trim();
-
       setTimeout(() => {
-
         const ok = tryLogin(name, state.pin);
-
         if (!ok) state.pin = '';
-
         renderPinDisplay();
-
       }, 150);
-
     }
-
   }
-
   renderPinDisplay();
-
 }
-
- 
 
 /* Autocomplete */
-
 function filterNames(query) {
-
   if (!query) return [];
-
   return Object.keys(DEMO_DB).filter(n => n.includes(query));
-
 }
-
 function renderNameList() {
-
   const input = document.getElementById('nameInput');
-
   const list = document.getElementById('nameList');
-
   const q = input.value.trim();
-
   const matches = filterNames(q);
-
   if (matches.length === 0 || q === '') {
-
     list.classList.remove('show');
-
     return;
-
   }
-
   list.innerHTML = matches.map(n => {
-
     const s = DEMO_DB[n];
-
     return `<div class="autocomplete__item" data-name="${n}">${n}<small>กลุ่ม ${s.group}</small></div>`;
-
   }).join('');
-
   list.classList.add('show');
-
 }
-
- 
 
 /* ===========================================================
-
    DASHBOARD
-
    =========================================================== */
-
 function showDash() {
-
   document.getElementById('loginView').style.display = 'none';
-
   document.getElementById('dashView').style.display = 'block';
-
   document.getElementById('userName').textContent = state.student.name;
-
   document.getElementById('userGroup').textContent = 'กลุ่ม ' + state.student.group;
-
   document.getElementById('userAvatar').textContent = state.student.avatar;
-
   renderTab();
-
 }
-
- 
 
 function logout() {
-
   sessionStorage.removeItem(STORAGE_KEY);
-
   state.student = null;
-
   state.pin = '';
-
   renderPinDisplay();
-
   document.getElementById('nameInput').value = '';
-
   document.getElementById('dashView').style.display = 'none';
-
   document.getElementById('loginView').style.display = 'grid';
-
 }
-
- 
 
 function renderTab() {
-
   const tab = state.activeTab;
-
   const content = document.getElementById('tabContent');
-
   if (tab === 'exams') renderExamsTab(content);
-
   else if (tab === 'practice') renderPracticeTab(content);
-
   else if (tab === 'progress') renderProgressTab(content);
-
   else if (tab === 'parent') renderParentTab(content);
-
 }
 
- 
-
 /* ===== EXAMS TAB ===== */
-
 function renderExamsTab(content) {
-
   const exams = state.student.exams;
-
   const exam = exams[state.examIdx] || exams[0];
-
   if (!exam) {
-
     content.innerHTML = '<div style="padding:40px; text-align:center; color:var(--gray-dark);">ยังไม่มีผลสอบ</div>';
-
     return;
-
   }
-
- 
 
   const score = exam.score;
-
   const total = 30;
-
   const pct = Math.round(score/total*100);
-
   const percentile = Math.round((1 - exam.rank/exam.groupSize) * 100);
-
   const careless = Object.values(exam.missed).filter(m => m[0] === 'careless').length;
-
   const concept = Object.values(exam.missed).filter(m => m[0] === 'concept').length;
-
   const wrong = Object.values(exam.missed).filter(m => m[0] === 'wrong').length;
-
   const notime = Object.values(exam.missed).filter(m => m[0] === 'notime').length;
 
- 
-
   // Build question grid (30 questions)
-
   let qGrid = '';
-
   for (let i = 1; i <= 30; i++) {
-
     const m = exam.missed[i];
-
     const status = m ? m[0] : 'correct';
-
     const title = m ? `ข้อ ${i} · ${statusLabel(status)} · ${m[1]} · ${m[2]}` : `ข้อ ${i} · ถูก`;
-
     qGrid += `<div class="q-cell ${status}" title="${title}">${i}</div>`;
-
   }
 
- 
-
   // Subtopic bars
-
   const subBars = exam.subtopics.map(s => `
-
     <div class="subtopic">
-
       <div class="subtopic__head"><span>${s.name}</span><span class="num">${s.pct}%</span></div>
-
       <div class="subtopic__bar"><div class="subtopic__fill" style="width:${s.pct}%"></div></div>
-
     </div>
-
   `).join('');
-
- 
 
   // Exam pills
-
   const examPills = exams.map((e, i) => `
-
     <div class="exam-pill ${i === state.examIdx ? 'is-active' : ''}" data-idx="${i}">${thDate(e.date)} · ${e.chapter}</div>
-
   `).join('');
 
- 
-
   content.innerHTML = `
-
     ${careless > 0 ? `<div class="alert"><b>${careless} ข้อสะเพร่า</b> — ถ้าตรวจทานก่อนส่ง จะได้ +${careless} ข้อ</div>` : ''}
-
- 
 
     <div class="exam-pills">${examPills}</div>
 
- 
-
     <div class="stat-grid">
-
       <div class="stat-card">
-
         <div class="stat-card__label">Score</div>
-
         <div class="stat-card__value num">${score}<span>/${total}</span></div>
-
         <div class="stat-card__hint">เก่งกว่า ${percentile}% ของกลุ่ม</div>
-
       </div>
-
       <div class="stat-card">
-
         <div class="stat-card__label">Rank</div>
-
         <div class="stat-card__value num">#${exam.rank}</div>
-
         <div class="stat-card__hint">จาก ${exam.groupSize} คน</div>
-
       </div>
-
       <div class="stat-card">
-
         <div class="stat-card__label">Group Avg</div>
-
         <div class="stat-card__value num">${exam.avg}</div>
-
         <div class="stat-card__hint">${score > exam.avg ? 'สูงกว่า ' + (score-exam.avg).toFixed(1) : 'ต่ำกว่า ' + (exam.avg-score).toFixed(1)} ข้อ</div>
-
       </div>
-
       <div class="stat-card">
-
         <div class="stat-card__label">Issues</div>
-
         <div class="stat-card__value num" style="font-size:20px;">${careless+concept+wrong+notime}</div>
-
         <div class="stat-card__hint">สะเพร่า ${careless} · คอนเซปต์ ${concept} · ผิด ${wrong} · ไม่ทัน ${notime}</div>
-
       </div>
-
     </div>
 
- 
-
     <div class="card">
-
       <div class="card__title">Question Grid · 30 ข้อ</div>
-
       <div class="q-grid">${qGrid}</div>
-
       <div style="margin-top:12px; display:flex; gap:12px; font-size:11px; flex-wrap:wrap;">
-
         <span style="display:flex; align-items:center; gap:4px;"><span class="q-cell correct" style="width:14px; height:14px; cursor:default;"></span>ถูก</span>
-
         <span style="display:flex; align-items:center; gap:4px;"><span class="q-cell careless" style="width:14px; height:14px; cursor:default;"></span>สะเพร่า</span>
-
         <span style="display:flex; align-items:center; gap:4px;"><span class="q-cell concept" style="width:14px; height:14px; cursor:default;"></span>คอนเซปต์</span>
-
         <span style="display:flex; align-items:center; gap:4px;"><span class="q-cell wrong" style="width:14px; height:14px; cursor:default;"></span>ผิด</span>
-
         <span style="display:flex; align-items:center; gap:4px;"><span class="q-cell notime" style="width:14px; height:14px; cursor:default;"></span>ไม่ทัน</span>
-
       </div>
-
     </div>
-
- 
 
     <div class="card">
-
       <div class="card__title">Sub-topic Accuracy</div>
-
       ${subBars}
-
     </div>
-
   `;
-
- 
 
   // Wire exam pills
-
   content.querySelectorAll('.exam-pill').forEach(p => {
-
     p.addEventListener('click', () => {
-
       state.examIdx = parseInt(p.dataset.idx);
-
       renderTab();
-
     });
-
   });
-
 }
-
- 
 
 /* ===== PRACTICE TAB ===== */
-
 function renderPracticeTab(content) {
-
   content.innerHTML = `
-
     <div class="card">
-
       <div class="card__title">ฝึกเพิ่ม · Practice</div>
-
       <p style="color:var(--gray-dark); margin-bottom:16px;">เลือกหัวข้อที่อยากฝึกเพิ่ม — แต่ละข้อมีระดับดาวและเฉลยวิดีโอ</p>
-
       <div style="display:grid; gap:10px;">
-
         <div style="background:var(--bg-soft); padding:14px; border-radius:10px; display:flex; justify-content:space-between; align-items:center;">
-
           <div>
-
             <div style="font-weight:600;">เอกลักษณ์ตรีโกณมิติ — ประยุกต์</div>
-
             <div style="font-size:12px; color:var(--gray-dark);">★★★☆☆ · ระดับกลาง</div>
-
           </div>
-
           <div style="display:flex; gap:6px;">
-
             <button class="btn btn--ghost btn--sm">เฉลยวิดีโอ ↗</button>
-
             <button class="btn btn--primary btn--sm">เริ่ม</button>
-
           </div>
-
         </div>
-
         <div style="background:var(--bg-soft); padding:14px; border-radius:10px; display:flex; justify-content:space-between; align-items:center;">
-
           <div>
-
             <div style="font-weight:600;">สมการตรีโกณมิติ — ซับซ้อน</div>
-
             <div style="font-size:12px; color:var(--gray-dark);">★★★★☆ · ระดับยาก</div>
-
           </div>
-
           <div style="display:flex; gap:6px;">
-
             <button class="btn btn--ghost btn--sm">เฉลยวิดีโอ ↗</button>
-
             <button class="btn btn--primary btn--sm">เริ่ม</button>
-
           </div>
-
         </div>
-
       </div>
-
     </div>
-
   `;
-
 }
-
- 
 
 /* ===== PROGRESS TAB ===== */
-
 function renderProgressTab(content) {
-
   const exams = state.student.exams;
-
   const scores = exams.map(e => e.score).reverse();
-
   const avgs = exams.map(e => e.avg).reverse();
-
   const maxScore = Math.max(...scores, 30);
-
   const minScore = 0;
 
- 
-
   // SVG line chart
-
   const w = 600, h = 180, pad = 30;
-
   const xStep = exams.length > 1 ? (w - pad*2) / (exams.length - 1) : 0;
-
   const yScale = (v) => h - pad - (v - minScore) / (maxScore - minScore) * (h - pad*2);
 
- 
-
   let scorePath = '', avgPath = '';
-
   scores.forEach((s, i) => {
-
     const x = pad + i * xStep;
-
     const y = yScale(s);
-
     scorePath += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
-
   });
-
   avgs.forEach((a, i) => {
-
     const x = pad + i * xStep;
-
     const y = yScale(a);
-
     avgPath += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
-
   });
-
- 
 
   const highest = Math.max(...scores);
-
   const avgScore = (scores.reduce((a,b) => a+b, 0) / scores.length).toFixed(1);
-
   const progress = scores.length > 1 ? (scores[scores.length-1] - scores[0]) : 0;
 
- 
-
   content.innerHTML = `
-
     <div class="stat-grid">
-
       <div class="stat-card">
-
         <div class="stat-card__label">Highest</div>
-
         <div class="stat-card__value num">${highest}</div>
-
       </div>
-
       <div class="stat-card">
-
         <div class="stat-card__label">Average</div>
-
         <div class="stat-card__value num">${avgScore}</div>
-
       </div>
-
       <div class="stat-card">
-
         <div class="stat-card__label">Progress</div>
-
         <div class="stat-card__value num">${progress >= 0 ? '+' : ''}${progress}</div>
-
       </div>
-
       <div class="stat-card">
-
         <div class="stat-card__label">Exams</div>
-
         <div class="stat-card__value num">${exams.length}</div>
-
       </div>
-
     </div>
 
- 
-
     <div class="card">
-
       <div class="card__title">Score Trend</div>
-
       <svg class="history-svg" viewBox="0 0 ${w} ${h}">
-
         <line x1="${pad}" y1="${h-pad}" x2="${w-pad}" y2="${h-pad}" stroke="#D8D4CC"/>
-
         <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${h-pad}" stroke="#D8D4CC"/>
-
         <path d="${avgPath}" stroke="#A8A49B" stroke-width="2" stroke-dasharray="4,4" fill="none"/>
-
         <path d="${scorePath}" stroke="#E8571F" stroke-width="3" fill="none"/>
-
         ${scores.map((s, i) => {
-
           const x = pad + i * xStep;
-
           const y = yScale(s);
-
           return `<circle cx="${x}" cy="${y}" r="5" fill="#17150F"/>`;
-
         }).join('')}
-
       </svg>
-
       <div style="display:flex; gap:18px; font-size:12px; margin-top:8px;">
-
         <span><span style="display:inline-block; width:12px; height:3px; background:var(--orange); vertical-align:middle; margin-right:4px;"></span>คะแนนของคุณ</span>
-
         <span><span style="display:inline-block; width:12px; height:3px; background:var(--gray-soft); vertical-align:middle; margin-right:4px;"></span>ค่าเฉลี่ยกลุ่ม</span>
-
       </div>
-
     </div>
-
- 
 
     <div class="card">
-
       <div class="card__title">Exam History</div>
-
       ${exams.map((e, i) => `
-
         <div style="display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--line);">
-
           <div>
-
             <div style="font-weight:500;">${e.chapter}</div>
-
             <div style="font-size:12px; color:var(--gray-dark);">${thDate(e.date)} · อันดับ ${e.rank}/${e.groupSize}</div>
-
           </div>
-
           <div style="text-align:right;">
-
             <div class="num" style="font-weight:700; font-size:18px;">${e.score}<span style="color:var(--gray-dark); font-size:13px;">/30</span></div>
-
           </div>
-
         </div>
-
       `).join('')}
-
     </div>
-
   `;
-
 }
-
- 
 
 /* ===== PARENT TAB ===== */
-
 function renderParentTab(content) {
-
   const exam = state.student.exams[0];
-
   const styles = [
-
     {key: 'eagle', name: 'นกอินทรี', desc: 'เป้าหมายชัด เห็นแผน', body: `${state.student.name} ทำได้ ${exam.score}/30 คะแนน (อันดับ ${exam.rank} จาก ${exam.groupSize} คน) — พัฒนาการไปได้ดี จุดต้องแก้คือ ${Object.values(exam.missed).filter(m=>m[0]==='concept').length} ข้อคอนเซปต์ ควรทบทวนเรื่องนี้ก่อนสอบครั้งถัดไป`},
-
     {key: 'dolphin', name: 'โลมา', desc: 'ข้อมูลเต็มทุกมิติ', body: `คะแนน ${exam.score}/30 · เปอร์เซ็นไทล์ ${Math.round((1-exam.rank/exam.groupSize)*100)}% · สะเพร่า ${Object.values(exam.missed).filter(m=>m[0]==='careless').length} · คอนเซปต์ ${Object.values(exam.missed).filter(m=>m[0]==='concept').length} · ผิด ${Object.values(exam.missed).filter(m=>m[0]==='wrong').length} · ไม่ทัน ${Object.values(exam.missed).filter(m=>m[0]==='notime').length} · ค่าเฉลี่ยกลุ่ม ${exam.avg}`},
-
     {key: 'elephant', name: 'ช้าง', desc: 'อบอุ่น ข่าวดีมาก่อน', body: `${state.student.name} ทำได้ดีมากครับ — คะแนน ${exam.score} สูงกว่าค่าเฉลี่ยกลุ่ม (${exam.avg}) ${exam.score > exam.avg ? 'ถือว่าเก่ง' : 'ยังต้องฝึกเพิ่ม'} · มีจุดที่พัฒนาได้อีกเล็กน้อยในเรื่องคอนเซปต์`},
-
     {key: 'owl', name: 'นกฮูก', desc: 'สรุปสั้น เชื่อมั่น', body: `คะแนน ${exam.score}/30 · อันดับ ${exam.rank}/${exam.groupSize} · พัฒนาการ ${state.student.exams.length > 1 ? 'ดีขึ้น' : 'คงที่'}`},
-
     {key: 'bee', name: 'ผึ้ง', desc: 'การ์ดเดียวจบ', body: `${state.student.name} · ${exam.score}/30 · อันดับ ${exam.rank}/${exam.groupSize} · ${exam.score > exam.avg ? 'เก่งกว่าเฉลี่ย' : 'ต่ำกว่าเฉลี่ย'}`}
-
   ];
 
- 
-
   content.innerHTML = `
-
     <div class="card">
-
       <div class="card__title">รายงานผู้ปกครอง — เลือกสไตล์</div>
-
       <p style="color:var(--gray-dark); margin-bottom:14px; font-size:13px;">เลือกสไตล์รายงานที่เหมาะกับครอบครัว — แต่ละแบบเน้นข้อมูลต่างกัน</p>
-
       ${styles.map((s, i) => `
-
         <div class="parent-style" style="${i === 0 ? 'border-left:4px solid var(--orange);' : ''}">
-
           <div class="parent-style__title">${s.name} <span style="font-size:12px; color:var(--gray-dark); font-weight:400;">· ${s.desc}</span></div>
-
           <div class="parent-style__body">${s.body}</div>
-
         </div>
-
       `).join('')}
-
       <div style="margin-top:16px; text-align:center;">
-
         <button class="btn btn--primary" onclick="window.print()">พิมพ์รายงาน PDF</button>
-
       </div>
-
     </div>
-
   `;
-
 }
-
- 
 
 /* ===========================================================
-
    INIT
-
    =========================================================== */
-
 function init() {
-
   // Check session
-
   const savedName = sessionStorage.getItem(STORAGE_KEY);
-
   if (savedName && DEMO_DB[savedName]) {
-
     state.student = { name: savedName, ...DEMO_DB[savedName] };
-
     showDash();
-
   }
-
- 
 
   // Wire keypad
-
   document.querySelectorAll('#keypad button').forEach(b => {
-
     b.addEventListener('click', () => handleKeypad(b.dataset.k));
-
   });
-
- 
 
   // Wire autocomplete
-
   const nameInput = document.getElementById('nameInput');
-
   nameInput.addEventListener('input', renderNameList);
-
   nameInput.addEventListener('focus', renderNameList);
-
   document.getElementById('nameList').addEventListener('click', (e) => {
-
     const item = e.target.closest('.autocomplete__item');
-
     if (item) {
-
       nameInput.value = item.dataset.name;
-
       document.getElementById('nameList').classList.remove('show');
-
     }
-
   });
-
   document.addEventListener('click', (e) => {
-
     if (!e.target.closest('.autocomplete')) {
-
       document.getElementById('nameList').classList.remove('show');
-
     }
-
   });
-
- 
 
   // Keyboard
-
   document.addEventListener('keydown', (e) => {
-
     if (document.getElementById('loginView').style.display === 'none') return;
-
     if (document.activeElement === nameInput) return;
-
     if (e.key >= '0' && e.key <= '9') handleKeypad(e.key);
-
     else if (e.key === 'Backspace') handleKeypad('back');
-
   });
-
- 
 
   // Tabs
-
   document.querySelectorAll('.tab').forEach(t => {
-
     t.addEventListener('click', () => {
-
       document.querySelectorAll('.tab').forEach(x => x.classList.remove('is-active'));
-
       t.classList.add('is-active');
-
       state.activeTab = t.dataset.tab;
-
       renderTab();
-
     });
-
   });
 
- 
-
   // Logout
-
   document.getElementById('logoutBtn').addEventListener('click', logout);
 
- 
-
   // Check lock
-
   const lock = getLock();
-
   if (lock.lockedUntil > Date.now()) {
-
     const mins = Math.ceil((lock.lockedUntil - Date.now())/60000);
-
     showLoginWarn(`ระบบล็อค กรุณารอ ${mins} นาที`);
-
   }
-
 }
 
- 
-
 init();
-
 </script>
-
 </body>
-
 </html>

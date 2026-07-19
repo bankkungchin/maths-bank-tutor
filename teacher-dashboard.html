@@ -1032,6 +1032,7 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
 
     <div class="login-warn" id="loginWarn"></div>
 
+    <div style="margin-bottom:14px;"><a href="index.html" style="font-size:13px; color:var(--gray-dark); text-decoration:underline;">← กลับหน้าแรก</a></div>
     <div class="login-hint">
       PIN เริ่มต้น: <code>123456</code> · เปลี่ยนได้ในเมนูหลังเข้าสู่ระบบ<br>
       กรอกผิด 5 ครั้ง → ล็อค 10 นาที
@@ -1077,6 +1078,9 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
     <div class="group-list" id="groupList"></div>
 
     <div class="sidebar__foot">
+      <a class="btn btn--ghost btn--sm" href="index.html" title="กลับหน้าแรก (index)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      </a>
       <button class="btn btn--ghost btn--sm" id="btnSync" style="flex:1;" title="อัปโหลดขึ้น Google Sheet">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         Sync
@@ -1122,8 +1126,8 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
 /* ===========================================================
    CONFIG
    =========================================================== */
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzh0M26XbDfjrVuUjUgn1Dr-Z209ms9UibPAxfd-YiB7oHnD-1ubzc3PNtadO7tULjm/exec';  // ← ใส่ URL ของ Google Apps Script ที่นี่ (เว้นว่าง = ไม่ sync)
-const TEACHER_TOKEN = 'Bank2569-Bankying1510@';  // ← ตั้งเอง — ต้องตรงกับ TEACHER_TOKEN ใน apps-script-complete.gs
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzh0M26XbDfjrVuUjUgn1Dr-Z209ms9UibPAxfd-YiB7oHnD-1ubzc3PNtadO7tULjm/exec';
+const TEACHER_TOKEN = 'Bank2569-Bankying1510@';  // ต้องตรงกับใน apps-script-complete.gs
 const DEFAULT_PIN = '123456';
 const STORAGE_KEY = 'mathsBankTeacherData';
 const PIN_KEY = 'mathsBankTeacherPin';
