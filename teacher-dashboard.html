@@ -1069,6 +1069,10 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
         เช็คชื่อ
       </button>
+      <button class="btn btn--ghost btn--sm" id="btnScores" style="flex:1;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        คะแนน
+      </button>
     </div>
 
     <div class="sidebar__section-label">
@@ -1229,6 +1233,12 @@ const FACE_CONFIG = {
   scanIntervalMs: 700    // ความถี่สแกนในโหมด kiosk
 };
 const FACE_STORE_KEY = 'mathsBankFaceData';
+
+/* ===========================================================
+   EXAM SCORES CONFIG — อ่านคะแนนจากระบบข้อสอบ (answer-sheet)
+   =========================================================== */
+const EXAM_SHEET_ID = '1U49c1_y3QtTa6LP8rV4Z1dBM5gxKrdpxp5nY1M6ffnU';
+const EXAM_API_KEY  = 'AIzaSyAW7uJtajKOWhfg_Pwc6-NK7siuCVyVpYs';
 
 /* ===========================================================
    HELPERS — Date formatting (Thai Buddhist calendar)
@@ -1584,6 +1594,13 @@ function renderMain() {
     eyebrow.textContent = 'Attendance';
     title.textContent = 'สรุปการเข้าเรียน';
     renderAttendanceSummary(body);
+    return;
+  }
+
+  if (state.view === 'scores') {
+    eyebrow.textContent = 'Exam Scores';
+    title.textContent = 'รายงานคะแนนสอบ';
+    renderScores(body);
     return;
   }
 
@@ -3552,6 +3569,299 @@ function printAttendanceReport(groupId) {
 
 
 /* ===========================================================
+   EXAM SCORES — รายงานคะแนนสอบ (ครูเห็นคนเดียว หลัง login)
+   อ่านตรงจาก Google Sheets API · เขียนกลับผ่าน Apps Script
+   =========================================================== */
+state.examData = null;
+state.scoresTab = 'group';
+state.scoresGroup = null;
+let _rosterCache = [];
+
+async function fetchExamData(force) {
+  if (state.examData && !force) return state.examData;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${EXAM_SHEET_ID}/values:batchGet` +
+    `?ranges=${encodeURIComponent('students!A2:F')}&ranges=${encodeURIComponent('results!A2:AR')}` +
+    `&key=${EXAM_API_KEY}&t=${Date.now()}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('อ่าน Google Sheet ไม่ได้ (HTTP ' + res.status + ')');
+  const json = await res.json();
+  const stuRows = (json.valueRanges[0].values || []);
+  const resRows = (json.valueRanges[1].values || []);
+
+  const students = stuRows.filter(r => r && r[1]).map(r => ({
+    id: r[0] || '', full: String(r[1]).trim(), group: String(r[2] || '').trim(),
+    name: String(r[1]).replace(/\s*\([^)]*\)\s*$/, '').trim()
+  }));
+  const exams = resRows.filter(r => r && r[1] && r[4]).map(r => ({
+    full: String(r[1]).trim(), group: String(r[2] || '').trim(),
+    date: String(r[3] || ''), chapter: String(r[4] || ''),
+    statuses: r.slice(6, 36),
+    score: Number(r[36]) || 0,
+    careless: Number(r[37]) || 0, concept: Number(r[38]) || 0,
+    cannot: Number(r[39]) || 0, timeout: Number(r[40]) || 0
+  }));
+  const groups = [...new Set(students.map(s => s.group).filter(Boolean))].sort();
+  state.examData = { students, exams, groups };
+  return state.examData;
+}
+
+function scoreColor(sc) {
+  return sc >= 24 ? 'var(--success)' : sc >= 15 ? 'var(--orange)' : 'var(--danger)';
+}
+function exKey(e) { return e.chapter + '|' + e.date; }
+
+async function renderScores(body) {
+  body.innerHTML = `<div class="empty"><h3>กำลังโหลดคะแนน...</h3><p>อ่านจาก Google Sheet ระบบข้อสอบ</p></div>`;
+  try { await fetchExamData(); } catch(err) {
+    body.innerHTML = `<div class="empty"><h3>โหลดไม่สำเร็จ</h3><p>${err.message}</p></div>`;
+    return;
+  }
+  const d = state.examData;
+  if (!state.scoresGroup || d.groups.indexOf(state.scoresGroup) === -1) state.scoresGroup = d.groups[0] || null;
+
+  body.innerHTML = `
+    <div class="card" style="padding:14px 18px;">
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <button class="btn btn--sm ${state.scoresTab==='group'?'btn--primary':'btn--ghost'}" onclick="state.scoresTab='group'; renderMain();">รายกลุ่ม</button>
+        <button class="btn btn--sm ${state.scoresTab==='all'?'btn--primary':'btn--ghost'}" onclick="state.scoresTab='all'; renderMain();">เทียบทุกกลุ่ม</button>
+        ${state.scoresTab==='group' ? `
+        <select onchange="state.scoresGroup=this.value; renderMain();" style="padding:8px 14px; border:1px solid var(--line-strong); border-radius:999px; outline:none; font-size:13px; background:var(--bg);">
+          ${d.groups.map(g => `<option value="${g}" ${g===state.scoresGroup?'selected':''}>${g}</option>`).join('')}
+        </select>` : ''}
+        <div style="margin-left:auto; display:flex; gap:6px; flex-wrap:wrap;">
+          <button class="btn btn--ghost btn--sm" onclick="showManageRosterModal()">👥 จัดการรายชื่อ/กลุ่ม</button>
+          <button class="btn btn--ghost btn--sm" onclick="state.examData=null; renderMain();">↻ รีเฟรช</button>
+        </div>
+      </div>
+    </div>
+    <div id="scoresBody"></div>
+  `;
+  const sb = document.getElementById('scoresBody');
+  if (state.scoresTab === 'group') renderGroupScores(sb); else renderAllGroupScores(sb);
+}
+
+function renderGroupScores(sb) {
+  const d = state.examData;
+  const g = state.scoresGroup;
+  if (!g) { sb.innerHTML = `<div class="empty"><h3>ยังไม่มีกลุ่มในระบบข้อสอบ</h3></div>`; return; }
+  const students = d.students.filter(s => s.group === g);
+  const exams = d.exams.filter(e => e.group === g);
+  const keys = [...new Set(exams.map(exKey))]
+    .sort((a, b) => new Date(a.split('|')[1]) - new Date(b.split('|')[1]));
+  const byStu = {};
+  exams.forEach(e => { (byStu[e.full] = byStu[e.full] || {})[exKey(e)] = e; });
+
+  const scores = exams.map(e => e.score);
+  const avg = scores.length ? (scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(1) : '–';
+  const mx = scores.length ? Math.max.apply(null, scores) : '–';
+  const mn = scores.length ? Math.min.apply(null, scores) : '–';
+
+  const head = keys.map(k => {
+    const parts = k.split('|');
+    return `<th style="min-width:90px; text-align:center;">${parts[0]}<br><span style="font-weight:400; font-size:10px; color:var(--gray-dark); font-family:var(--font-num);">${parts[1]}</span></th>`;
+  }).join('');
+
+  const rows = students.map((s, i) => {
+    const cells = keys.map(k => {
+      const e = byStu[s.full] && byStu[s.full][k];
+      if (!e) return `<td style="text-align:center; color:var(--gray-soft);">–</td>`;
+      return `<td style="text-align:center;"><span onclick="showExamDetailModal('${s.full.replace(/'/g, "\\'")}', '${k.replace(/'/g, "\\'")}')" style="cursor:pointer; font-family:var(--font-num); font-weight:700; color:${scoreColor(e.score)}; border-bottom:1px dotted currentColor;">${e.score}</span></td>`;
+    }).join('');
+    const own = keys.map(k => byStu[s.full] && byStu[s.full][k]).filter(Boolean);
+    const myAvg = own.length ? (own.reduce((a, e) => a + e.score, 0) / own.length).toFixed(1) : '–';
+    return `<tr><td><div class="att-student-name">${i+1}. ${s.name}</div></td>${cells}<td style="text-align:center; font-family:var(--font-num); font-weight:700;">${myAvg}</td></tr>`;
+  }).join('');
+
+  sb.innerHTML = `
+    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:0; margin-bottom:18px; background:var(--black); color:var(--bg); border-radius:var(--radius-card); overflow:hidden;">
+      <div class="att-summary-cell"><div class="att-summary-label">ชุดสอบ</div><div class="att-summary-value num">${keys.length}</div></div>
+      <div class="att-summary-cell"><div class="att-summary-label">เฉลี่ยกลุ่ม /30</div><div class="att-summary-value num">${avg}</div></div>
+      <div class="att-summary-cell"><div class="att-summary-label">สูงสุด</div><div class="att-summary-value num">${mx}</div></div>
+      <div class="att-summary-cell"><div class="att-summary-label">ต่ำสุด</div><div class="att-summary-value num">${mn}</div></div>
+    </div>
+    <div class="card">
+      <div class="card__head">
+        <span class="card__title">คะแนนสอบ · <b>${g}</b> · นักเรียน ${students.length} คน</span>
+        <span style="font-size:11px; color:var(--gray-dark);">กดตัวเลขคะแนนเพื่อดูรายละเอียด 30 ข้อ</span>
+      </div>
+      <div class="att-table-wrap">
+        <table class="att-table">
+          <thead><tr><th>ชื่อ</th>${head}<th style="text-align:center;">เฉลี่ย</th></tr></thead>
+          <tbody>${rows.length ? rows : '<tr><td colspan="99" style="text-align:center; color:var(--gray-dark); padding:20px;">ยังไม่มีนักเรียนในกลุ่มนี้</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderAllGroupScores(sb) {
+  const d = state.examData;
+  const chapters = [...new Set(d.exams.map(e => e.chapter))];
+  const rows = d.groups.map(g => {
+    const stuCount = d.students.filter(s => s.group === g).length;
+    const cells = chapters.map(ch => {
+      const ex = d.exams.filter(e => e.group === g && e.chapter === ch);
+      if (!ex.length) return `<td style="text-align:center; color:var(--gray-soft);">–</td>`;
+      const a = ex.reduce((x, e) => x + e.score, 0) / ex.length;
+      return `<td style="text-align:center;"><span style="font-family:var(--font-num); font-weight:700; color:${scoreColor(a)};">${a.toFixed(1)}</span><br><span style="font-size:10px; color:var(--gray-dark);">${ex.length} คน</span></td>`;
+    }).join('');
+    const all = d.exams.filter(e => e.group === g);
+    const ga = all.length ? (all.reduce((x, e) => x + e.score, 0) / all.length).toFixed(1) : '–';
+    return `<tr><td><div class="att-student-name">${g}</div><div class="att-student-meta">${stuCount} คน · ${all.length} ผลสอบ</div></td>${cells}<td style="text-align:center; font-family:var(--font-num); font-weight:700;">${ga}</td></tr>`;
+  }).join('');
+
+  sb.innerHTML = `
+    <div class="card">
+      <div class="card__head">
+        <span class="card__title">เปรียบเทียบคะแนนเฉลี่ยทุกกลุ่ม (เต็ม 30)</span>
+      </div>
+      <div class="att-table-wrap">
+        <table class="att-table">
+          <thead><tr><th>กลุ่ม</th>${chapters.map(c => `<th style="text-align:center; min-width:90px;">${c}</th>`).join('')}<th style="text-align:center;">รวม</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function showExamDetailModal(full, key) {
+  const d = state.examData;
+  const parts = key.split('|');
+  const e = d.exams.find(x => x.full === full && x.chapter === parts[0] && x.date === parts[1]);
+  if (!e) return;
+  const stMap = s => {
+    s = String(s || '');
+    if (s.indexOf('✅') !== -1) return ['✓', 'var(--success)', 'var(--success-bg)'];
+    if (s.indexOf('⚠') !== -1) return ['ส', 'var(--orange)', '#FFF6F0'];
+    if (s.indexOf('C') === 0 || s.indexOf('C ') !== -1) return ['C', '#7C3AED', '#F3EFFB'];
+    if (s.indexOf('X') !== -1) return ['X', 'var(--danger)', 'var(--danger-bg)'];
+    if (s.indexOf('⏰') !== -1) return ['⏰', 'var(--gray-dark)', 'var(--bg-soft)'];
+    return ['–', 'var(--gray-soft)', 'transparent'];
+  };
+  const grid = e.statuses.map((s, i) => {
+    const m = stMap(s);
+    return `<div style="display:flex; flex-direction:column; align-items:center; padding:6px 2px; background:${m[2]}; border-radius:8px;">
+      <span style="font-size:10px; color:var(--gray-dark); font-family:var(--font-num);">${i+1}</span>
+      <b style="color:${m[1]}; font-size:14px;">${m[0]}</b>
+    </div>`;
+  }).join('');
+  showModal({
+    title: `${full}`,
+    body: `
+      <div style="margin-bottom:12px;">
+        <b>${e.chapter}</b> · <span style="font-family:var(--font-num);">${e.date}</span> ·
+        คะแนน <b style="font-family:var(--font-num); font-size:20px; color:${scoreColor(e.score)};">${e.score}</b>/30
+      </div>
+      <div style="display:flex; gap:12px; flex-wrap:wrap; font-size:12px; margin-bottom:12px; color:var(--gray-dark);">
+        <span>⚠️ สะเพร่า <b>${e.careless}</b></span><span style="color:#7C3AED;">C คอนเซปต์ <b>${e.concept}</b></span>
+        <span style="color:var(--danger);">X ทำไม่ได้ <b>${e.cannot}</b></span><span>⏰ ไม่ทัน <b>${e.timeout}</b></span>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(10,1fr); gap:4px;">${grid}</div>
+    `,
+    actions: [{ label: 'ปิด', class: 'btn--primary', onClick: closeModal }]
+  });
+}
+
+/* ---------- จัดการรายชื่อ/กลุ่ม (เขียนกลับ sheet ผ่าน Apps Script) ---------- */
+async function examWrite(payload) {
+  if (!SCRIPT_URL) { toast('ยังไม่ได้เชื่อม Apps Script', 'error'); return null; }
+  toast('กำลังบันทึกลง Google Sheet...', 'success');
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(Object.assign({ token: TEACHER_TOKEN }, payload))
+    });
+    const result = await res.json();
+    if (!result.ok) { toast('ไม่สำเร็จ: ' + (result.error || ''), 'error'); return null; }
+    return result;
+  } catch(e) { toast('เชื่อมต่อไม่ได้: ' + e.message, 'error'); return null; }
+}
+
+function showManageRosterModal() {
+  const d = state.examData;
+  if (!d) return;
+  _rosterCache = d.students.slice();
+  const byGroup = {};
+  _rosterCache.forEach((s, i) => { (byGroup[s.group] = byGroup[s.group] || []).push(i); });
+  const sections = d.groups.map(g => `
+    <div style="margin-bottom:14px;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+        <b>${g}</b><span style="font-size:11px; color:var(--gray-dark);">(${(byGroup[g]||[]).length} คน)</span>
+        <button class="btn btn--ghost btn--xs" style="margin-left:auto;" onclick="rosterRenameGroup('${g.replace(/'/g, "\\'")}')">✏️ เปลี่ยนชื่อกลุ่ม</button>
+      </div>
+      ${(byGroup[g] || []).map(i => {
+        const s = _rosterCache[i];
+        return `<div style="display:flex; align-items:center; gap:6px; padding:6px 10px; background:var(--bg-soft); border-radius:8px; margin-bottom:4px; font-size:13px;">
+          <span style="font-family:var(--font-num); color:var(--gray-soft); font-size:11px;">${s.id}</span>
+          <span style="flex:1;">${s.name}</span>
+          <button class="btn btn--ghost btn--xs" onclick="rosterAction(${i}, 'rename')">✏️ ชื่อ</button>
+          <button class="btn btn--ghost btn--xs" onclick="rosterAction(${i}, 'move')">⇄ ย้ายกลุ่ม</button>
+          <button class="btn btn--danger btn--xs" onclick="rosterAction(${i}, 'delete')">×</button>
+        </div>`;
+      }).join('')}
+    </div>
+  `).join('');
+  showModal({
+    title: 'จัดการรายชื่อ/กลุ่ม (ระบบข้อสอบ)',
+    body: `
+      <div style="font-size:12px; color:var(--gray-dark); margin-bottom:12px; line-height:1.6;">
+        แก้ที่นี่จะบันทึกลง Google Sheet คะแนนโดยตรง (students + results + results_long พร้อมกัน)<br>
+        <b>เพิ่มกลุ่มใหม่</b> = พิมพ์ชื่อกลุ่มใหม่ตอนเพิ่ม/ย้ายนักเรียน · <b>ลดกลุ่ม</b> = ย้าย/ลบนักเรียนออกจนหมด กลุ่มจะหายเอง
+      </div>
+      <div style="max-height:340px; overflow-y:auto;">${sections}</div>
+    `,
+    actions: [
+      { label: 'ปิด', class: 'btn--ghost', onClick: closeModal },
+      { label: '+ เพิ่มนักเรียน', class: 'btn--primary', onClick: rosterAddStudent }
+    ]
+  });
+}
+
+async function rosterAction(idx, act) {
+  const s = _rosterCache[idx];
+  if (!s) return;
+  if (act === 'rename') {
+    const nn = prompt('ชื่อใหม่ของ "' + s.name + '" (ไม่ต้องใส่วงเล็บกลุ่ม):', s.name);
+    if (!nn || nn.trim() === s.name) return;
+    const r = await examWrite({ action: 'examRenameStudent', oldFull: s.full, newName: nn.trim() });
+    if (r) { toast(`เปลี่ยนชื่อแล้ว (แก้ ${r.updated} จุด)`, 'success'); await refreshRoster(); }
+  } else if (act === 'move') {
+    const ng = prompt('ย้าย "' + s.name + '" ไปกลุ่มไหน?\nกลุ่มที่มี: ' + state.examData.groups.join(' · ') + '\n(พิมพ์ชื่อกลุ่มใหม่ = สร้างกลุ่มใหม่)', s.group);
+    if (!ng || ng.trim() === s.group) return;
+    const r = await examWrite({ action: 'examMoveStudent', oldFull: s.full, newGroup: ng.trim() });
+    if (r) { toast(`ย้ายกลุ่มแล้ว (แก้ ${r.updated} จุด)`, 'success'); await refreshRoster(); }
+  } else if (act === 'delete') {
+    if (!confirm('ลบ "' + s.name + '" ออกจากรายชื่อ?\n(ประวัติคะแนนเก่ายังอยู่ใน sheet แต่จะไม่แสดงในรายงาน)')) return;
+    const r = await examWrite({ action: 'examDeleteStudent', full: s.full });
+    if (r) { toast('ลบแล้ว', 'success'); await refreshRoster(); }
+  }
+}
+
+async function rosterAddStudent() {
+  const nn = prompt('ชื่อนักเรียนใหม่ (ไม่ต้องใส่วงเล็บกลุ่ม):');
+  if (!nn) return;
+  const ng = prompt('อยู่กลุ่มไหน?\nกลุ่มที่มี: ' + state.examData.groups.join(' · ') + '\n(พิมพ์ชื่อกลุ่มใหม่ = สร้างกลุ่มใหม่)');
+  if (!ng) return;
+  const r = await examWrite({ action: 'examAddStudent', name: nn.trim(), group: ng.trim() });
+  if (r) { toast(`เพิ่ม "${nn.trim()}" (${r.id}) แล้ว`, 'success'); await refreshRoster(); }
+}
+
+async function refreshRoster() {
+  state.examData = null;
+  await fetchExamData();
+  showManageRosterModal();
+  if (state.view === 'scores') renderMain();
+}
+
+async function rosterRenameGroup(oldG) {
+  const ng = prompt('เปลี่ยนชื่อกลุ่ม "' + oldG + '" เป็น:', oldG);
+  if (!ng || ng.trim() === oldG) return;
+  const r = await examWrite({ action: 'examRenameGroup', oldGroup: oldG, newGroup: ng.trim() });
+  if (r) { toast(`เปลี่ยนชื่อกลุ่มแล้ว (แก้ ${r.updated} จุด)`, 'success'); await refreshRoster(); }
+}
+
+/* ===========================================================
    FACE SCAN — เช็คชื่อด้วยใบหน้า (face-api.js, รันในเบราว์เซอร์)
    ข้อมูลเก็บเป็น descriptor ตัวเลข 128 ค่า ไม่เก็บรูปภาพ
    =========================================================== */
@@ -4618,6 +4928,10 @@ function init() {
   });
   document.getElementById('btnAttendance').addEventListener('click', () => {
     state.view = 'attendance';
+    renderAll();
+  });
+  document.getElementById('btnScores').addEventListener('click', () => {
+    state.view = 'scores';
     renderAll();
   });
   document.getElementById('btnAddGroup').addEventListener('click', addGroup);
