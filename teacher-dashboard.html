@@ -3592,7 +3592,8 @@ async function fetchExamData(force) {
     id: r[0] || '', full: String(r[1]).trim(), group: String(r[2] || '').trim(),
     name: String(r[1]).replace(/\s*\([^)]*\)\s*$/, '').trim()
   }));
-  const exams = resRows.filter(r => r && r[1] && r[4]).map(r => ({
+  const exams = resRows.filter(r => r && r[1] && r[4]).map((r, ri) => ({
+    _row: ri,
     full: String(r[1]).trim(), group: String(r[2] || '').trim(),
     date: String(r[3] || ''), chapter: String(r[4] || ''),
     statuses: r.slice(6, 36),
@@ -3609,6 +3610,35 @@ function scoreColor(sc) {
   return sc >= 24 ? 'var(--success)' : sc >= 15 ? 'var(--orange)' : 'var(--danger)';
 }
 function exKey(e) { return e.chapter + '|' + e.date; }
+
+function examDateMs(e) {
+  const d = new Date(e.date);
+  const ms = isNaN(d.getTime()) ? 0 : d.getTime();
+  return ms < 631152000000 ? 0 : ms; // วันที่เพี้ยน (ก่อนปี 1990 เช่น 1/1/1970) = ถือว่าไม่รู้วันที่
+}
+
+/* ถ้านักเรียนคนเดิมสอบบทเดิมหลายรอบ → เก็บเฉพาะครั้งที่ใหม่สุด
+   (เทียบวันที่สอบก่อน ถ้าเท่ากัน/วันที่เสีย ใช้แถวที่กรอกทีหลังใน sheet) */
+function latestPerChapter(exams) {
+  const best = {};
+  exams.forEach(e => {
+    const k = e.full + '|' + e.chapter;
+    const cur = best[k];
+    if (!cur) { best[k] = e; return; }
+    const a = examDateMs(e), b = examDateMs(cur);
+    if (a > b || (a === b && e._row > cur._row)) best[k] = e;
+  });
+  return Object.values(best);
+}
+
+/* ลำดับบทตามที่ปรากฏครั้งแรกใน sheet (ตามลำดับการสอน) */
+function chapterOrder(exams) {
+  const seen = [];
+  exams.slice().sort((a, b) => a._row - b._row).forEach(e => {
+    if (seen.indexOf(e.chapter) === -1) seen.push(e.chapter);
+  });
+  return seen;
+}
 
 async function renderScores(body) {
   body.innerHTML = `<div class="empty"><h3>กำลังโหลดคะแนน...</h3><p>อ่านจาก Google Sheet ระบบข้อสอบ</p></div>`;
@@ -3645,36 +3675,39 @@ function renderGroupScores(sb) {
   const g = state.scoresGroup;
   if (!g) { sb.innerHTML = `<div class="empty"><h3>ยังไม่มีกลุ่มในระบบข้อสอบ</h3></div>`; return; }
   const students = d.students.filter(s => s.group === g);
-  const exams = d.exams.filter(e => e.group === g);
-  const keys = [...new Set(exams.map(exKey))]
-    .sort((a, b) => new Date(a.split('|')[1]) - new Date(b.split('|')[1]));
+  const rawExams = d.exams.filter(e => e.group === g);
+  const exams = latestPerChapter(rawExams);          // ซ้ำบทเดิม → ใช้ครั้งใหม่สุด
+  const chapters = chapterOrder(rawExams);           // 1 บท = 1 คอลัมน์
   const byStu = {};
-  exams.forEach(e => { (byStu[e.full] = byStu[e.full] || {})[exKey(e)] = e; });
+  exams.forEach(e => { (byStu[e.full] = byStu[e.full] || {})[e.chapter] = e; });
 
   const scores = exams.map(e => e.score);
   const avg = scores.length ? (scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(1) : '–';
   const mx = scores.length ? Math.max.apply(null, scores) : '–';
   const mn = scores.length ? Math.min.apply(null, scores) : '–';
 
-  const head = keys.map(k => {
-    const parts = k.split('|');
-    return `<th style="min-width:90px; text-align:center;">${parts[0]}<br><span style="font-weight:400; font-size:10px; color:var(--gray-dark); font-family:var(--font-num);">${parts[1]}</span></th>`;
-  }).join('');
+  window._examDetailCache = [];
+
+  const head = chapters.map(ch =>
+    `<th style="min-width:92px; text-align:center;">${ch}</th>`
+  ).join('');
 
   const rows = students.map((s, i) => {
-    const cells = keys.map(k => {
-      const e = byStu[s.full] && byStu[s.full][k];
+    const cells = chapters.map(ch => {
+      const e = byStu[s.full] && byStu[s.full][ch];
       if (!e) return `<td style="text-align:center; color:var(--gray-soft);">–</td>`;
-      return `<td style="text-align:center;"><span onclick="showExamDetailModal('${s.full.replace(/'/g, "\\'")}', '${k.replace(/'/g, "\\'")}')" style="cursor:pointer; font-family:var(--font-num); font-weight:700; color:${scoreColor(e.score)}; border-bottom:1px dotted currentColor;">${e.score}</span></td>`;
+      const idx = window._examDetailCache.push(e) - 1;
+      const retook = rawExams.filter(x => x.full === s.full && x.chapter === ch).length > 1;
+      return `<td style="text-align:center;"><span onclick="showExamDetailByIdx(${idx})" title="${e.date}${retook ? ' · สอบซ้ำ ใช้ครั้งล่าสุด' : ''}" style="cursor:pointer; font-family:var(--font-num); font-weight:700; color:${scoreColor(e.score)}; border-bottom:1px dotted currentColor;">${e.score}${retook ? '<sup style=\"font-size:8px;\">↻</sup>' : ''}</span></td>`;
     }).join('');
-    const own = keys.map(k => byStu[s.full] && byStu[s.full][k]).filter(Boolean);
+    const own = chapters.map(ch => byStu[s.full] && byStu[s.full][ch]).filter(Boolean);
     const myAvg = own.length ? (own.reduce((a, e) => a + e.score, 0) / own.length).toFixed(1) : '–';
     return `<tr><td><div class="att-student-name">${i+1}. ${s.name}</div></td>${cells}<td style="text-align:center; font-family:var(--font-num); font-weight:700;">${myAvg}</td></tr>`;
   }).join('');
 
   sb.innerHTML = `
     <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:0; margin-bottom:18px; background:var(--black); color:var(--bg); border-radius:var(--radius-card); overflow:hidden;">
-      <div class="att-summary-cell"><div class="att-summary-label">ชุดสอบ</div><div class="att-summary-value num">${keys.length}</div></div>
+      <div class="att-summary-cell"><div class="att-summary-label">บทที่สอบแล้ว</div><div class="att-summary-value num">${chapters.length}</div></div>
       <div class="att-summary-cell"><div class="att-summary-label">เฉลี่ยกลุ่ม /30</div><div class="att-summary-value num">${avg}</div></div>
       <div class="att-summary-cell"><div class="att-summary-label">สูงสุด</div><div class="att-summary-value num">${mx}</div></div>
       <div class="att-summary-cell"><div class="att-summary-label">ต่ำสุด</div><div class="att-summary-value num">${mn}</div></div>
@@ -3682,7 +3715,7 @@ function renderGroupScores(sb) {
     <div class="card">
       <div class="card__head">
         <span class="card__title">คะแนนสอบ · <b>${g}</b> · นักเรียน ${students.length} คน</span>
-        <span style="font-size:11px; color:var(--gray-dark);">กดตัวเลขคะแนนเพื่อดูรายละเอียด 30 ข้อ</span>
+        <span style="font-size:11px; color:var(--gray-dark);">กดตัวเลขเพื่อดู 30 ข้อ · ↻ = สอบซ้ำ แสดงครั้งล่าสุด</span>
       </div>
       <div class="att-table-wrap">
         <table class="att-table">
@@ -3696,28 +3729,29 @@ function renderGroupScores(sb) {
 
 function renderAllGroupScores(sb) {
   const d = state.examData;
-  const chapters = [...new Set(d.exams.map(e => e.chapter))];
+  const chapters = chapterOrder(d.exams);
+  const deduped = latestPerChapter(d.exams);   // ซ้ำบทเดิม → ใช้ครั้งใหม่สุด
   const rows = d.groups.map(g => {
     const stuCount = d.students.filter(s => s.group === g).length;
+    const gEx = deduped.filter(e => e.group === g);
     const cells = chapters.map(ch => {
-      const ex = d.exams.filter(e => e.group === g && e.chapter === ch);
+      const ex = gEx.filter(e => e.chapter === ch);
       if (!ex.length) return `<td style="text-align:center; color:var(--gray-soft);">–</td>`;
       const a = ex.reduce((x, e) => x + e.score, 0) / ex.length;
       return `<td style="text-align:center;"><span style="font-family:var(--font-num); font-weight:700; color:${scoreColor(a)};">${a.toFixed(1)}</span><br><span style="font-size:10px; color:var(--gray-dark);">${ex.length} คน</span></td>`;
     }).join('');
-    const all = d.exams.filter(e => e.group === g);
-    const ga = all.length ? (all.reduce((x, e) => x + e.score, 0) / all.length).toFixed(1) : '–';
-    return `<tr><td><div class="att-student-name">${g}</div><div class="att-student-meta">${stuCount} คน · ${all.length} ผลสอบ</div></td>${cells}<td style="text-align:center; font-family:var(--font-num); font-weight:700;">${ga}</td></tr>`;
+    const ga = gEx.length ? (gEx.reduce((x, e) => x + e.score, 0) / gEx.length).toFixed(1) : '–';
+    return `<tr><td><div class="att-student-name">${g}</div><div class="att-student-meta">${stuCount} คน · ${gEx.length} ผลสอบ</div></td>${cells}<td style="text-align:center; font-family:var(--font-num); font-weight:700;">${ga}</td></tr>`;
   }).join('');
 
   sb.innerHTML = `
     <div class="card">
       <div class="card__head">
-        <span class="card__title">เปรียบเทียบคะแนนเฉลี่ยทุกกลุ่ม (เต็ม 30)</span>
+        <span class="card__title">เปรียบเทียบคะแนนเฉลี่ยทุกกลุ่ม (เต็ม 30 · นับผลสอบล่าสุดของแต่ละคน)</span>
       </div>
       <div class="att-table-wrap">
         <table class="att-table">
-          <thead><tr><th>กลุ่ม</th>${chapters.map(c => `<th style="text-align:center; min-width:90px;">${c}</th>`).join('')}<th style="text-align:center;">รวม</th></tr></thead>
+          <thead><tr><th>กลุ่ม</th>${chapters.map(c => `<th style="text-align:center; min-width:92px;">${c}</th>`).join('')}<th style="text-align:center;">รวม</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
@@ -3725,10 +3759,8 @@ function renderAllGroupScores(sb) {
   `;
 }
 
-function showExamDetailModal(full, key) {
-  const d = state.examData;
-  const parts = key.split('|');
-  const e = d.exams.find(x => x.full === full && x.chapter === parts[0] && x.date === parts[1]);
+function showExamDetailByIdx(idx) {
+  const e = (window._examDetailCache || [])[idx];
   if (!e) return;
   const stMap = s => {
     s = String(s || '');
@@ -3747,10 +3779,10 @@ function showExamDetailModal(full, key) {
     </div>`;
   }).join('');
   showModal({
-    title: `${full}`,
+    title: `${e.full}`,
     body: `
       <div style="margin-bottom:12px;">
-        <b>${e.chapter}</b> · <span style="font-family:var(--font-num);">${e.date}</span> ·
+        <b>${e.chapter}</b> · <span style="font-family:var(--font-num);">${e.date || 'ไม่ระบุวันที่'}</span> ·
         คะแนน <b style="font-family:var(--font-num); font-size:20px; color:${scoreColor(e.score)};">${e.score}</b>/30
       </div>
       <div style="display:flex; gap:12px; flex-wrap:wrap; font-size:12px; margin-bottom:12px; color:var(--gray-dark);">
