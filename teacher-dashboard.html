@@ -1371,27 +1371,31 @@ function getSessionTime(session, group) {
 /* ===========================================================
    HOLIDAY LOGIC — เลื่อนคาบถัดไป +7 วันอัตโนมัติ
    =========================================================== */
-function markHoliday(groupId, sessionNo, note) {
+function markHoliday(groupId, sessionNo, note, shiftDates) {
   const g = state.data.groups.find(x => x.id === groupId);
   if (!g) return;
   ensureSessions(g);
   const idx = g.sessions.findIndex(s => s.no === sessionNo);
   if (idx === -1) return;
 
-  // ทำเครื่องหมายคาบนี้เป็น holiday
+  // ทำเครื่องหมายคาบนี้เป็น holiday + จำว่าเลื่อนวันหรือไม่ (ไว้ยกเลิกให้ถูก)
   g.sessions[idx].status = 'holiday';
   g.sessions[idx].note = note || 'หยุด';
+  g.sessions[idx].shifted = !!shiftDates;
 
-  // เลื่อนคาบถัดไปทั้งหมด +7 วัน (ยกเว้นคาบที่เป็น holiday อยู่แล้ว)
-  for (let i = idx + 1; i < g.sessions.length; i++) {
-    if (g.sessions[i].status !== 'holiday') {
-      g.sessions[i].date = addDays(g.sessions[i].date, 7);
+  if (shiftDates) {
+    for (let i = idx + 1; i < g.sessions.length; i++) {
+      if (g.sessions[i].status !== 'holiday') {
+        g.sessions[i].date = addDays(g.sessions[i].date, 7);
+      }
     }
+    g.endDate = g.sessions[g.sessions.length - 1].date;
   }
-  // อัปเดต endDate
-  g.endDate = g.sessions[g.sessions.length - 1].date;
   saveData();
-  toast(`บันทึกวันหยุด คาบที่ ${sessionNo} · เลื่อนคาบถัดไป +7 วัน`, 'success');
+  autoSync();
+  toast(shiftDates
+    ? `บันทึกวันหยุด · เลื่อนคาบถัดไป +7 วัน`
+    : `บันทึกวันหยุด · ข้ามเลขคาบนี้ (วันอื่นคงเดิม)`, 'success');
 }
 
 function unmarkHoliday(groupId, sessionNo) {
@@ -1401,19 +1405,24 @@ function unmarkHoliday(groupId, sessionNo) {
   const idx = g.sessions.findIndex(s => s.no === sessionNo);
   if (idx === -1) return;
 
+  const wasShifted = !!g.sessions[idx].shifted;
   // ยกเลิก holiday
   g.sessions[idx].status = 'upcoming';
   g.sessions[idx].note = '';
+  g.sessions[idx].shifted = false;
 
-  // เลื่อนคาบถัดไปกลับ -7 วัน (ยกเว้นคาบที่เป็น holiday อยู่)
-  for (let i = idx + 1; i < g.sessions.length; i++) {
-    if (g.sessions[i].status !== 'holiday') {
-      g.sessions[i].date = addDays(g.sessions[i].date, -7);
+  // เลื่อนคาบถัดไปกลับ -7 วัน เฉพาะกรณีที่ตอนมาร์คได้เลื่อนไว้
+  if (wasShifted) {
+    for (let i = idx + 1; i < g.sessions.length; i++) {
+      if (g.sessions[i].status !== 'holiday') {
+        g.sessions[i].date = addDays(g.sessions[i].date, -7);
+      }
     }
+    g.endDate = g.sessions[g.sessions.length - 1].date;
   }
-  g.endDate = g.sessions[g.sessions.length - 1].date;
   saveData();
-  toast(`ยกเลิกวันหยุด คาบที่ ${sessionNo} · เลื่อนคาบถัดไปกลับ -7 วัน`, 'success');
+  autoSync();
+  toast(`ยกเลิกวันหยุด${wasShifted ? ' · เลื่อนคาบถัดไปกลับ -7 วัน' : ''}`, 'success');
 }
 
 /* ===========================================================
@@ -1819,11 +1828,23 @@ function renderStudentList(g) {
   });
 }
 
+/* map: session.no -> ลำดับคาบเรียนจริง (holiday = null, ไม่กินเลข) */
+function teachingNoMap(g) {
+  const map = {};
+  let n = 0;
+  (g.sessions || []).forEach(s => {
+    if (s.status === 'holiday') { map[s.no] = null; }
+    else { n++; map[s.no] = n; }
+  });
+  return map;
+}
+
 function renderSessionTable(g) {
   const tbody = document.getElementById('sessionTableBody');
   if (!tbody) return;
   tbody.innerHTML = '';
   const today = todayStr();
+  const tNo = teachingNoMap(g);
   (g.sessions || []).forEach(s => {
     // auto-detect status based on date if not holiday
     let status = s.status;
@@ -1836,8 +1857,11 @@ function renderSessionTable(g) {
 
     const tr = document.createElement('tr');
     tr.className = s.status === 'holiday' ? 'is-holiday' : (s.status === 'current' ? 'is-current' : '');
+    const noCell = s.status === 'holiday'
+      ? `<span title="วันหยุด — ไม่นับเป็นคาบเรียน" style="display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:var(--danger); color:var(--bg); font-size:13px;">✕</span>`
+      : `<span class="session-no-print">${tNo[s.no]}</span>`;
     tr.innerHTML = `
-      <td><span class="session-no-print">${s.no}</span></td>
+      <td>${noCell}</td>
       <td>
         <input type="date" class="session-input" value="${s.date}" onchange="updateSession('${g.id}', ${s.no}, 'date', this.value)">
         <div style="font-size:11px; color:var(--gray-dark); margin-top:2px;">${thDayName(s.date)}</div>
@@ -2695,7 +2719,7 @@ function renderAttendanceSummary(body) {
           <thead>
             <tr>
               <th>ชื่อ</th>
-              ${sessionCols.map(s => `<th>${s.no}</th>`).join('')}
+              ${(()=>{const m=teachingNoMap(g);return sessionCols.map(s => `<th>${m[s.no]}</th>`).join('');})()}
               <th>%</th>
             </tr>
           </thead>
@@ -3518,7 +3542,8 @@ function printAttendanceReport(groupId) {
     `;
   }).join('');
 
-  const sessionHeader = sessionCols.map(s => `<th style="text-align:center; width:24px;">${s.no}</th>`).join('');
+  const _tno = teachingNoMap(g);
+  const sessionHeader = sessionCols.map(s => `<th style="text-align:center; width:24px;">${_tno[s.no]}</th>`).join('');
 
   const html = `
     <div class="print-report">
@@ -4594,17 +4619,27 @@ function markHolidayPrompt(groupId, sessionNo) {
   const s = (g.sessions || []).find(x => x.no === sessionNo);
   if (!s) return;
   showModal({
-    title: `บันทึกวันหยุด — คาบที่ ${sessionNo}`,
-    body: `<p style="margin-bottom:12px;">วันที่ ${thDateFull(s.date)} · ${thDayName(s.date)}</p>
-           <input type="text" id="holidayNote" placeholder="เหตุผล เช่น หยุดเทศกาลสงกรานต์" value="${s.note || ''}"
+    title: `บันทึกวันหยุด — คาบวันที่ ${thDate(s.date)}`,
+    body: `<p style="margin-bottom:12px;">${thDateFull(s.date)} · วัน${thDayName(s.date)}</p>
+           <input type="text" id="holidayNote" placeholder="เหตุผล เช่น ลาสอบกลางภาค, หยุดสงกรานต์" value="${(s.note || '').replace(/"/g, '&quot;')}"
                   style="width:100%; padding:10px 14px; border:1px solid var(--line); border-radius:8px; outline:none;"
                   onfocus="this.style.borderColor='var(--black)'" onblur="this.style.borderColor='var(--line)'">
-           <p style="margin-top:12px; font-size:12px; color:var(--gray-dark);">ระบบจะเลื่อนคาบถัดไปทั้งหมด +7 วันอัตโนมัติ</p>`,
+           <p style="margin-top:14px; font-size:13px; color:var(--gray-dark); line-height:1.6;">
+             เลือกวิธีจัดการคาบถัดไป:<br>
+             <b>หยุดเฉยๆ</b> = คาบถัดไปคงวันเดิม แค่ข้ามเลขคาบนี้<br>
+             <b>หยุด + เลื่อนคอร์ส</b> = เลื่อนคาบถัดไปทั้งหมด +7 วัน (มีคาบชดเชยท้ายคอร์ส)
+           </p>`,
     actions: [
       { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
-      { label: 'บันทึกวันหยุด', class: 'btn--primary', onClick: () => {
+      { label: 'หยุดเฉยๆ', class: 'btn--ghost', onClick: () => {
         const note = document.getElementById('holidayNote').value.trim();
-        markHoliday(groupId, sessionNo, note);
+        markHoliday(groupId, sessionNo, note, false);
+        closeModal();
+        renderAll();
+      }},
+      { label: 'หยุด + เลื่อนคอร์ส', class: 'btn--primary', onClick: () => {
+        const note = document.getElementById('holidayNote').value.trim();
+        markHoliday(groupId, sessionNo, note, true);
         closeModal();
         renderAll();
       }}
