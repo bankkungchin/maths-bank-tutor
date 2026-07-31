@@ -1371,31 +1371,32 @@ function getSessionTime(session, group) {
 /* ===========================================================
    HOLIDAY LOGIC — เลื่อนคาบถัดไป +7 วันอัตโนมัติ
    =========================================================== */
-function markHoliday(groupId, sessionNo, note, shiftDates) {
+function markHoliday(groupId, sessionNo, note, addMakeup) {
   const g = state.data.groups.find(x => x.id === groupId);
   if (!g) return;
   ensureSessions(g);
   const idx = g.sessions.findIndex(s => s.no === sessionNo);
   if (idx === -1) return;
 
-  // ทำเครื่องหมายคาบนี้เป็น holiday + จำว่าเลื่อนวันหรือไม่ (ไว้ยกเลิกให้ถูก)
+  const holidayDate = g.sessions[idx].date;
   g.sessions[idx].status = 'holiday';
   g.sessions[idx].note = note || 'หยุด';
-  g.sessions[idx].shifted = !!shiftDates;
+  g.sessions[idx].hasMakeup = !!addMakeup;
 
-  if (shiftDates) {
-    for (let i = idx + 1; i < g.sessions.length; i++) {
-      if (g.sessions[i].status !== 'holiday') {
-        g.sessions[i].date = addDays(g.sessions[i].date, 7);
-      }
-    }
-    g.endDate = g.sessions[g.sessions.length - 1].date;
+  if (addMakeup) {
+    // เพิ่มคาบชดเชย 1 คาบต่อท้ายคอร์ส (7 วันหลังคาบสุดท้าย) — วันคาบกลางคงเดิม ไม่เกิดช่องว่าง
+    const last = g.sessions[g.sessions.length - 1];
+    const newDate = addDays(last.date, 7);
+    const newNo = Math.max.apply(null, g.sessions.map(s => s.no)) + 1;
+    g.sessions.push({ no: newNo, date: newDate, customTime: null, status: 'upcoming', note: '', makeupForDate: holidayDate });
+    g.sessionsTotal = g.sessions.length;
+    g.endDate = newDate;
   }
   saveData();
   autoSync();
-  toast(shiftDates
-    ? `บันทึกวันหยุด · เลื่อนคาบถัดไป +7 วัน`
-    : `บันทึกวันหยุด · ข้ามเลขคาบนี้ (วันอื่นคงเดิม)`, 'success');
+  toast(addMakeup
+    ? `บันทึกวันหยุด · เพิ่มคาบชดเชยท้ายคอร์ส 1 คาบ`
+    : `บันทึกวันหยุด · ข้ามเลขคาบนี้ (ไม่ชดเชย)`, 'success');
 }
 
 function unmarkHoliday(groupId, sessionNo) {
@@ -1405,24 +1406,30 @@ function unmarkHoliday(groupId, sessionNo) {
   const idx = g.sessions.findIndex(s => s.no === sessionNo);
   if (idx === -1) return;
 
-  const wasShifted = !!g.sessions[idx].shifted;
-  // ยกเลิก holiday
+  const holidayDate = g.sessions[idx].date;
+  const hadMakeup = !!g.sessions[idx].hasMakeup;
   g.sessions[idx].status = 'upcoming';
   g.sessions[idx].note = '';
-  g.sessions[idx].shifted = false;
+  g.sessions[idx].hasMakeup = false;
 
-  // เลื่อนคาบถัดไปกลับ -7 วัน เฉพาะกรณีที่ตอนมาร์คได้เลื่อนไว้
-  if (wasShifted) {
-    for (let i = idx + 1; i < g.sessions.length; i++) {
-      if (g.sessions[i].status !== 'holiday') {
-        g.sessions[i].date = addDays(g.sessions[i].date, -7);
-      }
+  // ลบคาบชดเชยที่เคยเพิ่มไว้สำหรับวันหยุดนี้ (ถ้ามี) → ตารางกลับตามเดิม
+  if (hadMakeup) {
+    const mi = g.sessions.findIndex(s => s.makeupForDate === holidayDate);
+    if (mi !== -1) {
+      g.sessions.splice(mi, 1);
+      g.sessionsTotal = g.sessions.length;
+      if (g.sessions.length) g.endDate = g.sessions[g.sessions.length - 1].date;
     }
-    g.endDate = g.sessions[g.sessions.length - 1].date;
   }
   saveData();
   autoSync();
-  toast(`ยกเลิกวันหยุด${wasShifted ? ' · เลื่อนคาบถัดไปกลับ -7 วัน' : ''}`, 'success');
+  toast(`ยกเลิกวันหยุด · กลับเป็นวันเรียน${hadMakeup ? ' · ลบคาบชดเชยแล้ว' : ''}`, 'success');
+}
+
+/* จำนวนคาบเรียนที่เหลือ (วันนี้เป็นต้นไป ไม่นับวันหยุด) */
+function remainingTeaching(g) {
+  const today = todayStr();
+  return (g.sessions || []).filter(s => s.status !== 'holiday' && s.date >= today).length;
 }
 
 /* ===========================================================
@@ -1566,13 +1573,15 @@ function renderSidebar() {
     const sessions = g.sessions || [];
     const done = sessions.filter(s => s.status === 'done' || s.status === 'current').length;
     const total = sessions.length;
+    const remain = remainingTeaching(g);
+    const nearEnd = remain >= 1 && remain <= 2;
     const item = document.createElement('div');
     item.className = 'group-item' + (g.id === state.selectedGroupId ? ' is-active' : '');
     item.innerHTML = `
       <span class="group-item__dot ${status}"></span>
       <div style="flex:1; min-width:0;">
-        <div class="group-item__name">${g.name}</div>
-        <div class="group-item__meta">${g.level} · ${done}/${total} คาบ · ${g.startTime}–${g.endTime}</div>
+        <div class="group-item__name">${g.name}${nearEnd ? ' <span title="ใกล้จบคอร์ส — เพิ่มตารางเรียน" style="color:var(--orange);">⚠</span>' : ''}</div>
+        <div class="group-item__meta">${g.level} · ${done}/${total} คาบ · ${g.startTime}–${g.endTime}${nearEnd ? ` · <span style="color:var(--orange); font-weight:600;">เหลือ ${remain} คาบ</span>` : ''}</div>
       </div>
     `;
     item.addEventListener('click', () => {
@@ -1654,7 +1663,21 @@ function renderMain() {
   eyebrow.textContent = 'Group Detail';
   title.textContent = g.name;
 
+  const remain = remainingTeaching(g);
+  const nextSess = (g.sessions || []).filter(s => s.status !== 'holiday' && s.date >= todayStr())
+                     .sort((a, b) => a.date < b.date ? -1 : 1)[0];
+  const warnBanner = (remain >= 1 && remain <= 2) ? `
+    <div class="card" style="border:1px solid var(--orange); background:#FFF6F0; display:flex; gap:12px; align-items:center;">
+      <div style="font-size:22px;">⏰</div>
+      <div style="flex:1;">
+        <div style="font-weight:700; color:var(--danger);">เหลือคาบเรียนอีก ${remain} คาบ${nextSess ? ' · คาบถัดไป ' + thDate(nextSess.date) : ''}</div>
+        <div style="font-size:13px; color:var(--gray-dark); margin-top:2px;">ใกล้จบคอร์สแล้ว — อย่าลืมวางแผน/เพิ่มตารางเรียนรอบต่อไป หรือกด "เพิ่มคาบ" ด้านล่าง</div>
+      </div>
+    </div>
+  ` : '';
+
   body.innerHTML = `
+    ${warnBanner}
     <!-- GROUP HEADER CARD -->
     <div class="card">
       <div class="group-header">
@@ -4626,8 +4649,8 @@ function markHolidayPrompt(groupId, sessionNo) {
                   onfocus="this.style.borderColor='var(--black)'" onblur="this.style.borderColor='var(--line)'">
            <p style="margin-top:14px; font-size:13px; color:var(--gray-dark); line-height:1.6;">
              เลือกวิธีจัดการคาบถัดไป:<br>
-             <b>หยุดเฉยๆ</b> = คาบถัดไปคงวันเดิม แค่ข้ามเลขคาบนี้<br>
-             <b>หยุด + เลื่อนคอร์ส</b> = เลื่อนคาบถัดไปทั้งหมด +7 วัน (มีคาบชดเชยท้ายคอร์ส)
+             <b>หยุดเฉยๆ</b> = ข้ามคาบนี้ ไม่ชดเชย (คอร์สจบเร็วขึ้น 1 คาบ)<br>
+             <b>หยุด + ชดเชย</b> = วันเรียนอื่นคงเดิม + เพิ่มคาบใหม่ท้ายคอร์ส 1 คาบ
            </p>`,
     actions: [
       { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
@@ -4637,7 +4660,7 @@ function markHolidayPrompt(groupId, sessionNo) {
         closeModal();
         renderAll();
       }},
-      { label: 'หยุด + เลื่อนคอร์ส', class: 'btn--primary', onClick: () => {
+      { label: 'หยุด + ชดเชย', class: 'btn--primary', onClick: () => {
         const note = document.getElementById('holidayNote').value.trim();
         markHoliday(groupId, sessionNo, note, true);
         closeModal();
