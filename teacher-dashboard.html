@@ -1071,7 +1071,7 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
       </button>
       <button class="btn btn--ghost btn--sm" id="btnScores" style="flex:1;">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-        คะแนน
+        คะแนน<span id="scoresBadge"></span>
       </button>
     </div>
 
@@ -1527,6 +1527,19 @@ function handleKeypad(key) {
   renderPinDisplay();
 }
 
+/* เช็คเงียบๆ หลัง login → ขึ้นตัวเลขสีส้มบนปุ่ม "คะแนน" ถ้ามีชุดสอบที่กรอกไม่ครบ */
+async function checkMissingScoresBadge() {
+  try {
+    await fetchExamData();
+    const list = findMissingScoreSets(state.examData);
+    const el = document.getElementById('scoresBadge');
+    if (!el) return;
+    if (list.length === 0) { el.textContent = ''; return; }
+    const n = list.reduce((a, x) => a + x.missing.length, 0);
+    el.innerHTML = ` <span title="ยังกรอกคะแนนไม่ครบ ${n} คน" style="display:inline-block; min-width:18px; padding:0 5px; background:var(--danger); color:var(--bg); border-radius:999px; font-size:11px; font-family:var(--font-num); line-height:18px; text-align:center;">${n}</span>`;
+  } catch(e) { /* เงียบไว้ ไม่รบกวนการใช้งาน */ }
+}
+
 function showApp() {
   document.getElementById('loginView').style.display = 'none';
   document.getElementById('appView').style.display = 'grid';
@@ -1544,6 +1557,7 @@ function showApp() {
     state.selectedGroupId = state.data.groups[0].id;
   }
   renderAll();
+  checkMissingScoresBadge();   // เช็คคะแนนที่ยังไม่ได้กรอก (เงียบๆ เบื้องหลัง)
 }
 
 function logout() {
@@ -3654,6 +3668,34 @@ async function fetchExamData(force) {
   return state.examData;
 }
 
+/* ชุดสอบที่ยังกรอกคะแนนไม่ครบ (ย้อนหลัง N วัน) → [{group, chapter, date, done, total, missing:[ชื่อ]}] */
+const MISSING_LOOKBACK_DAYS = 45;
+function findMissingScoreSets(d) {
+  if (!d) return [];
+  const cutoff = Date.now() - MISSING_LOOKBACK_DAYS * 86400000;
+  const sets = {};
+  d.exams.forEach(e => {
+    const ms = examDateMs(e);
+    if (ms && ms < cutoff) return;              // เก่าเกินไป ไม่เตือน
+    const k = e.group + '|' + e.chapter + '|' + e.date;
+    (sets[k] = sets[k] || { group: e.group, chapter: e.chapter, date: e.date, dateMs: ms, has: {} }).has[e.full] = true;
+  });
+  const out = [];
+  Object.keys(sets).forEach(k => {
+    const s = sets[k];
+    const roster = d.students.filter(x => x.group === s.group);
+    if (roster.length === 0) return;
+    const missing = roster.filter(x => !s.has[x.full]);
+    if (missing.length === 0) return;
+    out.push({
+      group: s.group, chapter: s.chapter, date: s.date, dateMs: s.dateMs,
+      done: roster.length - missing.length, total: roster.length,
+      missing: missing.map(x => x.name)
+    });
+  });
+  return out.sort((a, b) => b.dateMs - a.dateMs);
+}
+
 function scoreColor(sc) {
   return sc >= 24 ? 'var(--success)' : sc >= 15 ? 'var(--orange)' : 'var(--danger)';
 }
@@ -3712,10 +3754,42 @@ async function renderScores(body) {
         </div>
       </div>
     </div>
+    <div id="missingBanner"></div>
     <div id="scoresBody"></div>
   `;
+  renderMissingBanner();
   const sb = document.getElementById('scoresBody');
   if (state.scoresTab === 'group') renderGroupScores(sb); else renderAllGroupScores(sb);
+}
+
+function renderMissingBanner() {
+  const el = document.getElementById('missingBanner');
+  if (!el) return;
+  let list = findMissingScoreSets(state.examData);
+  if (state.scoresTab === 'group' && state.scoresGroup) list = list.filter(x => x.group === state.scoresGroup);
+  if (list.length === 0) {
+    el.innerHTML = `<div class="card" style="border:1px solid var(--success); background:var(--success-bg); display:flex; gap:10px; align-items:center;">
+      <span style="font-size:20px;">✅</span>
+      <div style="font-size:14px; color:var(--success); font-weight:600;">กรอกคะแนนครบทุกชุดสอบแล้ว (ย้อนหลัง ${MISSING_LOOKBACK_DAYS} วัน)</div>
+    </div>`;
+    return;
+  }
+  const totalMissing = list.reduce((a, x) => a + x.missing.length, 0);
+  el.innerHTML = `
+    <div class="card" style="border:1px solid var(--orange); background:#FFF6F0;">
+      <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+        <span style="font-size:20px;">🔔</span>
+        <div style="font-weight:700; color:var(--danger);">ยังกรอกคะแนนไม่ครบ · ${list.length} ชุดสอบ · ขาดรวม ${totalMissing} คน</div>
+      </div>
+      ${list.map(x => `
+        <div style="padding:8px 12px; background:var(--bg); border-radius:10px; margin-bottom:6px; font-size:13px;">
+          <b>${x.group}</b> · ${x.chapter} <span style="color:var(--gray-dark); font-family:var(--font-num);">${x.date || 'ไม่ระบุวันที่'}</span>
+          <span style="float:right; font-family:var(--font-num); color:var(--gray-dark);">${x.done}/${x.total}</span>
+          <div style="color:var(--danger); margin-top:2px;">ขาด: ${x.missing.join(', ')}</div>
+        </div>`).join('')}
+      <div style="font-size:11px; color:var(--gray-dark); margin-top:4px;">ตรวจย้อนหลัง ${MISSING_LOOKBACK_DAYS} วัน · เทียบกับรายชื่อปัจจุบันของแต่ละกลุ่ม</div>
+    </div>
+  `;
 }
 
 function renderGroupScores(sb) {
