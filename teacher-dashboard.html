@@ -3673,23 +3673,33 @@ const MISSING_LOOKBACK_DAYS = 45;
 function findMissingScoreSets(d) {
   if (!d) return [];
   const cutoff = Date.now() - MISSING_LOOKBACK_DAYS * 86400000;
+  const labels = chapterLabels(d.exams);
   const sets = {};
   d.exams.forEach(e => {
     const ms = examDateMs(e);
-    if (ms && ms < cutoff) return;              // เก่าเกินไป ไม่เตือน
-    const k = e.group + '|' + e.chapter + '|' + e.date;
-    (sets[k] = sets[k] || { group: e.group, chapter: e.chapter, date: e.date, dateMs: ms, has: {} }).has[e.full] = true;
+    if (ms && ms < cutoff) return;                     // เก่าเกินไป ไม่เตือน
+    const k = e.group + '|' + chapterKey(e.chapter);   // ★ รวมทั้งบท ไม่แยกวันที่
+    if (!sets[k]) sets[k] = { group: e.group, ck: chapterKey(e.chapter), lastMs: 0, lastDate: '', dates: {}, has: {} };
+    const s = sets[k];
+    s.has[e.full] = true;
+    if (e.date) s.dates[e.date] = true;
+    if (ms >= s.lastMs) { s.lastMs = ms; s.lastDate = e.date; }
   });
   const out = [];
   Object.keys(sets).forEach(k => {
     const s = sets[k];
     const roster = d.students.filter(x => x.group === s.group);
     if (roster.length === 0) return;
-    const missing = roster.filter(x => !s.has[x.full]);
+    const missing = roster.filter(x => !s.has[x.full]);   // ไม่มีคะแนนบทนี้เลย (ทุกวันที่)
     if (missing.length === 0) return;
     out.push({
-      group: s.group, chapter: s.chapter, date: s.date, dateMs: s.dateMs,
-      done: roster.length - missing.length, total: roster.length,
+      group: s.group,
+      chapter: labels[s.ck] || s.ck,
+      date: s.lastDate,
+      sittings: Object.keys(s.dates).length,
+      dateMs: s.lastMs,
+      done: roster.length - missing.length,
+      total: roster.length,
       missing: missing.map(x => x.name)
     });
   });
@@ -3709,10 +3719,30 @@ function examDateMs(e) {
 
 /* ถ้านักเรียนคนเดิมสอบบทเดิมหลายรอบ → เก็บเฉพาะครั้งที่ใหม่สุด
    (เทียบวันที่สอบก่อน ถ้าเท่ากัน/วันที่เสีย ใช้แถวที่กรอกทีหลังใน sheet) */
+/* คีย์บท — ตัดช่องว่าง/คำเชื่อม เพื่อให้ "เรียงลำดับและจัดหมู่" = "การเรียงลำดับและการจัดหมู่"
+   (ตัวเลข "ชุดที่ 1/2" ยังแยกกันอยู่) */
+function chapterKey(ch) {
+  return String(ch || '')
+    .replace(/\s+/g, '')
+    .replace(/การ/g, '')
+    .replace(/ที่/g, '')
+    .toLowerCase();
+}
+
+/* ชื่อบทที่ใช้แสดง — เลือกชื่อที่ยาวสุดของแต่ละคีย์ (ชื่อเต็มที่สุด) */
+function chapterLabels(exams) {
+  const m = {};
+  exams.forEach(e => {
+    const k = chapterKey(e.chapter);
+    if (!m[k] || String(e.chapter).length > m[k].length) m[k] = e.chapter;
+  });
+  return m;
+}
+
 function latestPerChapter(exams) {
   const best = {};
   exams.forEach(e => {
-    const k = e.full + '|' + e.chapter;
+    const k = e.full + '|' + chapterKey(e.chapter);
     const cur = best[k];
     if (!cur) { best[k] = e; return; }
     const a = examDateMs(e), b = examDateMs(cur);
@@ -3721,11 +3751,12 @@ function latestPerChapter(exams) {
   return Object.values(best);
 }
 
-/* ลำดับบทตามที่ปรากฏครั้งแรกใน sheet (ตามลำดับการสอน) */
+/* ลำดับบท (คีย์) ตามที่ปรากฏครั้งแรกใน sheet (ตามลำดับการสอน) */
 function chapterOrder(exams) {
   const seen = [];
   exams.slice().sort((a, b) => a._row - b._row).forEach(e => {
-    if (seen.indexOf(e.chapter) === -1) seen.push(e.chapter);
+    const k = chapterKey(e.chapter);
+    if (seen.indexOf(k) === -1) seen.push(k);
   });
   return seen;
 }
@@ -3783,7 +3814,7 @@ function renderMissingBanner() {
       </div>
       ${list.map(x => `
         <div style="padding:8px 12px; background:var(--bg); border-radius:10px; margin-bottom:6px; font-size:13px;">
-          <b>${x.group}</b> · ${x.chapter} <span style="color:var(--gray-dark); font-family:var(--font-num);">${x.date || 'ไม่ระบุวันที่'}</span>
+          <b>${x.group}</b> · ${x.chapter} <span style="color:var(--gray-dark); font-family:var(--font-num);">${x.sittings > 1 ? 'สอบ ' + x.sittings + ' ครั้ง · ล่าสุด ' : ''}${x.date || 'ไม่ระบุวันที่'}</span>
           <span style="float:right; font-family:var(--font-num); color:var(--gray-dark);">${x.done}/${x.total}</span>
           <div style="color:var(--danger); margin-top:2px;">ขาด: ${x.missing.join(', ')}</div>
         </div>`).join('')}
@@ -3799,9 +3830,10 @@ function renderGroupScores(sb) {
   const students = d.students.filter(s => s.group === g);
   const rawExams = d.exams.filter(e => e.group === g);
   const exams = latestPerChapter(rawExams);          // ซ้ำบทเดิม → ใช้ครั้งใหม่สุด
-  const chapters = chapterOrder(rawExams);           // 1 บท = 1 คอลัมน์
+  const chapters = chapterOrder(rawExams);           // 1 บท = 1 คอลัมน์ (คีย์บท)
+  const labels = chapterLabels(rawExams);
   const byStu = {};
-  exams.forEach(e => { (byStu[e.full] = byStu[e.full] || {})[e.chapter] = e; });
+  exams.forEach(e => { (byStu[e.full] = byStu[e.full] || {})[chapterKey(e.chapter)] = e; });
 
   const scores = exams.map(e => e.score);
   const avg = scores.length ? (scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(1) : '–';
@@ -3811,7 +3843,7 @@ function renderGroupScores(sb) {
   window._examDetailCache = [];
 
   const head = chapters.map(ch =>
-    `<th style="min-width:92px; text-align:center;">${ch}</th>`
+    `<th style="min-width:92px; text-align:center;">${labels[ch] || ch}</th>`
   ).join('');
 
   const rows = students.map((s, i) => {
@@ -3819,7 +3851,7 @@ function renderGroupScores(sb) {
       const e = byStu[s.full] && byStu[s.full][ch];
       if (!e) return `<td style="text-align:center; color:var(--gray-soft);">–</td>`;
       const idx = window._examDetailCache.push(e) - 1;
-      const retook = rawExams.filter(x => x.full === s.full && x.chapter === ch).length > 1;
+      const retook = rawExams.filter(x => x.full === s.full && chapterKey(x.chapter) === ch).length > 1;
       return `<td style="text-align:center;"><span onclick="showExamDetailByIdx(${idx})" title="${e.date}${retook ? ' · สอบซ้ำ ใช้ครั้งล่าสุด' : ''}" style="cursor:pointer; font-family:var(--font-num); font-weight:700; color:${scoreColor(e.score)}; border-bottom:1px dotted currentColor;">${e.score}${retook ? '<sup style=\"font-size:8px;\">↻</sup>' : ''}</span></td>`;
     }).join('');
     const own = chapters.map(ch => byStu[s.full] && byStu[s.full][ch]).filter(Boolean);
@@ -3852,12 +3884,13 @@ function renderGroupScores(sb) {
 function renderAllGroupScores(sb) {
   const d = state.examData;
   const chapters = chapterOrder(d.exams);
+  const labels = chapterLabels(d.exams);
   const deduped = latestPerChapter(d.exams);   // ซ้ำบทเดิม → ใช้ครั้งใหม่สุด
   const rows = d.groups.map(g => {
     const stuCount = d.students.filter(s => s.group === g).length;
     const gEx = deduped.filter(e => e.group === g);
     const cells = chapters.map(ch => {
-      const ex = gEx.filter(e => e.chapter === ch);
+      const ex = gEx.filter(e => chapterKey(e.chapter) === ch);
       if (!ex.length) return `<td style="text-align:center; color:var(--gray-soft);">–</td>`;
       const a = ex.reduce((x, e) => x + e.score, 0) / ex.length;
       return `<td style="text-align:center;"><span style="font-family:var(--font-num); font-weight:700; color:${scoreColor(a)};">${a.toFixed(1)}</span><br><span style="font-size:10px; color:var(--gray-dark);">${ex.length} คน</span></td>`;
@@ -3873,7 +3906,7 @@ function renderAllGroupScores(sb) {
       </div>
       <div class="att-table-wrap">
         <table class="att-table">
-          <thead><tr><th>กลุ่ม</th>${chapters.map(c => `<th style="text-align:center; min-width:92px;">${c}</th>`).join('')}<th style="text-align:center;">รวม</th></tr></thead>
+          <thead><tr><th>กลุ่ม</th>${chapters.map(c => `<th style="text-align:center; min-width:92px;">${labels[c] || c}</th>`).join('')}<th style="text-align:center;">รวม</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
