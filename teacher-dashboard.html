@@ -3748,7 +3748,16 @@ function chapterKey(ch) {
   return String(ch || '')
     .replace(/\s+/g, '')
     .replace(/การ/g, '')
-    .replace(/ที่/g, '')
+    .replace(/[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/g, '')   // ตัดสระบน/ล่าง + วรรณยุกต์ + ์
+    .replace(/ชดท/g, 'ชด')
+    .toLowerCase();
+}
+
+/* คีย์กลุ่ม — ทนต่อวรรณยุกต์/ช่องว่างต่างกัน */
+function groupKey(g) {
+  return String(g || '')
+    .replace(/\s+/g, '')
+    .replace(/[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/g, '')
     .toLowerCase();
 }
 
@@ -3804,6 +3813,7 @@ async function renderScores(body) {
         </select>` : ''}
         <div style="margin-left:auto; display:flex; gap:6px; flex-wrap:wrap;">
           <button class="btn btn--ghost btn--sm" onclick="showManageRosterModal()">👥 จัดการรายชื่อ/กลุ่ม</button>
+          <button class="btn btn--ghost btn--sm" onclick="showNameVariantsModal()">🧹 รวมชื่อที่สะกดต่าง</button>
           <button class="btn btn--ghost btn--sm" onclick="state.examData=null; renderMain();">↻ รีเฟรช</button>
         </div>
       </div>
@@ -4024,6 +4034,58 @@ async function examWrite(payload) {
     if (!result.ok) { toast('ไม่สำเร็จ: ' + (result.error || ''), 'error'); return null; }
     return result;
   } catch(e) { toast('เชื่อมต่อไม่ได้: ' + e.message, 'error'); return null; }
+}
+
+/* ---------- รวมชื่อบท/กลุ่มที่สะกดต่างกัน (แก้ในชีตจริง) ---------- */
+async function showNameVariantsModal() {
+  if (!SCRIPT_URL) { toast('ต้องเชื่อม Apps Script ก่อน', 'error'); return; }
+  toast('กำลังตรวจหาชื่อที่สะกดต่างกัน...', 'success');
+  const r = await examWrite({ action: 'scanNameVariants' });
+  if (!r) return;
+  const list = r.variants || [];
+  if (list.length === 0) {
+    showModal({
+      title: 'ตรวจชื่อบท/กลุ่ม',
+      body: `<div style="text-align:center; padding:20px;">
+        <div style="font-size:36px;">✅</div>
+        <div style="margin-top:8px; font-weight:600; color:var(--success);">ไม่พบชื่อที่สะกดต่างกัน</div>
+        <div style="font-size:12px; color:var(--gray-dark); margin-top:4px;">ชื่อบทและชื่อกลุ่มในชีตสอดคล้องกันดีอยู่แล้ว</div>
+      </div>`,
+      actions: [{ label: 'ปิด', class: 'btn--primary', onClick: closeModal }]
+    });
+    return;
+  }
+  showModal({
+    title: `พบชื่อที่สะกดต่างกัน ${list.length} ชุด`,
+    body: `
+      <div style="font-size:12px; color:var(--gray-dark); margin-bottom:12px; line-height:1.6;">
+        ระบบจะแก้ให้เหลือชื่อเดียว (เลือกชื่อที่ใช้บ่อยที่สุด) ใน <code>results</code>, <code>results_long</code>, <code>students</code><br>
+        <b>ผลคือคะแนนจะรวมเป็นคอลัมน์เดียว และเว็บนักเรียนก็จะเห็นตรงกัน</b>
+      </div>
+      <div style="max-height:320px; overflow-y:auto;">
+        ${list.map(v => `
+          <div style="padding:9px 12px; background:var(--bg-soft); border-radius:10px; margin-bottom:6px; font-size:13px;">
+            <span style="font-size:11px; color:var(--gray-dark);">${v.type === 'chapter' ? 'บท' : 'กลุ่ม'}</span><br>
+            ${v.variants.map(x => `<span style="color:var(--danger); text-decoration:line-through;">${x.raw}</span> <span style="font-size:11px; color:var(--gray-dark);">(${x.count})</span>`).join(' · ')}
+            <span style="color:var(--gray-dark);"> → </span><b style="color:var(--success);">${v.canonical}</b>
+          </div>`).join('')}
+      </div>
+      <div style="font-size:11px; color:var(--gray-dark); margin-top:8px;">⚠️ แก้ข้อมูลจริงในชีต — แนะนำสำรองไฟล์ก่อน (File → Make a copy)</div>
+    `,
+    actions: [
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
+      { label: 'รวมให้เป็นชื่อเดียว', class: 'btn--primary', onClick: async () => {
+        closeModal();
+        const m = await examWrite({ action: 'mergeNameVariants' });
+        if (!m) return;
+        toast(`รวมชื่อแล้ว ${m.merged} ชุด · แก้ ${m.cells} จุด`, 'success');
+        state.examData = null;
+        await fetchExamData();
+        renderMain();
+        checkMissingScoresBadge();
+      }}
+    ]
+  });
 }
 
 function showManageRosterModal() {
