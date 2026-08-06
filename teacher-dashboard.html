@@ -3656,6 +3656,7 @@ async function fetchExamData(force) {
   }));
   const exams = resRows.filter(r => r && r[1] && r[4]).map((r, ri) => ({
     _row: ri,
+    ts: String(r[0] || ''),
     full: String(r[1]).trim(), group: String(r[2] || '').trim(),
     date: String(r[3] || ''), chapter: String(r[4] || ''),
     statuses: r.slice(6, 36),
@@ -3664,7 +3665,7 @@ async function fetchExamData(force) {
     cannot: Number(r[39]) || 0, timeout: Number(r[40]) || 0
   }));
   const groups = [...new Set(students.map(s => s.group).filter(Boolean))].sort();
-  state.examData = { students, exams, groups };
+  state.examData = { students, exams, groups, fetchedAt: new Date(), rawRows: resRows.length };
   return state.examData;
 }
 
@@ -3704,6 +3705,28 @@ function findMissingScoreSets(d) {
     });
   });
   return out.sort((a, b) => b.dateMs - a.dateMs);
+}
+
+/* ตรวจว่าแถวใน results มีชื่อตรงกับทะเบียน students หรือไม่
+   (ชื่อไม่ตรง = คะแนนจะไม่ขึ้นในเว็บรายงานคะแนนนักเรียน) */
+function dataHealth(d) {
+  if (!d) return { orphans: [], latest: [] };
+  const known = {};
+  d.students.forEach(s => { known[s.full] = true; });
+  const orphanMap = {};
+  d.exams.forEach(e => {
+    if (!known[e.full]) {
+      if (!orphanMap[e.full]) orphanMap[e.full] = { full: e.full, group: e.group, count: 0, lastChapter: e.chapter };
+      orphanMap[e.full].count++;
+      if (e._row >= 0) orphanMap[e.full].lastChapter = e.chapter;
+    }
+  });
+  const latest = d.exams.slice().sort((a, b) => b._row - a._row).slice(0, 6).map(e => ({
+    full: e.full, name: e.full.replace(/\s*\([^)]*\)\s*$/, '').trim(),
+    chapter: e.chapter, date: e.date, score: e.score, ts: e.ts,
+    ok: !!known[e.full]
+  }));
+  return { orphans: Object.values(orphanMap).sort((a, b) => b.count - a.count), latest };
 }
 
 function scoreColor(sc) {
@@ -3785,12 +3808,50 @@ async function renderScores(body) {
         </div>
       </div>
     </div>
+    <div id="dataHealth"></div>
     <div id="missingBanner"></div>
     <div id="scoresBody"></div>
   `;
+  renderDataHealth();
   renderMissingBanner();
   const sb = document.getElementById('scoresBody');
   if (state.scoresTab === 'group') renderGroupScores(sb); else renderAllGroupScores(sb);
+}
+
+function renderDataHealth() {
+  const el = document.getElementById('dataHealth');
+  const d = state.examData;
+  if (!el || !d) return;
+  const h = dataHealth(d);
+  const ft = d.fetchedAt ? `${String(d.fetchedAt.getHours()).padStart(2,'0')}:${String(d.fetchedAt.getMinutes()).padStart(2,'0')}:${String(d.fetchedAt.getSeconds()).padStart(2,'0')}` : '–';
+
+  const rows = h.latest.map(x => `
+    <div style="display:flex; gap:8px; align-items:center; padding:6px 10px; background:var(--bg-soft); border-radius:8px; margin-bottom:4px; font-size:12px;">
+      <span style="width:16px;">${x.ok ? '✅' : '⚠️'}</span>
+      <b style="min-width:70px;">${x.name}</b>
+      <span style="flex:1; color:var(--gray-dark);">${x.chapter} · ${x.date || '-'}</span>
+      <span style="font-family:var(--font-num); font-weight:700; color:${scoreColor(x.score)};">${x.score}</span>
+    </div>`).join('');
+
+  const orphanBox = h.orphans.length ? `
+    <div style="margin-top:10px; padding:10px 12px; background:#FFF1E8; border-left:4px solid var(--danger); border-radius:8px;">
+      <b style="color:var(--danger);">⚠️ ${h.orphans.length} ชื่อในผลสอบไม่ตรงกับทะเบียนนักเรียน</b>
+      <div style="font-size:12px; color:var(--gray-dark); margin:4px 0 6px;">คะแนนเหล่านี้จะ<b>ไม่ขึ้นในเว็บรายงานคะแนนนักเรียน</b> — แก้ชื่อใน sheet <code>results</code> ให้ตรงกับ <code>students</code> (รวมวงเล็บกลุ่ม)</div>
+      ${h.orphans.slice(0, 8).map(o => `<div style="font-size:12px;">• <b>${o.full}</b> <span style="color:var(--gray-dark);">(${o.count} รายการ)</span></div>`).join('')}
+      ${h.orphans.length > 8 ? `<div style="font-size:12px; color:var(--gray-dark);">… และอีก ${h.orphans.length - 8} ชื่อ</div>` : ''}
+    </div>` : '';
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="card__head">
+        <span class="card__title">ตรวจสอบข้อมูล · <b>ล่าสุดที่กรอก</b></span>
+        <span style="font-size:11px; color:var(--gray-dark);">ดึงเมื่อ ${ft} · ผลสอบ ${d.exams.length} รายการ · นักเรียน ${d.students.length} คน</span>
+      </div>
+      ${rows}
+      <div style="font-size:11px; color:var(--gray-dark); margin-top:4px;">✅ = ชื่อตรงทะเบียน ขึ้นครบทั้ง teacher dashboard และเว็บนักเรียน · ⚠️ = ชื่อไม่ตรง</div>
+      ${orphanBox}
+    </div>
+  `;
 }
 
 function renderMissingBanner() {
