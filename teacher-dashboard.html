@@ -3746,17 +3746,17 @@ function findMissingScoreSets(d, includeIgnored) {
   const sets = {};
   d.exams.forEach(e => {
     const ms = examDateMs(e);
-    if (ms && ms < cutoff) return;                     // เก่าเกินไป ไม่เตือน
     const k = e.group + '|' + chapterKey(e.chapter);   // ★ รวมทั้งบท ไม่แยกวันที่
     if (!sets[k]) sets[k] = { group: e.group, ck: chapterKey(e.chapter), lastMs: 0, lastDate: '', dates: {}, has: {} };
     const s = sets[k];
-    s.has[e.full] = true;
+    s.has[e.full] = true;                              // ★ นับคะแนนทุกวันที่ (แม้เก่ากว่า 45 วัน)
     if (e.date) s.dates[e.date] = true;
     if (ms >= s.lastMs) { s.lastMs = ms; s.lastDate = e.date; }
   });
   const out = [];
   Object.keys(sets).forEach(k => {
     const s = sets[k];
+    if (s.lastMs && s.lastMs < cutoff) return;         // ชุดสอบเก่าเกินไป ไม่ต้องเตือน
     const roster = d.students.filter(x => x.group === s.group);
     if (roster.length === 0) return;
     let missing = roster.filter(x => !s.has[x.full]);     // ไม่มีคะแนนบทนี้เลย (ทุกวันที่)
