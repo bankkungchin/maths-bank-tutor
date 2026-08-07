@@ -1288,18 +1288,21 @@ function uid(prefix) {
 function loadData() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return JSON.parse(JSON.stringify(DEFAULT_DATA));
+    if (!raw) { state.isDemoData = true; return JSON.parse(JSON.stringify(DEFAULT_DATA)); }
     const data = JSON.parse(raw);
     if (!data.groups) data.groups = [];
+    state.isDemoData = false;
     return data;
   } catch(e) {
     console.error('loadData error:', e);
+    state.isDemoData = true;
     return JSON.parse(JSON.stringify(DEFAULT_DATA));
   }
 }
 
 function saveData() {
   try {
+    if (state.isDemoData) return false;   // ยังไม่ได้ดึงข้อมูลจริง — ห้ามบันทึกทับ
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
     return true;
   } catch(e) {
@@ -1558,6 +1561,12 @@ function showApp() {
   }
   renderAll();
   checkMissingScoresBadge();   // เช็คคะแนนที่ยังไม่ได้กรอก (เงียบๆ เบื้องหลัง)
+
+  // เครื่องใหม่ (ยังไม่มีข้อมูลในเครื่อง) → ดึงจาก Sheet อัตโนมัติ ไม่ต้องกดเอง
+  if (state.isDemoData && SCRIPT_URL) {
+    toast('เครื่องนี้ยังไม่มีข้อมูล — กำลังดึงจาก Google Sheet...', 'success');
+    loadFromSheet();
+  }
 }
 
 function logout() {
@@ -1576,6 +1585,13 @@ function renderSidebar() {
   const list = document.getElementById('groupList');
   document.getElementById('sidebarGroupCount').textContent = state.data.groups.length;
   list.innerHTML = '';
+
+  if (state.isDemoData) {
+    const warn = document.createElement('div');
+    warn.style.cssText = 'margin:0 0 8px; padding:10px 12px; background:#FFF1E8; border:1px solid var(--danger); border-radius:10px; font-size:12px; color:var(--danger); line-height:1.5;';
+    warn.innerHTML = '⚠️ <b>ข้อมูลตัวอย่าง</b><br><span style="color:var(--gray-dark);">เครื่องนี้ยังไม่มีข้อมูลจริง — อย่าเพิ่งแก้อะไร กด ⚙️ → "ดาวน์โหลดจาก Sheet"</span>';
+    list.appendChild(warn);
+  }
 
   if (state.data.groups.length === 0) {
     list.innerHTML = '<div style="padding:24px; text-align:center; color:var(--gray-dark); font-size:13px;">ยังไม่มีกลุ่ม<br>กด "กลุ่มใหม่" เพื่อเพิ่ม</div>';
@@ -5204,6 +5220,10 @@ async function syncToSheet(silent) {
     if (!silent) toast('กำลังเช็คชื่อออนไลน์อยู่ — กด "จบคาบ" ก่อนแล้วค่อย Sync (กันข้อมูลเช็คชื่อหาย)', 'error');
     return;
   }
+  if (state.isDemoData) {
+    if (!silent) toast('เครื่องนี้ยังเป็นข้อมูลตัวอย่าง — กด "ดาวน์โหลดจาก Sheet" ก่อน (กันเขียนทับข้อมูลจริง)', 'error');
+    return;
+  }
   if (!silent) toast('กำลังอัปโหลดข้อมูล...', 'success');
   try {
     const res = await fetch(SCRIPT_URL, {
@@ -5233,6 +5253,7 @@ async function syncToSheet(silent) {
 let _autoSyncTimer = null;
 function autoSync() {
   if (!SCRIPT_URL) return; // ไม่ auto-sync ถ้ายังไม่ได้เชื่อม Sheet
+  if (state.isDemoData) return;   // กันดันข้อมูลตัวอย่างทับข้อมูลจริงบน Sheet
   if (state.onlineCheckin && state.onlineCheckin.code) return; // กันเขียนทับข้อมูลเช็คชื่อออนไลน์ที่ server กำลังบันทึก
   clearTimeout(_autoSyncTimer);
   _autoSyncTimer = setTimeout(() => syncToSheet(true), 3000); // รอ 3 วินาทีไม่มีการแก้แล้วค่อย sync
@@ -5275,6 +5296,7 @@ async function loadFromSheet() {
     const result = await res.json();
     if (result.ok && result.data) {
       state.data = result.data;
+      state.isDemoData = false;              // ได้ข้อมูลจริงแล้ว
       state.data.groups.forEach(g => ensureSessions(g));
       saveData();
       if (state.data.groups.length > 0 && !state.selectedGroupId) {
