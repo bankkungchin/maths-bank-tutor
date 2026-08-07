@@ -3683,8 +3683,48 @@ async function fetchExamData(force) {
 
 /* ชุดสอบที่ยังกรอกคะแนนไม่ครบ (ย้อนหลัง N วัน) → [{group, chapter, date, done, total, missing:[ชื่อ]}] */
 const MISSING_LOOKBACK_DAYS = 45;
-function findMissingScoreSets(d) {
+const MISSING_IGNORE_KEY = 'mathsBankIgnoreMissing';
+
+function loadIgnoreMissing() {
+  try { return JSON.parse(localStorage.getItem(MISSING_IGNORE_KEY)) || {}; }
+  catch(e) { return {}; }
+}
+function saveIgnoreMissing(o) {
+  try { localStorage.setItem(MISSING_IGNORE_KEY, JSON.stringify(o)); } catch(e) {}
+}
+function ignoreKeyOf(group, ck, full) { return group + '|' + ck + '|' + full; }
+
+/* ซ่อน 1 คนออกจากรายการค้างกรอก (เช่น เข้ากลางคอร์ส ไม่ได้สอบบทนี้) */
+function ignoreMissingOne(group, ck, full, name) {
+  const o = loadIgnoreMissing();
+  o[ignoreKeyOf(group, ck, full)] = { name: name, at: Date.now() };
+  saveIgnoreMissing(o);
+  renderMissingBanner();
+  checkMissingScoresBadge();
+  toast(`ซ่อน "${name}" ออกจากรายการค้างกรอกแล้ว`, 'success');
+}
+
+/* ซ่อนทั้งชุดสอบ */
+function ignoreMissingSet(group, ck) {
+  const list = findMissingScoreSets(state.examData, true).filter(x => x.group === group && x.ck === ck);
+  if (!list.length) return;
+  const o = loadIgnoreMissing();
+  list[0].missing.forEach(m => { o[ignoreKeyOf(group, ck, m.full)] = { name: m.name, at: Date.now() }; });
+  saveIgnoreMissing(o);
+  renderMissingBanner();
+  checkMissingScoresBadge();
+  toast('ซ่อนทั้งชุดแล้ว', 'success');
+}
+
+function resetIgnoreMissing() {
+  saveIgnoreMissing({});
+  renderMissingBanner();
+  checkMissingScoresBadge();
+  toast('แสดงรายการที่ซ่อนไว้ทั้งหมดแล้ว', 'success');
+}
+function findMissingScoreSets(d, includeIgnored) {
   if (!d) return [];
+  const ignored = includeIgnored ? {} : loadIgnoreMissing();
   const cutoff = Date.now() - MISSING_LOOKBACK_DAYS * 86400000;
   const labels = chapterLabels(d.exams);
   const sets = {};
@@ -3703,17 +3743,20 @@ function findMissingScoreSets(d) {
     const s = sets[k];
     const roster = d.students.filter(x => x.group === s.group);
     if (roster.length === 0) return;
-    const missing = roster.filter(x => !s.has[x.full]);   // ไม่มีคะแนนบทนี้เลย (ทุกวันที่)
+    let missing = roster.filter(x => !s.has[x.full]);     // ไม่มีคะแนนบทนี้เลย (ทุกวันที่)
+    const hiddenCount = missing.filter(x => ignored[ignoreKeyOf(s.group, s.ck, x.full)]).length;
+    missing = missing.filter(x => !ignored[ignoreKeyOf(s.group, s.ck, x.full)]);
     if (missing.length === 0) return;
     out.push({
       group: s.group,
+      ck: s.ck,
       chapter: labels[s.ck] || s.ck,
       date: s.lastDate,
       sittings: Object.keys(s.dates).length,
       dateMs: s.lastMs,
-      done: roster.length - missing.length,
-      total: roster.length,
-      missing: missing.map(x => x.name)
+      done: roster.length - missing.length - hiddenCount,
+      total: roster.length - hiddenCount,
+      missing: missing.map(x => ({ name: x.name, full: x.full }))
     });
   });
   return out.sort((a, b) => b.dateMs - a.dateMs);
@@ -3774,8 +3817,14 @@ function groupKey(g) {
     .toLowerCase();
 }
 
-/* คีย์ชื่อคน — ทนต่อสระ/วรรณยุกต์/ช่องว่าง */
+/* คีย์ชื่อคน — ⚠️ ห้ามตัดสระ/วรรณยุกต์ เพราะ "ปัณ" กับ "ปุณ" เป็นคนละคน
+   ตัดแค่ช่องว่างและตัวพิมพ์เล็กใหญ่ */
 function nameKey(s) {
+  return String(s || '').replace(/\s+/g, '').toLowerCase();
+}
+
+/* คีย์หลวม — ใช้เทียบ "ข้อความ" เท่านั้น (เช่น ชื่อกลุ่มที่ต่อท้ายชื่อ) ห้ามใช้ระบุตัวคน */
+function looseKey(s) {
   return String(s || '')
     .replace(/\s+/g, '')
     .replace(/[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/g, '')
@@ -3790,7 +3839,7 @@ function baseStudentName(full, group) {
   var t2 = s.split(/\s+/);
   var cut = t2.length;
   for (var i = t2.length - 1; i >= 1; i--) {
-    var suf = nameKey(t2.slice(i).join(''));
+    var suf = looseKey(t2.slice(i).join(''));      // เทียบกับชื่อกลุ่ม → ใช้คีย์หลวมได้
     if (suf && gkey.indexOf(suf) !== -1) cut = i; else break;
   }
   return t2.slice(0, cut).join(' ').trim();
@@ -3917,6 +3966,7 @@ function renderMissingBanner() {
     return;
   }
   const totalMissing = list.reduce((a, x) => a + x.missing.length, 0);
+  const hiddenTotal = Object.keys(loadIgnoreMissing()).length;
   el.innerHTML = `
     <div class="card" style="border:1px solid var(--orange); background:#FFF6F0;">
       <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
@@ -3926,10 +3976,23 @@ function renderMissingBanner() {
       ${list.map(x => `
         <div style="padding:8px 12px; background:var(--bg); border-radius:10px; margin-bottom:6px; font-size:13px;">
           <b>${x.group}</b> · ${x.chapter} <span style="color:var(--gray-dark); font-family:var(--font-num);">${x.sittings > 1 ? 'สอบ ' + x.sittings + ' ครั้ง · ล่าสุด ' : ''}${x.date || 'ไม่ระบุวันที่'}</span>
-          <span style="float:right; font-family:var(--font-num); color:var(--gray-dark);">${x.done}/${x.total}</span>
-          <div style="color:var(--danger); margin-top:2px;">ขาด: ${x.missing.join(', ')}</div>
+          <span style="float:right; font-family:var(--font-num); color:var(--gray-dark);">${x.done}/${x.total}
+            <button onclick="ignoreMissingSet('${x.group.replace(/'/g, "\\'")}', '${x.ck.replace(/'/g, "\\'")}')" title="ซ่อนทั้งชุด" style="border:0; background:transparent; cursor:pointer; color:var(--gray-soft); font-size:12px;">ซ่อนทั้งชุด</button>
+          </span>
+          <div style="margin-top:4px; display:flex; flex-wrap:wrap; gap:4px;">
+            ${x.missing.map(m => `
+              <span style="display:inline-flex; align-items:center; gap:4px; background:var(--danger-bg); color:var(--danger); border-radius:999px; padding:2px 6px 2px 9px; font-size:12px;">
+                ${m.name}
+                <button onclick="ignoreMissingOne('${x.group.replace(/'/g, "\\'")}', '${x.ck.replace(/'/g, "\\'")}', '${m.full.replace(/'/g, "\\'")}', '${m.name.replace(/'/g, "\\'")}')"
+                        title="ไม่ต้องเตือนคนนี้ในบทนี้ (เช่น เข้าเรียนกลางคอร์ส)"
+                        style="border:0; background:transparent; cursor:pointer; color:var(--danger); font-size:13px; line-height:1; padding:0 2px;">×</button>
+              </span>`).join('')}
+          </div>
         </div>`).join('')}
-      <div style="font-size:11px; color:var(--gray-dark); margin-top:4px;">ตรวจย้อนหลัง ${MISSING_LOOKBACK_DAYS} วัน · เทียบกับรายชื่อปัจจุบันของแต่ละกลุ่ม</div>
+      <div style="font-size:11px; color:var(--gray-dark); margin-top:6px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+        <span>ตรวจย้อนหลัง ${MISSING_LOOKBACK_DAYS} วัน · กด × ที่ชื่อเพื่อไม่ต้องเตือนคนนั้นในบทนี้</span>
+        ${hiddenTotal ? `<button onclick="resetIgnoreMissing()" style="border:0; background:var(--bg-soft); border-radius:999px; padding:3px 10px; cursor:pointer; font-size:11px; color:var(--gray-dark); font-family:var(--font-thai);">แสดงที่ซ่อนไว้ ${hiddenTotal} รายการ</button>` : ''}
+      </div>
     </div>
   `;
 }
@@ -3963,7 +4026,7 @@ function renderGroupScores(sb) {
       if (!e) return `<td style="text-align:center; color:var(--gray-soft);">–</td>`;
       const idx = window._examDetailCache.push(e) - 1;
       const retook = rawExams.filter(x => x.full === s.full && chapterKey(x.chapter) === ch).length > 1;
-      return `<td style="text-align:center;"><span onclick="showExamDetailByIdx(${idx})" title="${e.date}${retook ? ' · สอบซ้ำ ใช้ครั้งล่าสุด' : ''}" style="cursor:pointer; font-family:var(--font-num); font-weight:700; color:${scoreColor(e.score)}; border-bottom:1px dotted currentColor;">${e.score}${retook ? '<sup style=\"font-size:8px;\">↻</sup>' : ''}</span></td>`;
+      return `<td style="text-align:center;"><span onclick="showExamDetailByIdx(${idx})" title="${e.date} · ถูก ${e.score} · สะเพร่า ${e.careless}${retook ? ' · สอบซ้ำ ใช้ครั้งล่าสุด' : ''}" style="cursor:pointer; font-family:var(--font-num); font-weight:700; color:${scoreColor(e.score)}; border-bottom:1px dotted currentColor;">${e.score}<span style="font-weight:400; color:var(--gray-dark); font-size:11px;">/</span><span style="font-size:12px; color:var(--orange);">${e.careless}</span>${retook ? '<sup style=\"font-size:8px;\">↻</sup>' : ''}</span></td>`;
     }).join('');
     const own = chapters.map(ch => byStu[s.full] && byStu[s.full][ch]).filter(Boolean);
     const myAvg = own.length ? (own.reduce((a, e) => a + e.score, 0) / own.length).toFixed(1) : '–';
@@ -3980,7 +4043,7 @@ function renderGroupScores(sb) {
     <div class="card">
       <div class="card__head">
         <span class="card__title">คะแนนสอบ · <b>${g}</b> · นักเรียน ${students.length} คน</span>
-        <span style="font-size:11px; color:var(--gray-dark);">กดตัวเลขเพื่อดู 30 ข้อ · ↻ = สอบซ้ำ แสดงครั้งล่าสุด</span>
+        <span style="font-size:11px; color:var(--gray-dark);">ตัวเลข = <b>ถูก</b>/<span style="color:var(--orange);">สะเพร่า</span> · กดเพื่อดู 30 ข้อ · ↻ = สอบซ้ำ</span>
       </div>
       <div class="att-table-wrap">
         <table class="att-table">
