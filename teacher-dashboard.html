@@ -3778,7 +3778,7 @@ function dataHealth(d) {
   });
   const latest = d.exams.slice().sort((a, b) => b._row - a._row).slice(0, 6).map(e => ({
     full: e.full, name: e.full.replace(/\s*\([^)]*\)\s*$/, '').trim(),
-    chapter: e.chapter, date: e.date, score: e.score, ts: e.ts,
+    chapter: e.chapter, date: e.date, score: e.score, careless: e.careless, ts: e.ts,
     ok: !!known[e.full]
   }));
   return { orphans: Object.values(orphanMap).sort((a, b) => b.count - a.count), latest };
@@ -3924,13 +3924,16 @@ function renderDataHealth() {
       <span style="width:16px;">${x.ok ? '✅' : '⚠️'}</span>
       <b style="min-width:70px;">${x.name}</b>
       <span style="flex:1; color:var(--gray-dark);">${x.chapter} · ${x.date || '-'}</span>
-      <span style="font-family:var(--font-num); font-weight:700; color:${scoreColor(x.score)};">${x.score}</span>
+      <span title="ถูก ${x.score} · สะเพร่า ${x.careless}" style="font-family:var(--font-num); font-weight:700; color:${scoreColor(x.score)};">${x.score}<span style="font-weight:400; color:var(--gray-dark);">/</span><span style="color:var(--orange);">${x.careless}</span></span>
     </div>`).join('');
 
   const orphanBox = h.orphans.length ? `
     <div style="margin-top:10px; padding:10px 12px; background:#FFF1E8; border-left:4px solid var(--danger); border-radius:8px;">
-      <b style="color:var(--danger);">⚠️ ${h.orphans.length} ชื่อในผลสอบไม่ตรงกับทะเบียนนักเรียน</b>
-      <div style="font-size:12px; color:var(--gray-dark); margin:4px 0 6px;">คะแนนเหล่านี้จะ<b>ไม่ขึ้นในเว็บรายงานคะแนนนักเรียน</b> — แก้ชื่อใน sheet <code>results</code> ให้ตรงกับ <code>students</code> (รวมวงเล็บกลุ่ม)</div>
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <b style="color:var(--danger);">⚠️ ${h.orphans.length} ชื่อในผลสอบไม่ตรงกับทะเบียนนักเรียน</b>
+        <button class="btn btn--primary btn--xs" style="margin-left:auto;" onclick="showFixOrphansModal()">🔧 จับคู่ชื่อ</button>
+      </div>
+      <div style="font-size:12px; color:var(--gray-dark); margin:4px 0 6px;">คะแนนเหล่านี้จะ<b>ไม่ขึ้นในเว็บรายงานคะแนนนักเรียน</b> — กด "จับคู่ชื่อ" เพื่อเลือกว่าแต่ละชื่อคือนักเรียนคนไหน</div>
       ${h.orphans.slice(0, 8).map(o => `<div style="font-size:12px;">• <b>${o.full}</b> <span style="color:var(--gray-dark);">(${o.count} รายการ)</span></div>`).join('')}
       ${h.orphans.length > 8 ? `<div style="font-size:12px; color:var(--gray-dark);">… และอีก ${h.orphans.length - 8} ชื่อ</div>` : ''}
     </div>` : '';
@@ -3942,7 +3945,7 @@ function renderDataHealth() {
         <span style="font-size:11px; color:var(--gray-dark);">ดึงเมื่อ ${ft} · ผลสอบ ${d.exams.length} รายการ · นักเรียน ${d.students.length} คน</span>
       </div>
       ${rows}
-      <div style="font-size:11px; color:var(--gray-dark); margin-top:4px;">✅ = ชื่อตรงทะเบียน ขึ้นครบทั้ง teacher dashboard และเว็บนักเรียน · ⚠️ = ชื่อไม่ตรง</div>
+      <div style="font-size:11px; color:var(--gray-dark); margin-top:4px;">ตัวเลข = <b>ถูก</b>/<span style="color:var(--orange);">สะเพร่า</span> · ✅ = ชื่อตรงทะเบียน ขึ้นครบทั้ง 2 ระบบ · ⚠️ = ชื่อไม่ตรง</div>
       ${d.repaired ? `<div style="margin-top:8px; padding:9px 12px; background:#FFF6F0; border-left:4px solid var(--orange); border-radius:8px; font-size:12px;">
         <b style="color:var(--danger);">🔧 จับคู่ชื่อให้อัตโนมัติ ${d.repaired} รายการ</b>
         <div style="color:var(--gray-dark); margin-top:2px;">เช่น "ดอม (กลุ่มวันพุธ)" → "ดอม (วันพุธ)" — คะแนนขึ้นในตารางนี้แล้ว
@@ -4137,6 +4140,77 @@ async function examWrite(payload) {
     if (!result.ok) { toast('ไม่สำเร็จ: ' + (result.error || ''), 'error'); return null; }
     return result;
   } catch(e) { toast('เชื่อมต่อไม่ได้: ' + e.message, 'error'); return null; }
+}
+
+/* ---------- จับคู่ชื่อที่ไม่ตรงทะเบียน ---------- */
+function showFixOrphansModal() {
+  const d = state.examData;
+  if (!d) return;
+  const h = dataHealth(d);
+  if (!h.orphans.length) { toast('ไม่มีชื่อที่ต้องจับคู่แล้ว', 'success'); return; }
+
+  const rows = h.orphans.map((o, i) => {
+    const base = baseStudentName(o.full, o.group);
+    const sameGroup = d.students.filter(s => groupKey(s.group) === groupKey(o.group));
+    const others = d.students.filter(s => groupKey(s.group) !== groupKey(o.group));
+    const opt = s => `<option value="${s.full.replace(/"/g, '&quot;')}">${s.name} (${s.group})</option>`;
+    return `
+      <div style="padding:10px 12px; border:1px solid var(--line); border-radius:10px; margin-bottom:8px;">
+        <div style="font-size:13px; margin-bottom:6px;">
+          <b style="color:var(--danger);">${o.full}</b>
+          <span style="font-size:11px; color:var(--gray-dark);">(${o.count} รายการ · บทล่าสุด ${o.lastChapter || '-'})</span>
+        </div>
+        <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+          <select id="fixSel${i}" style="flex:1; min-width:200px; padding:7px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; background:var(--bg);">
+            <option value="">— เลือกนักเรียนที่ถูกต้อง —</option>
+            ${sameGroup.length ? `<optgroup label="กลุ่ม ${o.group}">${sameGroup.map(opt).join('')}</optgroup>` : ''}
+            ${others.length ? `<optgroup label="กลุ่มอื่น">${others.map(opt).join('')}</optgroup>` : ''}
+          </select>
+          <button class="btn btn--primary btn--xs" onclick="applyFixOrphan(${i}, '${o.full.replace(/'/g, "\\'")}')">จับคู่</button>
+          <button class="btn btn--ghost btn--xs" title="เพิ่มเป็นนักเรียนใหม่ในทะเบียน"
+                  onclick="addOrphanAsStudent('${base.replace(/'/g, "\\'")}', '${o.group.replace(/'/g, "\\'")}')">+ เพิ่มเป็น นร. ใหม่</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  showModal({
+    title: `จับคู่ชื่อที่ไม่ตรงทะเบียน (${h.orphans.length})`,
+    body: `
+      <div style="font-size:12px; color:var(--gray-dark); margin-bottom:10px; line-height:1.6;">
+        เลือกว่าแต่ละชื่อคือนักเรียนคนไหน → ระบบจะเขียนชื่อในชีตให้ตรงกัน (แก้ทั้ง results และ results_long)<br>
+        ถ้าเป็นนักเรียนใหม่ที่ยังไม่มีในทะเบียน กด <b>"+ เพิ่มเป็น นร. ใหม่"</b>
+      </div>
+      <div style="max-height:360px; overflow-y:auto;">${rows}</div>
+      <div style="font-size:11px; color:var(--gray-dark); margin-top:8px;">⚠️ แก้ข้อมูลจริงในชีต — แนะนำสำรองก่อน (File → Make a copy)</div>
+    `,
+    actions: [{ label: 'ปิด', class: 'btn--primary', onClick: closeModal }]
+  });
+}
+
+async function applyFixOrphan(i, oldFull) {
+  const sel = document.getElementById('fixSel' + i);
+  if (!sel || !sel.value) { toast('เลือกนักเรียนก่อน', 'error'); return; }
+  const newFull = sel.value;
+  const m = newFull.match(/\(([^)]*)\)\s*$/);
+  const newGroup = m ? m[1].trim() : '';
+  const r = await examWrite({ action: 'examRemapName', oldFull: oldFull, newFull: newFull, newGroup: newGroup });
+  if (!r) return;
+  toast(`จับคู่ "${oldFull}" → "${newFull}" แล้ว (แก้ ${r.updated} จุด)`, 'success');
+  state.examData = null;
+  await fetchExamData();
+  showFixOrphansModal();
+  checkMissingScoresBadge();
+}
+
+async function addOrphanAsStudent(name, group) {
+  if (!name || !group) { toast('ข้อมูลไม่ครบ', 'error'); return; }
+  const r = await examWrite({ action: 'examAddStudent', name: name, group: group });
+  if (!r) return;
+  toast(`เพิ่ม "${name} (${group})" เข้าทะเบียนแล้ว (${r.id}) — อย่าลืมใส่ PIN ในชีต students`, 'success');
+  state.examData = null;
+  await fetchExamData();
+  showFixOrphansModal();
+  checkMissingScoresBadge();
 }
 
 /* ---------- รวมชื่อบท/กลุ่มที่สะกดต่างกัน (แก้ในชีตจริง) ---------- */
