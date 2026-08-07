@@ -3665,7 +3665,19 @@ async function fetchExamData(force) {
     cannot: Number(r[39]) || 0, timeout: Number(r[40]) || 0
   }));
   const groups = [...new Set(students.map(s => s.group).filter(Boolean))].sort();
-  state.examData = { students, exams, groups, fetchedAt: new Date(), rawRows: resRows.length };
+
+  // ── ซ่อมชื่อในผลสอบให้ตรงทะเบียนอัตโนมัติ (เช่น "ดอม (กลุ่มวันพุธ)" → "ดอม (วันพุธ)") ──
+  const idx = {};
+  students.forEach(s => { idx[nameKey(s.name) + '|' + groupKey(s.group)] = s; });
+  let repaired = 0;
+  exams.forEach(e => {
+    const base = baseStudentName(e.full, e.group);
+    const hit = idx[nameKey(base) + '|' + groupKey(e.group)];
+    if (hit && hit.full !== e.full) { e.fullRaw = e.full; e.full = hit.full; e.group = hit.group; repaired++; }
+    else if (hit) { e.group = hit.group; }
+  });
+
+  state.examData = { students, exams, groups, fetchedAt: new Date(), rawRows: resRows.length, repaired };
   return state.examData;
 }
 
@@ -3756,9 +3768,32 @@ function chapterKey(ch) {
 /* คีย์กลุ่ม — ทนต่อวรรณยุกต์/ช่องว่างต่างกัน */
 function groupKey(g) {
   return String(g || '')
+    .replace(/^\s*กลุ่ม\s*/, '')                              // "กลุ่มวันพุธ" = "วันพุธ"
     .replace(/\s+/g, '')
     .replace(/[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/g, '')
     .toLowerCase();
+}
+
+/* คีย์ชื่อคน — ทนต่อสระ/วรรณยุกต์/ช่องว่าง */
+function nameKey(s) {
+  return String(s || '')
+    .replace(/\s+/g, '')
+    .replace(/[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/g, '')
+    .toLowerCase();
+}
+
+/* ดึงชื่อจริงออกจากชื่อเต็ม — รองรับทั้ง "ดอม (วันพุธ)", "ดอม (กลุ่มวันพุธ)", "เซ้นส์ เสาร์ 13.00" */
+function baseStudentName(full, group) {
+  var s = String(full || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
+  if (!group) return s;
+  var gkey = groupKey(group);
+  var t2 = s.split(/\s+/);
+  var cut = t2.length;
+  for (var i = t2.length - 1; i >= 1; i--) {
+    var suf = nameKey(t2.slice(i).join(''));
+    if (suf && gkey.indexOf(suf) !== -1) cut = i; else break;
+  }
+  return t2.slice(0, cut).join(' ').trim();
 }
 
 /* ชื่อบทที่ใช้แสดง — เลือกชื่อที่ยาวสุดของแต่ละคีย์ (ชื่อเต็มที่สุด) */
@@ -3859,6 +3894,11 @@ function renderDataHealth() {
       </div>
       ${rows}
       <div style="font-size:11px; color:var(--gray-dark); margin-top:4px;">✅ = ชื่อตรงทะเบียน ขึ้นครบทั้ง teacher dashboard และเว็บนักเรียน · ⚠️ = ชื่อไม่ตรง</div>
+      ${d.repaired ? `<div style="margin-top:8px; padding:9px 12px; background:#FFF6F0; border-left:4px solid var(--orange); border-radius:8px; font-size:12px;">
+        <b style="color:var(--danger);">🔧 จับคู่ชื่อให้อัตโนมัติ ${d.repaired} รายการ</b>
+        <div style="color:var(--gray-dark); margin-top:2px;">เช่น "ดอม (กลุ่มวันพุธ)" → "ดอม (วันพุธ)" — คะแนนขึ้นในตารางนี้แล้ว
+        แต่<b>เว็บนักเรียนยังไม่เห็น</b> จนกว่าจะกดปุ่ม 🧹 เพื่อแก้ในชีตจริง</div>
+      </div>` : ''}
       ${orphanBox}
     </div>
   `;
