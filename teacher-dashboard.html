@@ -3682,6 +3682,8 @@ async function fetchExamData(force) {
   }));
   const groups = [...new Set(students.map(s => s.group).filter(Boolean))].sort();
 
+  buildChapterAlias(exams);   // รวมชื่อบทที่พิมพ์ผิดเล็กน้อยให้เป็นบทเดียวกัน
+
   // ── ซ่อมชื่อในผลสอบให้ตรงทะเบียนอัตโนมัติ (เช่น "ดอม (กลุ่มวันพุธ)" → "ดอม (วันพุธ)") ──
   const idx = {};
   students.forEach(s => { idx[nameKey(s.name) + '|' + groupKey(s.group)] = s; });
@@ -3815,13 +3817,59 @@ function examDateMs(e) {
    (เทียบวันที่สอบก่อน ถ้าเท่ากัน/วันที่เสีย ใช้แถวที่กรอกทีหลังใน sheet) */
 /* คีย์บท — ตัดช่องว่าง/คำเชื่อม เพื่อให้ "เรียงลำดับและจัดหมู่" = "การเรียงลำดับและการจัดหมู่"
    (ตัวเลข "ชุดที่ 1/2" ยังแยกกันอยู่) */
-function chapterKey(ch) {
+function chapterKeyRaw(ch) {
   return String(ch || '')
     .replace(/\s+/g, '')
     .replace(/การ/g, '')
     .replace(/[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/g, '')   // ตัดสระบน/ล่าง + วรรณยุกต์ + ์
     .replace(/ชดท/g, 'ชด')
     .toLowerCase();
+}
+
+/* ตารางรวมบทที่พิมพ์ผิดเล็กน้อย (สร้างจากข้อมูลจริงตอนโหลด) */
+let _chapterAlias = {};
+
+function chapterKey(ch) {
+  const k = chapterKeyRaw(ch);
+  return _chapterAlias[k] || k;
+}
+
+/* ระยะห่างระหว่างข้อความ (Levenshtein) — ใช้วัดว่าพิมพ์ผิดกี่ตัว */
+function editDistance(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j), cur = new Array(n + 1);
+  for (let i = 1; i <= m; i++) {
+    cur[0] = i;
+    for (let j = 1; j <= n; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    const tmp = prev; prev = cur; cur = tmp;
+  }
+  return prev[n];
+}
+
+/* จับกลุ่มชื่อบทที่พิมพ์ต่างกันเล็กน้อยให้เป็นบทเดียวกัน
+   เช่น "แคลคูลลัส ชุดที่ 1" = "แคลคูลัส ชุดที่ 1"
+   ⚠️ เลขชุด (1/2) ต้องตรงเป๊ะเสมอ — "ชุดที่ 1" ไม่มีทางรวมกับ "ชุดที่ 2" */
+function buildChapterAlias(exams) {
+  const counts = {};
+  exams.forEach(e => { const r = String(e.chapter || '').trim(); if (r) counts[r] = (counts[r] || 0) + 1; });
+  const setOf  = k => { const m = k.match(/\d+/g); return m ? m.join(',') : ''; };
+  const wordOf = k => k.replace(/[0-9]/g, '').replace(/ชด/g, '');
+  const items = Object.keys(counts).map(raw => {
+    const k = chapterKeyRaw(raw);
+    return { raw: raw, k: k, set: setOf(k), w: wordOf(k), c: counts[raw] };
+  }).sort((a, b) => b.c - a.c);           // ชื่อที่ใช้บ่อยสุดเป็นตัวหลัก
+
+  const alias = {}, used = [];
+  items.forEach(it => {
+    const hit = used.find(u => u.set === it.set &&
+      editDistance(u.w, it.w) <= (Math.max(u.w.length, it.w.length) >= 10 ? 2 : 1));
+    if (hit) alias[it.k] = hit.k; else { used.push(it); alias[it.k] = it.k; }
+  });
+  _chapterAlias = alias;
 }
 
 /* คีย์กลุ่ม — ทนต่อวรรณยุกต์/ช่องว่างต่างกัน */
@@ -3863,10 +3911,18 @@ function baseStudentName(full, group) {
 
 /* ชื่อบทที่ใช้แสดง — เลือกชื่อที่ยาวสุดของแต่ละคีย์ (ชื่อเต็มที่สุด) */
 function chapterLabels(exams) {
-  const m = {};
+  const cnt = {};
   exams.forEach(e => {
     const k = chapterKey(e.chapter);
-    if (!m[k] || String(e.chapter).length > m[k].length) m[k] = e.chapter;
+    const raw = String(e.chapter || '').trim();
+    if (!raw) return;
+    (cnt[k] = cnt[k] || {})[raw] = (cnt[k][raw] || 0) + 1;
+  });
+  const m = {};
+  Object.keys(cnt).forEach(k => {
+    const raws = Object.keys(cnt[k]);
+    raws.sort((a, b) => (cnt[k][b] - cnt[k][a]) || (b.length - a.length));  // ใช้บ่อยสุด → ยาวสุด
+    m[k] = raws[0];
   });
   return m;
 }
