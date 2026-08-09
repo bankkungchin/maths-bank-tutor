@@ -104,6 +104,10 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
 }
 .pin-dot.filled { border-color: var(--black); }
 .pin-dot.error { border-color: var(--danger); background: var(--danger-bg); animation: shake .3s; }
+@keyframes livePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .72; }
+}
 @keyframes shake {
   0%,100% { transform: translateX(0); }
   25% { transform: translateX(-4px); }
@@ -1600,6 +1604,22 @@ function renderSidebar() {
   const list = document.getElementById('groupList');
   document.getElementById('sidebarGroupCount').textContent = state.data.groups.length;
   list.innerHTML = '';
+
+  // ── ปุ่มกลับเข้าคาบเช็คชื่อออนไลน์ที่กำลังเปิดอยู่ (เห็นได้จากทุกหน้า) ──
+  const live = loadActiveCheckin();
+  if (live && state.view !== 'onlineCheckin') {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn--sm';
+    btn.style.cssText = 'width:100%; margin:0 0 8px; background:var(--danger); color:var(--bg); border:0; ' +
+                        'display:flex; align-items:center; gap:8px; justify-content:flex-start; text-align:left; padding:10px 12px; animation:livePulse 2s infinite;';
+    btn.innerHTML = `<span style="font-size:13px;">🔴</span>
+      <span style="flex:1; min-width:0;">
+        <span style="display:block; font-size:12px; font-weight:700;">กำลังเช็คชื่อ · รหัส ${live.code}</span>
+        <span style="display:block; font-size:11px; opacity:.85; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${live.groupName || ''} — แตะเพื่อกลับเข้าคาบ</span>
+      </span>`;
+    btn.addEventListener('click', resumeOnlineCheckin);
+    list.appendChild(btn);
+  }
 
   if (state.isDemoData) {
     const warn = document.createElement('div');
