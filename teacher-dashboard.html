@@ -1448,10 +1448,34 @@ function unmarkHoliday(groupId, sessionNo) {
   toast(`ยกเลิกวันหยุด · กลับเป็นวันเรียน${hadMakeup ? ' · ลบคาบชดเชยแล้ว' : ''}`, 'success');
 }
 
+/* สถานะคาบตามวันที่จริง (ไม่แก้ข้อมูล แค่คำนวณ) */
+function effSessionStatus(s, today) {
+  if (s.status === 'holiday') return 'holiday';
+  if (s.date < today) return 'done';
+  if (s.date === today) return 'current';
+  return 'upcoming';
+}
+
+/* ── ตัวนับคาบกลาง — ใช้ให้ตรงกันทุกหน้า ──
+   teaching = คาบเรียนจริง (ไม่นับวันหยุด) · done + remain = teaching เสมอ */
+function sessionCounts(g) {
+  const today = todayStr();
+  const all = g.sessions || [];
+  let done = 0, remain = 0, holidays = 0;
+  all.forEach(s => {
+    const st = effSessionStatus(s, today);
+    if (st === 'holiday') holidays++;
+    else if (st === 'done') done++;
+    else remain++;                     // วันนี้ + อนาคต = ยังไม่เรียน
+  });
+  const teaching = done + remain;
+  return { done, remain, teaching, holidays, total: all.length,
+           pct: teaching > 0 ? Math.round(done / teaching * 100) : 0 };
+}
+
 /* จำนวนคาบเรียนที่เหลือ (วันนี้เป็นต้นไป ไม่นับวันหยุด) */
 function remainingTeaching(g) {
-  const today = todayStr();
-  return (g.sessions || []).filter(s => s.status !== 'holiday' && s.date >= today).length;
+  return sessionCounts(g).remain;
 }
 
 /* ===========================================================
@@ -1635,10 +1659,8 @@ function renderSidebar() {
 
   state.data.groups.forEach(g => {
     const status = getGroupStatus(g);
-    const sessions = g.sessions || [];
-    const done = sessions.filter(s => s.status === 'done' || s.status === 'current').length;
-    const total = sessions.length;
-    const remain = remainingTeaching(g);
+    const c = sessionCounts(g);
+    const done = c.done, total = c.teaching, remain = c.remain;
     const nearEnd = remain >= 1 && remain <= 2;
     const item = document.createElement('div');
     item.className = 'group-item' + (g.id === state.selectedGroupId ? ' is-active' : '');
@@ -1727,9 +1749,8 @@ function renderMain() {
 
   ensureSessions(g);
   const status = getGroupStatus(g);
-  const done = (g.sessions || []).filter(s => s.status === 'done' || s.status === 'current').length;
-  const total = (g.sessions || []).length;
-  const pct = total > 0 ? Math.round(done / total * 100) : 0;
+  const c = sessionCounts(g);
+  const done = c.done, total = c.teaching, pct = c.pct;
   const levelKey = 'lv-' + g.level.replace('ม.', '').replace('M', '').replace('m', '').trim();
 
   eyebrow.textContent = 'Group Detail';
@@ -1756,7 +1777,7 @@ function renderMain() {
         <div>
           <input class="group-header__name" id="groupName" value="${g.name}" placeholder="ชื่อกลุ่ม">
           <div class="group-header__meta">
-            ${g.dayOfWeek} · ${g.startTime}–${g.endTime} น. · ${done}/${total} คาบ · ${g.students.length} คน
+            ${g.dayOfWeek} · ${g.startTime}–${g.endTime} น. · เรียนแล้ว ${done}/${total} คาบ${c.holidays ? ` · หยุด ${c.holidays}` : ''} · ${g.students.length} คน
           </div>
           <div class="progress" style="margin-top:8px; max-width:280px;">
             <div class="progress__fill" style="width: ${pct}%"></div>
@@ -2000,9 +2021,8 @@ function renderOverview(body) {
   state.data.groups.forEach(g => {
     ensureSessions(g);
     const status = getGroupStatus(g);
-    const done = (g.sessions || []).filter(s => s.status === 'done' || s.status === 'current').length;
-    const total = (g.sessions || []).length;
-    const pct = total > 0 ? Math.round(done / total * 100) : 0;
+    const c = sessionCounts(g);
+    const done = c.done, total = c.teaching, pct = c.pct;
     const statusLabel = status === 'done' ? 'จบคอร์ส' : status === 'current' ? 'กำลังเรียน' : 'ยังไม่เริ่ม';
     const levelKey = 'lv-' + g.level.replace('ม.', '').replace('M', '').replace('m', '').trim();
     html += `
@@ -5380,8 +5400,9 @@ function addStudent(groupId) {
   // อัปเดต meta ในหัวการ์ด
   const meta = document.querySelector('.group-header__meta');
   if (meta) {
-    const done = (g.sessions || []).filter(s => s.status === 'done' || s.status === 'current').length;
-    meta.textContent = `${g.dayOfWeek} · ${g.startTime}–${g.endTime} น. · ${done}/${g.sessions.length} คาบ · ${g.students.length} คน`;
+    const c = sessionCounts(g);
+    meta.textContent = `${g.dayOfWeek} · ${g.startTime}–${g.endTime} น. · เรียนแล้ว ${c.done}/${c.teaching} คาบ` +
+                       `${c.holidays ? ' · หยุด ' + c.holidays : ''} · ${g.students.length} คน`;
   }
   toast(`เพิ่ม "${name}" แล้ว`, 'success');
 }
@@ -5509,8 +5530,8 @@ function printGroupReport(id) {
   if (!g) return;
   ensureSessions(g);
   const today = todayStr();
-  const done = (g.sessions || []).filter(s => s.status === 'done' || s.status === 'current').length;
-  const total = (g.sessions || []).length;
+  const c = sessionCounts(g);
+  const done = c.done, total = c.teaching;
   const levelKey = 'lv-' + g.level.replace('ม.', '').replace('M', '').replace('m', '').trim();
 
   const rows = (g.sessions || []).map(s => {
