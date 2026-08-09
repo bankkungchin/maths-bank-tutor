@@ -902,6 +902,17 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
   vertical-align: middle;
 }
 .att-table td:first-child { text-align: left; padding-left: 14px; }
+
+/* ตรึงคอลัมน์ชื่อ (คอลัมน์แรก) ไว้ตอนเลื่อนตารางซ้าย-ขวา — บทเยอะก็ยังรู้ว่าใครเป็นใคร */
+.att-table th:first-child,
+.att-table td:first-child {
+  position: sticky; left: 0; z-index: 3;
+  background: var(--card);
+  box-shadow: 1px 0 0 var(--line);
+  min-width: 116px;
+}
+.att-table th:first-child { z-index: 4; background: var(--bg-soft); }
+.att-table tr:hover td:first-child { background: var(--bg-soft); }
 .att-table tr:last-child td { border-bottom: 0; }
 .att-table tr:hover td { background: var(--bg-soft); }
 
@@ -1068,6 +1079,10 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
       <button class="btn btn--ghost btn--sm" id="btnAttendance" style="flex:1; background: var(--orange); color: var(--bg); border-color: var(--orange);">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
         เช็คชื่อ
+      </button>
+      <button class="btn btn--ghost btn--sm" id="btnEntry" style="flex:1;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+        กรอกคะแนน
       </button>
       <button class="btn btn--ghost btn--sm" id="btnScores" style="flex:1;">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
@@ -1649,6 +1664,13 @@ function renderMain() {
     eyebrow.textContent = 'Exam Scores';
     title.textContent = 'รายงานคะแนนสอบ';
     renderScores(body);
+    return;
+  }
+
+  if (state.view === 'entry') {
+    eyebrow.textContent = 'Score Entry';
+    title.textContent = 'กรอกคะแนนสอบ';
+    renderScoreEntry(body);
     return;
   }
 
@@ -3658,23 +3680,28 @@ let _rosterCache = [];
 async function fetchExamData(force) {
   if (state.examData && !force) return state.examData;
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${EXAM_SHEET_ID}/values:batchGet` +
-    `?ranges=${encodeURIComponent('students!A2:F')}&ranges=${encodeURIComponent('results!A2:AR')}` +
+    `?ranges=${encodeURIComponent('students!A2:G')}&ranges=${encodeURIComponent('results!A2:AR')}` +
+    (state.showInactive ? `&ranges=${encodeURIComponent('results_archive!A2:AR')}` : '') +
     `&key=${EXAM_API_KEY}&t=${Date.now()}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error('อ่าน Google Sheet ไม่ได้ (HTTP ' + res.status + ')');
   const json = await res.json();
   const stuRows = (json.valueRanges[0].values || []);
-  const resRows = (json.valueRanges[1].values || []);
+  let resRows = (json.valueRanges[1].values || []);
+  if (state.showInactive && json.valueRanges[2]) {
+    resRows = resRows.concat(json.valueRanges[2].values || []);   // รวมผลสอบของคนที่ไม่เรียนต่อ
+  }
 
   const students = stuRows.filter(r => r && r[1]).map(r => ({
     id: r[0] || '', full: String(r[1]).trim(), group: String(r[2] || '').trim(),
-    name: String(r[1]).replace(/\s*\([^)]*\)\s*$/, '').trim()
+    name: String(r[1]).replace(/\s*\([^)]*\)\s*$/, '').trim(),
+    active: String(r[6] || '').trim() === ''          // คอลัมน์ G ว่าง = ยังเรียนอยู่
   }));
   const exams = resRows.filter(r => r && r[1] && r[4]).map((r, ri) => ({
     _row: ri,
     ts: String(r[0] || ''),
     full: String(r[1]).trim(), group: String(r[2] || '').trim(),
-    date: String(r[3] || ''), chapter: String(r[4] || ''),
+    date: fixBuddhistYear(r[3]), chapter: String(r[4] || ''),
     statuses: r.slice(6, 36),
     score: Number(r[36]) || 0,
     careless: Number(r[37]) || 0, concept: Number(r[38]) || 0,
@@ -3759,7 +3786,7 @@ function findMissingScoreSets(d, includeIgnored) {
   Object.keys(sets).forEach(k => {
     const s = sets[k];
     if (s.lastMs && s.lastMs < cutoff) return;         // ชุดสอบเก่าเกินไป ไม่ต้องเตือน
-    const roster = d.students.filter(x => x.group === s.group);
+    const roster = rosterOf(d, s.group);
     if (roster.length === 0) return;
     let missing = roster.filter(x => !s.has[x.full]);     // ไม่มีคะแนนบทนี้เลย (ทุกวันที่)
     const hiddenCount = missing.filter(x => ignored[ignoreKeyOf(s.group, s.ck, x.full)]).length;
@@ -3802,10 +3829,38 @@ function dataHealth(d) {
   return { orphans: Object.values(orphanMap).sort((a, b) => b.count - a.count), latest };
 }
 
+/* นักเรียนที่ยังเรียนอยู่ (ตัดคนที่แจ้ง "ไม่เรียนต่อ" ออก เว้นแต่ครูกดให้แสดง) */
+function rosterOf(d, group) {
+  return d.students.filter(s => s.group === group && (s.active || state.showInactive));
+}
+function isActiveFull(d, full) {
+  const s = d.students.find(x => x.full === full);
+  return !s || s.active || state.showInactive;
+}
+state.showInactive = false;
+
 function scoreColor(sc) {
   return sc >= 24 ? 'var(--success)' : sc >= 15 ? 'var(--orange)' : 'var(--danger)';
 }
 function exKey(e) { return e.chapter + '|' + e.date; }
+
+/* แปลงวันที่ พ.ศ. → ค.ศ. อัตโนมัติ (ปี > 2400 = พ.ศ.) รองรับ M/D/YYYY และ YYYY-MM-DD */
+function fixBuddhistYear(s) {
+  s = String(s || '').trim();
+  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    let y = Number(m[3]);
+    if (y > 2400) y -= 543;
+    return Number(m[1]) + '/' + Number(m[2]) + '/' + y;
+  }
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) {
+    let y = Number(m[1]);
+    if (y > 2400) y -= 543;
+    return y + '-' + m[2] + '-' + m[3];
+  }
+  return s;
+}
 
 function examDateMs(e) {
   const d = new Date(e.date);
@@ -3939,14 +3994,23 @@ function latestPerChapter(exams) {
   return Object.values(best);
 }
 
-/* ลำดับบท (คีย์) ตามที่ปรากฏครั้งแรกใน sheet (ตามลำดับการสอน) */
+/* ลำดับบท — เรียงตามวันที่สอบครั้งแรกของบทนั้น (บทที่ไม่มีวันที่ไปท้ายสุด) */
 function chapterOrder(exams) {
-  const seen = [];
-  exams.slice().sort((a, b) => a._row - b._row).forEach(e => {
+  const first = {};
+  exams.forEach(e => {
     const k = chapterKey(e.chapter);
-    if (seen.indexOf(k) === -1) seen.push(k);
+    const ms = examDateMs(e);
+    if (!(k in first)) first[k] = { ms: ms || Infinity, row: e._row };
+    else {
+      if (ms && ms < first[k].ms) first[k].ms = ms;
+      if (e._row < first[k].row) first[k].row = e._row;
+    }
   });
-  return seen;
+  return Object.keys(first).sort((a, b) => {
+    const A = first[a], B = first[b];
+    if (A.ms !== B.ms) return A.ms - B.ms;     // สอบก่อน = อยู่ซ้าย
+    return A.row - B.row;                       // วันที่เท่ากัน → ตามลำดับที่กรอก
+  });
 }
 
 async function renderScores(body) {
@@ -3970,6 +4034,10 @@ async function renderScores(body) {
         <div style="margin-left:auto; display:flex; gap:6px; flex-wrap:wrap;">
           <button class="btn btn--ghost btn--sm" onclick="showManageRosterModal()">👥 จัดการรายชื่อ/กลุ่ม</button>
           <button class="btn btn--ghost btn--sm" onclick="showNameVariantsModal()">🧹 รวมชื่อที่สะกดต่าง</button>
+          <button class="btn btn--ghost btn--sm" onclick="state.showInactive=!state.showInactive; state.examData=null; renderMain();"
+                  title="สลับแสดง/ซ่อนนักเรียนที่แจ้งไม่เรียนต่อ">
+            ${state.showInactive ? '👁 กำลังแสดงคนที่ไม่เรียนต่อ' : '🚫 ซ่อนคนที่ไม่เรียนต่อ'}
+          </button>
           <button class="btn btn--ghost btn--sm" onclick="state.examData=null; renderMain();">↻ รีเฟรช</button>
         </div>
       </div>
@@ -4076,8 +4144,8 @@ function renderGroupScores(sb) {
   const d = state.examData;
   const g = state.scoresGroup;
   if (!g) { sb.innerHTML = `<div class="empty"><h3>ยังไม่มีกลุ่มในระบบข้อสอบ</h3></div>`; return; }
-  const students = d.students.filter(s => s.group === g);
-  const rawExams = d.exams.filter(e => e.group === g);
+  const students = rosterOf(d, g);
+  const rawExams = d.exams.filter(e => e.group === g && isActiveFull(d, e.full));
   const exams = latestPerChapter(rawExams);          // ซ้ำบทเดิม → ใช้ครั้งใหม่สุด
   const chapters = chapterOrder(rawExams);           // 1 บท = 1 คอลัมน์ (คีย์บท)
   const labels = chapterLabels(rawExams);
@@ -4105,7 +4173,7 @@ function renderGroupScores(sb) {
     }).join('');
     const own = chapters.map(ch => byStu[s.full] && byStu[s.full][ch]).filter(Boolean);
     const myAvg = own.length ? (own.reduce((a, e) => a + e.score, 0) / own.length).toFixed(1) : '–';
-    return `<tr><td><div class="att-student-name">${i+1}. ${s.name}</div></td>${cells}<td style="text-align:center; font-family:var(--font-num); font-weight:700;">${myAvg}</td></tr>`;
+    return `<tr${s.active ? '' : ' style="opacity:.55;"'}><td><div class="att-student-name">${i+1}. ${s.name}${s.active ? '' : ' <span style="font-size:10px; color:var(--danger);">(ไม่เรียนต่อ)</span>'}</div></td>${cells}<td style="text-align:center; font-family:var(--font-num); font-weight:700;">${myAvg}</td></tr>`;
   }).join('');
 
   sb.innerHTML = `
@@ -4118,7 +4186,7 @@ function renderGroupScores(sb) {
     <div class="card">
       <div class="card__head">
         <span class="card__title">คะแนนสอบ · <b>${g}</b> · นักเรียน ${students.length} คน</span>
-        <span style="font-size:11px; color:var(--gray-dark);">ตัวเลข = <b>ถูก</b>/<span style="color:var(--orange);">สะเพร่า</span> · กดเพื่อดู 30 ข้อ · ↻ = สอบซ้ำ</span>
+        <span style="font-size:11px; color:var(--gray-dark);">ตัวเลข = <b>ถูก</b>/<span style="color:var(--orange);">สะเพร่า</span> · กดเพื่อดู 30 ข้อ · ↻ = สอบซ้ำ · เรียงบทตามวันสอบ · <b>เลื่อนตารางซ้าย-ขวาได้</b> (ชื่อจะค้างไว้)</span>
       </div>
       <div class="att-table-wrap">
         <table class="att-table">
@@ -4136,8 +4204,8 @@ function renderAllGroupScores(sb) {
   const labels = chapterLabels(d.exams);
   const deduped = latestPerChapter(d.exams);   // ซ้ำบทเดิม → ใช้ครั้งใหม่สุด
   const rows = d.groups.map(g => {
-    const stuCount = d.students.filter(s => s.group === g).length;
-    const gEx = deduped.filter(e => e.group === g);
+    const stuCount = rosterOf(d, g).length;
+    const gEx = deduped.filter(e => e.group === g && isActiveFull(d, e.full));
     const cells = chapters.map(ch => {
       const ex = gEx.filter(e => chapterKey(e.chapter) === ch);
       if (!ex.length) return `<td style="text-align:center; color:var(--gray-soft);">–</td>`;
@@ -4168,11 +4236,11 @@ function showExamDetailByIdx(idx) {
   if (!e) return;
   const stMap = s => {
     s = String(s || '');
-    if (s.indexOf('✅') !== -1) return ['✓', 'var(--success)', 'var(--success-bg)'];
-    if (s.indexOf('⚠') !== -1) return ['ส', 'var(--orange)', '#FFF6F0'];
-    if (s.indexOf('C') === 0 || s.indexOf('C ') !== -1) return ['C', '#7C3AED', '#F3EFFB'];
-    if (s.indexOf('X') !== -1) return ['X', 'var(--danger)', 'var(--danger-bg)'];
-    if (s.indexOf('⏰') !== -1) return ['⏰', 'var(--gray-dark)', 'var(--bg-soft)'];
+    if (s.indexOf('ถูก') !== -1) return ['✓', 'var(--success)', 'var(--success-bg)'];
+    if (s.indexOf('สะเพร่า') !== -1) return ['ส', '#5C3A00', '#FDE910'];
+    if (s.indexOf('คอนเซปต์') !== -1) return ['C', '#fff', '#F5A623'];
+    if (s.indexOf('ทำไม่ได้') !== -1) return ['X', '#fff', 'var(--danger)'];
+    if (s.indexOf('ไม่ทัน') !== -1) return ['⏰', '#fff', '#7C3AED'];
     return ['–', 'var(--gray-soft)', 'transparent'];
   };
   const grid = e.statuses.map((s, i) => {
@@ -4212,6 +4280,190 @@ async function examWrite(payload) {
     if (!result.ok) { toast('ไม่สำเร็จ: ' + (result.error || ''), 'error'); return null; }
     return result;
   } catch(e) { toast('เชื่อมต่อไม่ได้: ' + e.message, 'error'); return null; }
+}
+
+/* ===========================================================
+   SCORE ENTRY — กรอกคะแนนสอบ (ใช้บน iPad ได้)
+   =========================================================== */
+const ENTRY_STATES = [
+  { v: '',              label: '–',  short: '–', color: 'var(--gray-soft)', bg: 'transparent' },
+  { v: '✅ ถูก',        label: 'ถูก', short: '✓', color: '#fff', bg: 'var(--success)' },
+  { v: '⚠️ สะเพร่า',    label: 'สะเพร่า', short: 'ส', color: '#5C3A00', bg: '#FDE910' },
+  { v: 'C คอนเซปต์',    label: 'คอนเซปต์', short: 'C', color: '#fff', bg: '#F5A623' },
+  { v: 'X ทำไม่ได้',    label: 'ทำไม่ได้', short: 'X', color: '#fff', bg: 'var(--danger)' },
+  { v: '⏰ ไม่ทัน',      label: 'ไม่ทัน', short: '⏰', color: '#fff', bg: '#7C3AED' }
+];
+
+state.entry = { group: '', full: '', chapter: '', date: '', st: new Array(30).fill(''), brush: 1 };
+
+function entryStateIdx(v) {
+  const i = ENTRY_STATES.findIndex(s => s.v === v);
+  return i < 0 ? 0 : i;
+}
+
+async function renderScoreEntry(body) {
+  body.innerHTML = `<div class="empty"><h3>กำลังโหลดรายชื่อ...</h3></div>`;
+  try { await fetchExamData(); } catch(err) {
+    body.innerHTML = `<div class="empty"><h3>โหลดไม่สำเร็จ</h3><p>${err.message}</p></div>`;
+    return;
+  }
+  const d = state.examData;
+  const e = state.entry;
+  if (!e.group || d.groups.indexOf(e.group) === -1) e.group = d.groups[0] || '';
+  if (!e.date) e.date = todayStr();
+
+  const roster = rosterOf(d, e.group);
+  if (!roster.find(s => s.full === e.full)) e.full = roster[0] ? roster[0].full : '';
+
+  // รายชื่อบทที่เคยใช้ (เรียงตามการสอน)
+  const labels = chapterLabels(d.exams);
+  const chapters = chapterOrder(d.exams).map(k => labels[k]).filter(Boolean);
+  if (!e.chapter) e.chapter = chapters[chapters.length - 1] || '';
+
+  const brushBtns = ENTRY_STATES.map((s, i) => `
+    <button onclick="state.entry.brush=${i}; renderScoreEntry(document.getElementById('mainBody'));"
+      style="padding:9px 12px; border-radius:10px; border:2px solid ${e.brush === i ? 'var(--black)' : 'var(--line)'};
+             background:${s.bg === 'transparent' ? 'var(--bg-soft)' : s.bg}; color:${s.v ? s.color : 'var(--gray-dark)'};
+             font-size:13px; font-weight:600; font-family:var(--font-thai); cursor:pointer;">
+      ${s.short} ${s.label}
+    </button>`).join('');
+
+  const cells = e.st.map((v, i) => {
+    const s = ENTRY_STATES[entryStateIdx(v)];
+    return `<button onclick="entryTap(${i})"
+      style="aspect-ratio:1; min-height:46px; border-radius:10px; border:1px solid var(--line);
+             background:${s.bg === 'transparent' ? 'var(--bg)' : s.bg}; color:${v ? s.color : 'var(--gray-soft)'};
+             font-family:var(--font-num); font-weight:700; font-size:13px; cursor:pointer; display:flex;
+             flex-direction:column; align-items:center; justify-content:center; line-height:1.1;">
+      <span style="font-size:9px; opacity:.7;">${i + 1}</span><span>${s.short}</span>
+    </button>`;
+  }).join('');
+
+  const n = entryCounts();
+
+  body.innerHTML = `
+    <div class="card">
+      <div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));">
+        <div class="form-field">
+          <label>กลุ่ม</label>
+          <select onchange="state.entry.group=this.value; state.entry.full=''; renderScoreEntry(document.getElementById('mainBody'));">
+            ${d.groups.map(g => `<option value="${g}" ${g === e.group ? 'selected' : ''}>${g}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-field">
+          <label>นักเรียน (${roster.length} คน)</label>
+          <select id="entryStudent" onchange="state.entry.full=this.value;">
+            ${roster.map(s => `<option value="${s.full.replace(/"/g, '&quot;')}" ${s.full === e.full ? 'selected' : ''}>${s.name}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-field">
+          <label>บท</label>
+          <select id="entryChapter" onchange="state.entry.chapter=this.value==='__new__'?(prompt('ชื่อบทใหม่:')||state.entry.chapter):this.value; renderScoreEntry(document.getElementById('mainBody'));">
+            ${chapters.map(c => `<option value="${c.replace(/"/g, '&quot;')}" ${c === e.chapter ? 'selected' : ''}>${c}</option>`).join('')}
+            <option value="__new__">+ พิมพ์บทใหม่…</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label>วันที่สอบ</label>
+          <input type="date" value="${e.date}" onchange="state.entry.date=this.value;">
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card__head">
+        <span class="card__title">เลือกสถานะ แล้วแตะที่ข้อ</span>
+        <span style="font-size:11px; color:var(--gray-dark);">แตะซ้ำที่ข้อเดิม = เปลี่ยนเป็นสถานะถัดไป</span>
+      </div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px;">${brushBtns}</div>
+
+      <div style="display:grid; grid-template-columns:repeat(10,1fr); gap:6px;">${cells}</div>
+
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; align-items:center;">
+        <button class="btn btn--ghost btn--sm" onclick="entryFillAll('✅ ถูก')">ให้ถูกทั้งหมด</button>
+        <button class="btn btn--ghost btn--sm" onclick="entryFillAll('')">ล้างทั้งหมด</button>
+        <span style="margin-left:auto; font-size:13px;">
+          คะแนน <b style="font-family:var(--font-num); font-size:20px; color:${scoreColor(n.ok)};">${n.ok}</b>/30
+          <span style="color:var(--gray-dark); font-size:12px;">
+            · สะเพร่า ${n.careless} · คอนเซปต์ ${n.concept} · ทำไม่ได้ ${n.cannot} · ไม่ทัน ${n.timeout} · ยังไม่ระบุ ${n.blank}
+          </span>
+        </span>
+      </div>
+    </div>
+
+    <div class="card" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <input type="text" id="entryNote" placeholder="หมายเหตุ (ไม่บังคับ) เช่น สอบครั้งที่ 2"
+             style="flex:1; min-width:200px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; outline:none; font-size:14px;">
+      <button class="btn btn--primary" onclick="saveEntry(false)">💾 บันทึก</button>
+      <button class="btn btn--primary" onclick="saveEntry(true)" style="background:var(--success);">บันทึก + คนถัดไป →</button>
+    </div>
+  `;
+}
+
+function entryCounts() {
+  const n = { ok: 0, careless: 0, concept: 0, cannot: 0, timeout: 0, blank: 0 };
+  state.entry.st.forEach(v => {
+    if (!v) n.blank++;
+    else if (v.indexOf('ถูก') !== -1) n.ok++;
+    else if (v.indexOf('สะเพร่า') !== -1) n.careless++;
+    else if (v.indexOf('คอนเซปต์') !== -1) n.concept++;
+    else if (v.indexOf('ทำไม่ได้') !== -1) n.cannot++;
+    else if (v.indexOf('ไม่ทัน') !== -1) n.timeout++;
+  });
+  return n;
+}
+
+function entryTap(i) {
+  const e = state.entry;
+  const cur = entryStateIdx(e.st[i]);
+  // แตะครั้งแรก = ใส่สถานะที่เลือกไว้ · แตะซ้ำ = วนไปสถานะถัดไป
+  e.st[i] = (cur === e.brush) ? ENTRY_STATES[(cur + 1) % ENTRY_STATES.length].v : ENTRY_STATES[e.brush].v;
+  const note = document.getElementById('entryNote');
+  const keepNote = note ? note.value : '';
+  const stu = document.getElementById('entryStudent');
+  if (stu) state.entry.full = stu.value;
+  renderScoreEntry(document.getElementById('mainBody'));
+  const n2 = document.getElementById('entryNote');
+  if (n2 && keepNote) n2.value = keepNote;
+}
+
+function entryFillAll(v) {
+  state.entry.st = new Array(30).fill(v);
+  renderScoreEntry(document.getElementById('mainBody'));
+}
+
+async function saveEntry(next) {
+  const e = state.entry;
+  const stu = document.getElementById('entryStudent');
+  if (stu) e.full = stu.value;
+  if (!e.full) { toast('เลือกนักเรียนก่อน', 'error'); return; }
+  if (!e.chapter) { toast('เลือกบทก่อน', 'error'); return; }
+  const n = entryCounts();
+  if (n.blank === 30) { toast('ยังไม่ได้กรอกข้อไหนเลย', 'error'); return; }
+  if (n.blank > 0 && !confirm(`ยังไม่ได้ระบุ ${n.blank} ข้อ (จะถูกบันทึกเป็น "ไม่ทำ")\nบันทึกเลยไหม?`)) return;
+
+  const note = document.getElementById('entryNote');
+  const [y, m, dd] = e.date.split('-');
+  const rec = {
+    full: e.full, group: e.group, chapter: e.chapter,
+    date: `${Number(m)}/${Number(dd)}/${y}`,
+    note: note ? note.value.trim() : '',
+    statuses: e.st.slice()
+  };
+  const r = await examWrite({ action: 'saveExamScore', rec: rec });
+  if (!r) return;
+  toast(`บันทึก "${e.full.replace(/\s*\([^)]*\)\s*$/, '')}" · ${r.score}/30 แล้ว`, 'success');
+
+  state.examData = null;               // ให้รายงานคะแนนอ่านใหม่
+  e.st = new Array(30).fill('');
+  if (next) {
+    const d = await fetchExamData();
+    const roster = rosterOf(d, e.group);
+    const i = roster.findIndex(s => s.full === e.full);
+    if (i >= 0 && i + 1 < roster.length) e.full = roster[i + 1].full;
+  }
+  renderScoreEntry(document.getElementById('mainBody'));
+  checkMissingScoresBadge();
 }
 
 /* ---------- จับคู่ชื่อที่ไม่ตรงทะเบียน ---------- */
@@ -4351,12 +4603,13 @@ function showManageRosterModal() {
       </div>
       ${(byGroup[g] || []).map(i => {
         const s = _rosterCache[i];
-        return `<div style="display:flex; align-items:center; gap:6px; padding:6px 10px; background:var(--bg-soft); border-radius:8px; margin-bottom:4px; font-size:13px;">
+        return `<div style="display:flex; align-items:center; gap:6px; padding:6px 10px; background:var(--bg-soft); border-radius:8px; margin-bottom:4px; font-size:13px; ${s.active ? '' : 'opacity:.6;'}">
           <span style="font-family:var(--font-num); color:var(--gray-soft); font-size:11px;">${s.id}</span>
-          <span style="flex:1;">${s.name}</span>
+          <span style="flex:1;">${s.name}${s.active ? '' : ' <span style="font-size:10px; color:var(--danger);">(ไม่เรียนต่อ)</span>'}</span>
           <button class="btn btn--ghost btn--xs" onclick="rosterAction(${i}, 'rename')">✏️ ชื่อ</button>
           <button class="btn btn--ghost btn--xs" onclick="rosterAction(${i}, 'move')">⇄ ย้ายกลุ่ม</button>
-          <button class="btn btn--danger btn--xs" onclick="rosterAction(${i}, 'delete')">×</button>
+          <button class="btn btn--ghost btn--xs" onclick="rosterAction(${i}, '${s.active ? 'quit' : 'rejoin'}')" title="${s.active ? 'แจ้งว่าไม่เรียนต่อ (เก็บประวัติคะแนนไว้)' : 'กลับมาเรียนต่อ'}">${s.active ? '🚪 ไม่เรียนต่อ' : '↩︎ กลับมาเรียน'}</button>
+          <button class="btn btn--danger btn--xs" onclick="rosterAction(${i}, 'delete')" title="ลบออกจากทะเบียนถาวร">×</button>
         </div>`;
       }).join('')}
     </div>
@@ -4390,8 +4643,18 @@ async function rosterAction(idx, act) {
     if (!ng || ng.trim() === s.group) return;
     const r = await examWrite({ action: 'examMoveStudent', oldFull: s.full, newGroup: ng.trim() });
     if (r) { toast(`ย้ายกลุ่มแล้ว (แก้ ${r.updated} จุด)`, 'success'); await refreshRoster(); }
+  } else if (act === 'quit' || act === 'rejoin') {
+    const on = act === 'rejoin';
+    if (!on && !confirm('แจ้งว่า "' + s.name + '" ไม่เรียนต่อ?\n\n• ผลสอบจะถูกย้ายไปเก็บใน sheet results_archive\n• หน้าครูและเว็บนักเรียนจะไม่นับเขาในค่าเฉลี่ย/อันดับ (ตัวเลขตรงกันทั้ง 2 ระบบ)\n• ประวัติไม่หาย กด "กลับมาเรียน" ได้ทุกเมื่อ')) return;
+    const r = await examWrite({ action: 'examSetActive', full: s.full, active: on });
+    if (r) {
+      toast(on ? `"${s.name}" กลับมาเรียนแล้ว · คืนผลสอบ ${r.moved || 0} รายการ`
+                : `"${s.name}" ไม่เรียนต่อแล้ว · ย้ายผลสอบ ${r.moved || 0} รายการเข้าคลัง`, 'success');
+      state.examData = null;
+      await refreshRoster();
+    }
   } else if (act === 'delete') {
-    if (!confirm('ลบ "' + s.name + '" ออกจากรายชื่อ?\n(ประวัติคะแนนเก่ายังอยู่ใน sheet แต่จะไม่แสดงในรายงาน)')) return;
+    if (!confirm('⚠️ ลบ "' + s.name + '" ออกจากทะเบียนถาวร?\n\nถ้าแค่เลิกเรียน แนะนำใช้ปุ่ม "🚪 ไม่เรียนต่อ" แทน (เก็บประวัติไว้)\n\nยืนยันลบถาวร?')) return;
     const r = await examWrite({ action: 'examDeleteStudent', full: s.full });
     if (r) { toast('ลบแล้ว', 'success'); await refreshRoster(); }
   }
@@ -4403,7 +4666,11 @@ async function rosterAddStudent() {
   const ng = prompt('อยู่กลุ่มไหน?\nกลุ่มที่มี: ' + state.examData.groups.join(' · ') + '\n(พิมพ์ชื่อกลุ่มใหม่ = สร้างกลุ่มใหม่)');
   if (!ng) return;
   const r = await examWrite({ action: 'examAddStudent', name: nn.trim(), group: ng.trim() });
-  if (r) { toast(`เพิ่ม "${nn.trim()}" (${r.id}) แล้ว`, 'success'); await refreshRoster(); }
+  if (r) {
+    toast(`เพิ่ม "${nn.trim()}" (${r.id}) · PIN สำหรับเว็บนักเรียน = ${r.pin}`, 'success');
+    alert(`เพิ่ม "${nn.trim()} (${ng.trim()})" เรียบร้อย\n\nรหัส: ${r.id}\nPIN เข้าเว็บดูคะแนน: ${r.pin}\n\n(บอก PIN นี้กับนักเรียนได้เลย — ดูซ้ำได้ในคอลัมน์ F ของชีต students)`);
+    await refreshRoster();
+  }
 }
 
 async function refreshRoster() {
@@ -5507,6 +5774,10 @@ function init() {
   });
   document.getElementById('btnScores').addEventListener('click', () => {
     state.view = 'scores';
+    renderAll();
+  });
+  document.getElementById('btnEntry').addEventListener('click', () => {
+    state.view = 'entry';
     renderAll();
   });
   document.getElementById('btnAddGroup').addEventListener('click', addGroup);
