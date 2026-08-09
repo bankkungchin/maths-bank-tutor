@@ -2722,7 +2722,23 @@ function renderAttendanceSummary(body) {
     ? Math.round((totalPresent + totalLate) / overallDenom * 100)
     : 0;
 
+  const resumeInfo = loadActiveCheckin();
+  const resumeBanner = (resumeInfo && !state.onlineCheckin.code) ? `
+    <div class="card" style="border:1px solid var(--orange); background:#FFF6F0; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+      <div style="font-size:22px;">🔴</div>
+      <div style="flex:1; min-width:180px;">
+        <div style="font-weight:700; color:var(--danger);">มีคาบที่กำลังเช็คชื่อออนไลน์อยู่</div>
+        <div style="font-size:13px; color:var(--gray-dark); margin-top:2px;">
+          ${resumeInfo.groupName || ''}${resumeInfo.sessionNo ? ' · คาบที่ ' + resumeInfo.sessionNo : ''}
+          · รหัส <b class="num">${resumeInfo.code}</b> — รายชื่อที่เช็คแล้วยังอยู่ครบ
+        </div>
+      </div>
+      <button class="btn btn--primary btn--sm" onclick="resumeOnlineCheckin()">↩︎ กลับเข้าคาบ</button>
+      <button class="btn btn--ghost btn--sm" onclick="clearActiveCheckin(); renderMain();" title="ซ่อนแถบนี้ (ไม่ปิดคาบ)">ซ่อน</button>
+    </div>` : '';
+
   body.innerHTML = `
+    ${resumeBanner}
     <!-- Group selector -->
     <div class="card" style="padding:14px 18px;">
       <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
@@ -2809,6 +2825,50 @@ function renderAttendanceSummary(body) {
    ONLINE CHECK-IN — นักเรียนเช็คจากมือถือตัวเอง
    =========================================================== */
 
+/* ── จำคาบเช็คชื่อออนไลน์ที่กำลังเปิดอยู่ ไว้กลับเข้ามาใหม่ได้ ──
+   ข้อมูลการเช็คชื่ออยู่บน Google Sheet อยู่แล้ว ตรงนี้แค่จำว่ารหัสอะไร */
+const ACTIVE_CHECKIN_KEY = 'mathsBankActiveCheckin';
+
+function saveActiveCheckin(o) {
+  try { localStorage.setItem(ACTIVE_CHECKIN_KEY, JSON.stringify(o)); } catch(e) {}
+}
+function loadActiveCheckin() {
+  try {
+    const o = JSON.parse(localStorage.getItem(ACTIVE_CHECKIN_KEY));
+    if (!o || !o.code) return null;
+    if (o.expiresAt && new Date(o.expiresAt) < new Date()) { clearActiveCheckin(); return null; }
+    return o;
+  } catch(e) { return null; }
+}
+function clearActiveCheckin() {
+  try { localStorage.removeItem(ACTIVE_CHECKIN_KEY); } catch(e) {}
+}
+
+/* กลับเข้าหน้าเช็คชื่อออนไลน์ที่ค้างอยู่ (ดึงรายชื่อที่เช็คแล้วจาก Sheet ใหม่) */
+async function resumeOnlineCheckin() {
+  const saved = loadActiveCheckin();
+  if (!saved) { toast('ไม่มีคาบที่กำลังเช็คชื่ออยู่', 'error'); return; }
+  toast('กำลังกลับเข้าคาบ...', 'success');
+  try {
+    const res = await fetch(`${SCRIPT_URL}?action=lookupCheckin&code=${saved.code}&t=${Date.now()}`);
+    const result = await res.json();
+    if (!result.ok) {
+      clearActiveCheckin();
+      toast('คาบนี้ปิดหรือหมดอายุแล้ว: ' + (result.error || ''), 'error');
+      renderAll();
+      return;
+    }
+    state.onlineCheckin.code = saved.code;
+    state.onlineCheckin.session = result.session;
+    state.onlineCheckin.expiresAt = saved.expiresAt;
+    state.view = 'onlineCheckin';
+    renderMain();
+    startOnlineCheckinPolling();
+  } catch(e) {
+    toast('เชื่อมต่อไม่ได้: ' + e.message, 'error');
+  }
+}
+
 /* State for online check-in monitor */
 state.onlineCheckin = {
   code: null,
@@ -2890,6 +2950,9 @@ async function startOnlineCheckin(groupId, sessionNo) {
       state.onlineCheckin.code = result.checkinCode;
       state.onlineCheckin.session = result.session;
       state.onlineCheckin.expiresAt = result.expiresAt;
+      saveActiveCheckin({ code: result.checkinCode, expiresAt: result.expiresAt,
+                          groupName: result.session ? result.session.groupName : '',
+                          sessionNo: result.session ? result.session.sessionNo : '' });
       state.view = 'onlineCheckin';
       renderMain();
       startOnlineCheckinPolling();
@@ -3324,6 +3387,7 @@ async function endOnlineCheckin() {
           const result = await res.json();
           if (result.ok) {
             clearInterval(state.onlineCheckin.pollTimer);
+            clearActiveCheckin();
             state.onlineCheckin.code = null;
             state.onlineCheckin.session = null;
             toast(`จบคาบ · บันทึกขาด ${result.markedAbsent} คน · มา ${result.totalChecked} คน`, 'success');
@@ -3351,6 +3415,7 @@ function cancelOnlineCheckin() {
       { label: 'ยกเลิก', class: 'btn--danger', onClick: async () => {
         closeModal();
         clearInterval(state.onlineCheckin.pollTimer);
+        clearActiveCheckin();
         // ลบ active_checkin ผ่าน endCheckin (แต่ไม่ mark absent)
         try {
           await fetch(SCRIPT_URL, {
