@@ -3786,18 +3786,21 @@ async function fetchExamData(force) {
   if (state.examData && !force) return state.examData;
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${EXAM_SHEET_ID}/values:batchGet` +
     `?ranges=${encodeURIComponent('students!A2:G')}&ranges=${encodeURIComponent('results!A2:AR')}` +
-    (state.showInactive ? `&ranges=${encodeURIComponent('results_archive!A2:AR')}` : '') +
+    (state.showInactive ? `&ranges=${encodeURIComponent('results_archive!A2:AR')}` +
+                          `&ranges=${encodeURIComponent('students_archive!A2:G')}` : '') +
     `&key=${EXAM_API_KEY}&t=${Date.now()}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error('อ่าน Google Sheet ไม่ได้ (HTTP ' + res.status + ')');
   const json = await res.json();
   const stuRows = (json.valueRanges[0].values || []);
   let resRows = (json.valueRanges[1].values || []);
-  if (state.showInactive && json.valueRanges[2]) {
-    resRows = resRows.concat(json.valueRanges[2].values || []);   // รวมผลสอบของคนที่ไม่เรียนต่อ
+  let arcStuRows = [];
+  if (state.showInactive) {
+    if (json.valueRanges[2]) resRows = resRows.concat(json.valueRanges[2].values || []);   // ผลสอบคนที่ไม่เรียนต่อ
+    if (json.valueRanges[3]) arcStuRows = json.valueRanges[3].values || [];                 // ทะเบียนคนที่ไม่เรียนต่อ
   }
 
-  const students = stuRows.filter(r => r && r[1]).map(r => ({
+  const students = stuRows.concat(arcStuRows).filter(r => r && r[1]).map(r => ({
     id: r[0] || '', full: String(r[1]).trim(), group: String(r[2] || '').trim(),
     name: String(r[1]).replace(/\s*\([^)]*\)\s*$/, '').trim(),
     active: String(r[6] || '').trim() === ''          // คอลัมน์ G ว่าง = ยังเรียนอยู่
