@@ -1,10 +1,3 @@
-
-
-
-
-
-
-
 <!DOCTYPE html>
 <html lang="th">
 <head>
@@ -945,6 +938,7 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
   z-index: 2;
 }
 .att-cell.present { background: var(--success); color: var(--bg); }
+.att-cell.present.soft { background: #9BC48A; }   /* มาแล้ว (5-10 นาที) — เขียวอ่อนกว่า */
 .att-cell.late    { background: var(--orange);  color: var(--bg); }
 .att-cell.absent  { background: var(--danger);  color: var(--bg); }
 .att-cell.holiday { background: var(--bg-canvas); color: var(--gray-soft); }
@@ -988,6 +982,13 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
 .att-cell:hover::after,
 .att-cell:hover::before {
   opacity: 1;
+}
+
+/* เวลาที่เช็คชื่อ — ตัวเล็กใต้ช่อง */
+.att-time {
+  font-family: var(--font-num); font-size: 9px; line-height: 1;
+  color: var(--gray-soft); margin-top: 3px; text-align: center;
+  letter-spacing: -.2px; white-space: nowrap;
 }
 
 .att-rate {
@@ -1086,7 +1087,7 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
       </button>
     </div>
 
-    <div class="sidebar__actions" style="padding-top:0; border-bottom:0; flex-wrap:wrap;">
+    <div class="sidebar__actions" style="padding-top:0; border-bottom:0;">
       <button class="btn btn--ghost btn--sm" id="btnAttendance" style="flex:1; background: var(--orange); color: var(--bg); border-color: var(--orange);">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
         เช็คชื่อ
@@ -1098,10 +1099,6 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
       <button class="btn btn--ghost btn--sm" id="btnScores" style="flex:1;">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
         คะแนน<span id="scoresBadge"></span>
-      </button>
-      <button class="btn btn--ghost btn--sm" id="btnPending" style="flex:1 1 100%;">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-        รอตรวจ<span id="pendingBadge"></span>
       </button>
     </div>
 
@@ -1249,6 +1246,7 @@ const state = {
    =========================================================== */
 const ATTENDANCE_CONFIG = {
   lateThresholdMinutes: 10,    // เกิน 10 นาที = สาย
+  ontimeThresholdMinutes: 5,   // ภายใน 5 นาทีแรก = ตรงเวลา · 5-10 นาที = มาแล้ว
   autoAbsentOnFinish: true    // กด "จบคาบ" → คนที่ยังไม่เช็คอิน = ขาด อัตโนมัติ
 };
 
@@ -1615,7 +1613,6 @@ function showApp() {
   }
   renderAll();
   checkMissingScoresBadge();   // เช็คคะแนนที่ยังไม่ได้กรอก (เงียบๆ เบื้องหลัง)
-  checkPendingBadge();         // เช็คว่ามีนักเรียนส่งคะแนนมารอตรวจไหม
 
   // เครื่องใหม่ (ยังไม่มีข้อมูลในเครื่อง) → ดึงจาก Sheet อัตโนมัติ ไม่ต้องกดเอง
   if (state.isDemoData && SCRIPT_URL) {
@@ -1725,13 +1722,6 @@ function renderMain() {
     eyebrow.textContent = 'Score Entry';
     title.textContent = 'กรอกคะแนนสอบ';
     renderScoreEntry(body);
-    return;
-  }
-
-  if (state.view === 'pending') {
-    eyebrow.textContent = 'Pending Review';
-    title.textContent = 'คะแนนที่นักเรียนกรอกเอง — รอตรวจ';
-    renderPending(body);
     return;
   }
 
@@ -2423,6 +2413,20 @@ function processKioskCheckin() {
   }, 1500);
 }
 
+/* นาทีที่เช็คชื่อ เทียบกับเวลาเริ่มคาบ (ติดลบ = มาก่อนเวลา → ปัดเป็น 0) */
+function lateMinutesOf(r, sess, g) {
+  if (!r || !r.checkInTime) return 0;
+  const d = timeStrToMinutes(r.checkInTime) - timeStrToMinutes(sessionStartTimeStr(sess, g));
+  return d > 0 ? d : 0;
+}
+
+/* ระดับการมาเรียน 3 ระดับ — ใช้แสดงผลเท่านั้น สถานะในข้อมูลยังเป็น present/late เหมือนเดิม
+   ontime = ภายใน 5 นาทีแรก · soft = 5-10 นาที (มาแล้ว) · late = เกิน 10 นาที */
+function attendTier(r, sess, g) {
+  if (!r || r.status !== 'present') return '';
+  return lateMinutesOf(r, sess, g) <= ATTENDANCE_CONFIG.ontimeThresholdMinutes ? 'ontime' : 'soft';
+}
+
 function statusLabel(s) {
   return s === 'present' ? 'ตรงเวลา' : s === 'late' ? 'สาย' : s === 'absent' ? 'ขาด' : s === 'leave' ? 'ลา' : s === 'holiday' ? 'หยุด' : 'รอเช็คชื่อ';
 }
@@ -2724,25 +2728,27 @@ function renderAttendanceSummary(body) {
 
   // Build table
   let tableRows = g.students.map((s, idx) => {
-    let present = 0, late = 0, absent = 0, leave = 0;
+    let ontime = 0, soft = 0, late = 0, absent = 0, leave = 0;
     const cells = sessionCols.map(sess => {
       const att = sess.attendance;
       const r = att && att.records[s.id];
       let cellStatus = 'pending';
       if (r) cellStatus = r.status;
-      if (cellStatus === 'present') present++;
+      const tier = attendTier(r, sess, g);          // '' | 'ontime' | 'soft'
+      if (cellStatus === 'present') { if (tier === 'ontime') ontime++; else soft++; }
       else if (cellStatus === 'late') late++;
       else if (cellStatus === 'absent') absent++;
       else if (cellStatus === 'leave') leave++;
       const label = cellStatus === 'present' ? 'P' : cellStatus === 'late' ? 'L' : cellStatus === 'absent' ? 'A' : cellStatus === 'leave' ? 'S' : '-';
+      const cls = cellStatus + (tier === 'soft' ? ' soft' : '');
 
       // Build tooltip text
       let tip = '';
       if (cellStatus === 'present') {
-        tip = `${s.name} · ตรงเวลา · ${r.checkInTime ? 'เช็ค ' + r.checkInTime + ' น.' : ''}`;
+        const m = lateMinutesOf(r, sess, g);
+        tip = `${s.name} · ${tier === 'ontime' ? 'ตรงเวลา' : 'มาแล้ว (ช้า ' + m + ' นาที)'}${r.checkInTime ? ' · เช็ค ' + r.checkInTime + ' น.' : ''}`;
       } else if (cellStatus === 'late') {
-        const lateMin = r.checkInTime ? (timeStrToMinutes(r.checkInTime) - timeStrToMinutes(sessionStartTimeStr(sess, g))) : 0;
-        tip = `${s.name} · สาย ${lateMin} นาที · เช็ค ${r.checkInTime || '-'} น.`;
+        tip = `${s.name} · สาย ${lateMinutesOf(r, sess, g)} นาที · เช็ค ${r.checkInTime || '-'} น.`;
       } else if (cellStatus === 'absent') {
         tip = `${s.name} · ขาด${r.note ? ' · ' + r.note : ''}`;
       } else if (cellStatus === 'leave') {
@@ -2751,9 +2757,13 @@ function renderAttendanceSummary(body) {
         tip = `${s.name} · ยังไม่เช็คชื่อ`;
       }
 
-      return `<td><span class="att-cell ${cellStatus}" data-tip="${tip.replace(/"/g, '&quot;')}" onclick="showAttendanceDetail('${g.id}', ${sess.no}, '${s.id}')" title="${statusLabel(cellStatus)}">${label}</span></td>`;
+      // เวลาที่เช็คชื่อ แสดงตัวเล็กใต้ช่อง (ไม่มีเวลา = เว้นว่างไว้ให้แถวสูงเท่ากัน)
+      const timeLine = `<div class="att-time">${(r && r.checkInTime) ? r.checkInTime : '&nbsp;'}</div>`;
+
+      return `<td><span class="att-cell ${cls}" data-tip="${tip.replace(/"/g, '&quot;')}" onclick="showAttendanceDetail('${g.id}', ${sess.no}, '${s.id}')" title="${statusLabel(cellStatus)}">${label}</span>${timeLine}</td>`;
     }).join('');
 
+    const present = ontime + soft;
     const checkedIn = present + late;
     const denom = totalSessions - leave;
     const rate = denom > 0 ? Math.round(checkedIn / denom * 100) : 0;
@@ -2768,7 +2778,7 @@ function renderAttendanceSummary(body) {
       <tr>
         <td>
           <div class="att-student-name">${idx+1}. ${s.name}</div>
-          <div class="att-student-meta">มา ${present} · สาย ${late} · ลา ${leave} · ขาด ${absent}</div>
+          <div class="att-student-meta">ตรงเวลา ${ontime} · มาแล้ว ${soft} · สาย ${late} · ลา ${leave} · ขาด ${absent}</div>
         </td>
         ${cells}
         <td><span class="att-rate ${rateClass}">${rate}%</span></td>
@@ -2857,7 +2867,8 @@ function renderAttendanceSummary(body) {
       <div class="card__head">
         <span class="card__title">ตารางการเข้าเรียน · <b>${g.name}</b></span>
         <div style="display:flex; gap:8px; font-size:11px;">
-          <span class="att-cell present">P</span><span style="color:var(--gray-dark);">ตรงเวลา</span>
+          <span class="att-cell present">P</span><span style="color:var(--gray-dark);">ตรงเวลา (≤${ATTENDANCE_CONFIG.ontimeThresholdMinutes} น.)</span>
+          <span class="att-cell present soft">P</span><span style="color:var(--gray-dark);">มาแล้ว (≤${ATTENDANCE_CONFIG.lateThresholdMinutes} น.)</span>
           <span class="att-cell late">L</span><span style="color:var(--gray-dark);">สาย</span>
           <span class="att-cell absent">A</span><span style="color:var(--gray-dark);">ขาด</span>
           <span class="att-cell leave">S</span><span style="color:var(--gray-dark);">ลา</span>
@@ -3579,7 +3590,13 @@ function showAttendanceDetail(groupId, sessionNo, studentId) {
       const st = rec ? rec.status : 'pending';
       const stInfo = statusInfo[st];
       const label = st === 'present' ? 'P' : st === 'late' ? 'L' : st === 'absent' ? 'A' : st === 'leave' ? 'S' : '-';
-      const time = rec && rec.checkInTime ? rec.checkInTime + ' น.' : '-';
+      const tier2 = attendTier(rec, s, g);
+      const cls2 = st + (tier2 === 'soft' ? ' soft' : '');
+      const time = rec && rec.checkInTime
+        ? rec.checkInTime + ' น.' + (st === 'present' && tier2 === 'ontime' ? ' · ตรงเวลา'
+            : (st === 'present' ? ' · ช้า ' + lateMinutesOf(rec, s, g) + ' นาที'
+            : (st === 'late' ? ' · สาย ' + lateMinutesOf(rec, s, g) + ' นาที' : '')))
+        : '-';
       const note = rec && rec.note ? rec.note : '';
       const isCurrent = s.no === sessionNo;
       return `
@@ -3588,7 +3605,7 @@ function showAttendanceDetail(groupId, sessionNo, studentId) {
           <td>${thDate(s.date)}</td>
           <td>วัน${thDayName(s.date)}</td>
           <td style="text-align:center;">
-            <span class="att-cell ${st}" style="display:inline-flex;">${label}</span>
+            <span class="att-cell ${cls2}" style="display:inline-flex;">${label}</span>
           </td>
           <td style="font-family: var(--font-num);">${time}</td>
           <td style="font-size:12px; color:var(--gray-dark);">${note}</td>
@@ -4421,31 +4438,7 @@ const ENTRY_STATES = [
   { v: '⏰ ไม่ทัน',      label: 'ไม่ทัน', short: '⏰', color: '#fff', bg: '#7C3AED' }
 ];
 
-/* ═══════════════════════════════════════════════════════════════
-   รายชื่อบทมาตรฐาน — ต้องตรงกับดรอปดาวน์ "กรองเฉพาะบท" ใน
-   answer-sheet/index.html เป๊ะทุกตัวอักษร ไม่งั้นนักเรียนกรองไม่เจอ
-   เพิ่มบทใหม่ = แก้ 2 ที่: ที่นี่ และ index.html ของเว็บนักเรียน
-   ═══════════════════════════════════════════════════════════════ */
-const CHAPTERS = [
-  'เซต',
-  'จำนวนจริง ชุดที่ 1', 'จำนวนจริง ชุดที่ 2',
-  'ความสัมพันธ์และฟังก์ชัน ชุดที่ 1', 'ความสัมพันธ์และฟังก์ชัน ชุดที่ 2',
-  'เรขาคณิตวิเคราะห์และภาคตัดกรวย ชุดที่ 1', 'เรขาคณิตวิเคราะห์และภาคตัดกรวย ชุดที่ 2',
-  'Exponential logarithm ชุดที่ 1', 'Exponential logarithm ชุดที่ 2',
-  'เมทริกซ์ ชุดที่ 1', 'เมทริกซ์ ชุดที่ 2',
-  'ตรีโกณมิติ ชุดที่ 1', 'ตรีโกณมิติ ชุดที่ 2',
-  'เวกเตอร์', 'จำนวนเชิงซ้อน',
-  'ลำดับและอนุกรม ชุดที่ 1', 'ลำดับและอนุกรม ชุดที่ 2',
-  'แคลคูลัส ชุดที่ 1', 'แคลคูลัส ชุดที่ 2',
-  'เรียงลำดับและจัดหมู่', 'ความน่าจะเป็น',
-  'สถิติ ชุดที่ 1', 'สถิติ ชุดที่ 2',
-  'ตรรกศาสตร์'
-];
-const isStdChapter = c => CHAPTERS.indexOf(String(c || '').trim()) >= 0;
-
-state.entry = { group: '', full: '', chapter: '', date: '',
-                st: new Array(30).fill(''), brush: 1,
-                mode: 'tap', pasteText: '', parsed: null };
+state.entry = { group: '', full: '', chapter: '', date: '', st: new Array(30).fill(''), brush: 1 };
 
 function entryStateIdx(v) {
   const i = ENTRY_STATES.findIndex(s => s.v === v);
@@ -4466,14 +4459,10 @@ async function renderScoreEntry(body) {
   const roster = rosterOf(d, e.group);
   if (!roster.find(s => s.full === e.full)) e.full = roster[0] ? roster[0].full : '';
 
-  // ชื่อบทที่เคยใช้จริงในชีตแต่ไม่อยู่ในรายการมาตรฐาน (ของเก่า/สะกดผิด)
+  // รายชื่อบทที่เคยใช้ (เรียงตามการสอน)
   const labels = chapterLabels(d.exams);
-  const usedRaw = chapterOrder(d.exams).map(k => labels[k]).filter(Boolean);
-  const legacyChapters = usedRaw.filter(c => !isStdChapter(c));
-  if (!e.chapter) {
-    const lastStd = usedRaw.filter(isStdChapter).pop();
-    e.chapter = lastStd || CHAPTERS[0];
-  }
+  const chapters = chapterOrder(d.exams).map(k => labels[k]).filter(Boolean);
+  if (!e.chapter) e.chapter = chapters[chapters.length - 1] || '';
 
   const brushBtns = ENTRY_STATES.map((s, i) => `
     <button onclick="state.entry.brush=${i}; renderScoreEntry(document.getElementById('mainBody'));"
@@ -4496,21 +4485,7 @@ async function renderScoreEntry(body) {
 
   const n = entryCounts();
 
-  const modeBtn = (m, label, hint) => `
-    <button onclick="entrySetMode('${m}')" style="flex:1; min-width:150px; padding:11px 14px; border-radius:12px; cursor:pointer;
-      border:2px solid ${e.mode === m ? 'var(--black)' : 'var(--line)'};
-      background:${e.mode === m ? 'var(--black)' : 'var(--bg)'}; color:${e.mode === m ? 'var(--bg)' : 'var(--black)'};
-      font-family:var(--font-thai); text-align:left;">
-      <div style="font-size:14px; font-weight:700;">${label}</div>
-      <div style="font-size:11px; opacity:.75; margin-top:2px;">${hint}</div>
-    </button>`;
-
   body.innerHTML = `
-    <div class="card" style="display:flex; gap:10px; flex-wrap:wrap;">
-      ${modeBtn('tap', '⌨️ แตะทีละข้อ', 'ทีละคน 30 ข้อ เหมาะกับ iPad')}
-      ${modeBtn('paste', '📋 วางจาก Gemini', 'วางทีเดียวได้หลายคน')}
-    </div>
-
     <div class="card">
       <div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));">
         <div class="form-field">
@@ -4527,16 +4502,10 @@ async function renderScoreEntry(body) {
         </div>
         <div class="form-field">
           <label>บท</label>
-          <select id="entryChapter" onchange="entryPickChapter(this.value)">
-            <optgroup label="บทมาตรฐาน — ตรงกับเว็บนักเรียน">
-              ${CHAPTERS.map(c => `<option value="${c.replace(/"/g, '&quot;')}" ${c === e.chapter ? 'selected' : ''}>${c}</option>`).join('')}
-            </optgroup>
-            ${legacyChapters.length ? `<optgroup label="⚠️ ชื่อเก่าในชีต — นักเรียนกรองไม่เจอ">
-              ${legacyChapters.map(c => `<option value="${c.replace(/"/g, '&quot;')}" ${c === e.chapter ? 'selected' : ''}>⚠️ ${c}</option>`).join('')}
-            </optgroup>` : ''}
+          <select id="entryChapter" onchange="state.entry.chapter=this.value==='__new__'?(prompt('ชื่อบทใหม่:')||state.entry.chapter):this.value; renderScoreEntry(document.getElementById('mainBody'));">
+            ${chapters.map(c => `<option value="${c.replace(/"/g, '&quot;')}" ${c === e.chapter ? 'selected' : ''}>${c}</option>`).join('')}
             <option value="__new__">+ พิมพ์บทใหม่…</option>
           </select>
-          ${isStdChapter(e.chapter) ? '' : '<div style="font-size:11px;color:var(--danger);margin-top:4px;">⚠️ ชื่อบทนี้ไม่ตรงมาตรฐาน — นักเรียนจะกรองไม่เจอ</div>'}
         </div>
         <div class="form-field">
           <label>วันที่สอบ</label>
@@ -4545,12 +4514,6 @@ async function renderScoreEntry(body) {
       </div>
     </div>
 
-    ${e.mode === 'paste' ? pasteEntryHtml(d, e) : tapEntryHtml(e, brushBtns, cells, n)}
-  `;
-}
-
-function tapEntryHtml(e, brushBtns, cells, n) {
-  return `
     <div class="card">
       <div class="card__head">
         <span class="card__title">เลือกสถานะ แล้วแตะที่ข้อ</span>
@@ -4577,219 +4540,8 @@ function tapEntryHtml(e, brushBtns, cells, n) {
              style="flex:1; min-width:200px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; outline:none; font-size:14px;">
       <button class="btn btn--primary" onclick="saveEntry(false)">💾 บันทึก</button>
       <button class="btn btn--primary" onclick="saveEntry(true)" style="background:var(--success);">บันทึก + คนถัดไป →</button>
-    </div>`;
-}
-
-function entrySetMode(m) {
-  state.entry.mode = m;
-  renderScoreEntry(document.getElementById('mainBody'));
-}
-
-function entryPickChapter(v) {
-  const body = document.getElementById('mainBody');
-  if (v === '__new__') {
-    const t = (prompt('ชื่อบทใหม่ — ต้องสะกดตรงกับเว็บนักเรียนเป๊ะทุกตัวอักษร') || '').trim();
-    if (!t) { renderScoreEntry(body); return; }
-    if (!isStdChapter(t) && !confirm('"' + t + '" ไม่อยู่ในรายการมาตรฐาน\n\nนักเรียนจะกรองบทนี้ไม่เจอ จนกว่าจะเพิ่มชื่อนี้เข้า index.html ของเว็บนักเรียนด้วย\n\nยืนยันจะใช้ชื่อนี้?')) {
-      renderScoreEntry(body); return;
-    }
-    state.entry.chapter = t;
-  } else {
-    state.entry.chapter = v;
-  }
-  renderScoreEntry(body);
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   โหมดวางจาก Gemini — ย้ายตัวแปลงมาจาก sidebar ของชีตข้อสอบ
-   แก้บั๊กเดิม: ของเก่าถ้า Gemini ข้ามข้อไหนไป คำตอบข้อที่เหลือ
-   จะเลื่อนขึ้นมาทั้งแถว ตัวนี้ล็อก 30 ช่องตายตัว ข้อไหนไม่มีก็เว้นว่าง
-   ═══════════════════════════════════════════════════════════════ */
-function pasteSplitBlocks(raw) {
-  let b = raw.split(/\n\s*[=]{3,}\s*\n|\n\s*[-]{3,}\s*\n/).map(x => x.trim()).filter(Boolean);
-  if (b.length === 1) {
-    const c = (raw.match(/(^|\n)\s*ชื่อ\s*:/g) || []).length;
-    if (c > 1) b = raw.split(/(?=(?:^|\n)\s*ชื่อ\s*:)/).map(x => x.trim()).filter(Boolean);
-  }
-  return b;
-}
-
-function pasteMeta(text) {
-  const meta = { name: '', chapter: '', date: '' };
-  text.split('\n').forEach(line => {
-    const s = line.trim();
-    if (s.indexOf('ชื่อ:') === 0)  meta.name    = s.slice(s.indexOf(':') + 1).trim();
-    if (s.indexOf('บท:') === 0)    meta.chapter = s.slice(s.indexOf(':') + 1).trim();
-    if (s.indexOf('วันที่:') === 0) meta.date    = s.slice(s.indexOf(':') + 1).trim();
-  });
-  return meta;
-}
-
-function pasteStatusOf(raw) {
-  const s = String(raw || '').trim();
-  if (!s || /^[-–—.\s]+$/.test(s)) return '';                       // ขีด/ว่าง = ไม่ทำ
-  if (s.indexOf('✅') >= 0 || s.indexOf('ถูก') >= 0) return '✅ ถูก';
-  if (s.indexOf('⚠') >= 0 || s.indexOf('สะเพร่า') >= 0) return '⚠️ สะเพร่า';
-  if (s.indexOf('⏰') >= 0 || s.indexOf('ไม่ทัน') >= 0) return '⏰ ไม่ทัน';
-  if (s.indexOf('C') >= 0 || s.indexOf('คอนเซปต์') >= 0) return 'C คอนเซปต์';
-  if (s.indexOf('X') >= 0 || s.indexOf('❌') >= 0 || s.indexOf('ทำไม่ได้') >= 0 || s.indexOf('ผิด') >= 0) return 'X ทำไม่ได้';
-  return '⏰ ไม่ทัน';
-}
-
-function pasteStatuses(text) {
-  const st = new Array(30).fill('');
-  const re = /ข้อ\s*(\d+)\s*:\s*([^\u0E02\d\n]*)/g;
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    const q = parseInt(m[1], 10);
-    if (q >= 1 && q <= 30) st[q - 1] = pasteStatusOf(m[2]);
-  }
-  return st;
-}
-
-function pasteDate(s, fallback) {
-  const t = String(s || '').trim();
-  let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (m) return pasteYmd(+m[1], +m[2], +m[3]);
-  m = t.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
-  if (m) { const a = +m[1], b = +m[2]; return a > 12 ? pasteYmd(+m[3], b, a) : pasteYmd(+m[3], a, b); }
-  return fallback;
-}
-function pasteYmd(y, mo, d) {
-  if (y > 2400) y -= 543;
-  return y + '-' + ('0' + mo).slice(-2) + '-' + ('0' + d).slice(-2);
-}
-
-function pasteFindStudent(d, name) {
-  const norm = s => String(s || '').replace(/\s+/g, '').trim();
-  const t = norm(name);
-  let hit = d.students.find(s => norm(s.full) === t);
-  if (hit) return hit;
-  const bare = norm(String(name).replace(/\s*\([^)]*\)\s*$/, ''));
-  const cands = d.students.filter(s => norm(s.name) === bare);
-  return cands.length === 1 ? cands[0] : null;
-}
-
-function pasteParse() {
-  const d = state.examData, e = state.entry;
-  const box = document.getElementById('pasteBox');
-  if (box) e.pasteText = box.value;
-  const raw = (e.pasteText || '').trim();
-  if (!raw) { toast('ยังไม่ได้วางข้อความ', 'error'); return; }
-
-  e.parsed = pasteSplitBlocks(raw).map(block => {
-    const meta = pasteMeta(block);
-    const st   = pasteStatuses(block);
-    const stu  = meta.name ? pasteFindStudent(d, meta.name) : null;
-    const chapter = meta.chapter || e.chapter;
-    const filled  = st.filter(Boolean).length;
-    const score   = st.filter(v => v.indexOf('ถูก') !== -1).length;
-    return {
-      rawName: meta.name || '(ไม่พบชื่อ)',
-      full: stu ? stu.full : '', group: stu ? stu.group : '',
-      matched: !!stu, chapter: chapter, stdChapter: isStdChapter(chapter),
-      date: pasteDate(meta.date, e.date), st: st, filled: filled, score: score,
-      ok: !!stu && filled > 0
-    };
-  });
-  renderScoreEntry(document.getElementById('mainBody'));
-}
-
-function pasteEntryHtml(d, e) {
-  const rows = e.parsed || [];
-  const okN  = rows.filter(r => r.ok).length;
-  const badChapter = rows.some(r => r.ok && !r.stdChapter);
-
-  const table = !rows.length ? '' : `
-    <div class="card">
-      <div class="card__head">
-        <span class="card__title">ตรวจก่อนบันทึก — ${rows.length} คน (พร้อมบันทึก ${okN})</span>
-      </div>
-      <div style="overflow-x:auto;">
-        <table style="width:100%; border-collapse:collapse; font-size:13px;">
-          <thead><tr style="text-align:left; color:var(--gray-dark); font-size:11px;">
-            <th style="padding:6px 8px;">ชื่อในข้อความ</th><th style="padding:6px 8px;">ทะเบียน</th>
-            <th style="padding:6px 8px;">บท</th><th style="padding:6px 8px;">วันที่</th>
-            <th style="padding:6px 8px; text-align:right;">คะแนน</th><th style="padding:6px 8px; text-align:right;">ระบุแล้ว</th>
-          </tr></thead>
-          <tbody>
-          ${rows.map(r => `
-            <tr style="border-top:1px solid var(--line); ${r.ok ? '' : 'background:var(--danger-bg);'}">
-              <td style="padding:7px 8px;">${r.rawName}</td>
-              <td style="padding:7px 8px;">${r.matched
-                  ? '<span style="color:var(--success);">✓ ' + r.full + '</span>'
-                  : '<span style="color:var(--danger);">✕ ไม่พบในทะเบียน</span>'}</td>
-              <td style="padding:7px 8px;">${r.stdChapter ? r.chapter : '<span style="color:var(--danger);">⚠️ ' + r.chapter + '</span>'}</td>
-              <td style="padding:7px 8px; font-family:var(--font-num);">${r.date}</td>
-              <td style="padding:7px 8px; text-align:right; font-family:var(--font-num); font-weight:700;">${r.score}/30</td>
-              <td style="padding:7px 8px; text-align:right; font-family:var(--font-num); color:${r.filled === 30 ? 'var(--gray-dark)' : 'var(--danger)'};">${r.filled}/30</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-      ${badChapter ? '<div style="margin-top:10px; font-size:12px; color:var(--danger);">⚠️ มีชื่อบทที่ไม่ตรงมาตรฐาน — บันทึกได้ แต่นักเรียนจะกรองบทนั้นไม่เจอ</div>' : ''}
-      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:14px;">
-        <input type="text" id="pasteNote" placeholder="หมายเหตุ (ไม่บังคับ — ใช้กับทุกคน)"
-               style="flex:1; min-width:200px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; outline:none; font-size:14px;">
-        <button class="btn btn--primary" onclick="pasteSaveAll()" ${okN ? '' : 'disabled'}
-                style="background:var(--success);">💾 บันทึกทั้งหมด ${okN} คน</button>
-      </div>
-      <div id="pasteProgress" style="margin-top:10px; font-size:13px;"></div>
-    </div>`;
-
-  return `
-    <div class="card">
-      <div class="card__head">
-        <span class="card__title">วาง output จาก Gemini</span>
-        <span style="font-size:11px; color:var(--gray-dark);">หลายคนได้ — คั่นด้วย === หรือขึ้น "ชื่อ:" บรรทัดใหม่</span>
-      </div>
-      <textarea id="pasteBox" rows="10" placeholder="ชื่อ: เบสท์ (วันเสาร์ 13.00)&#10;บท: Exponential logarithm ชุดที่ 2&#10;วันที่: 2026-06-06&#10;ข้อ 1: ✅&#10;ข้อ 2: ⚠️&#10;...&#10;===&#10;ชื่อ: ก้าว (วันเสาร์ 13.00)&#10;..."
-        style="width:100%; padding:12px; border:1px solid var(--line); border-radius:10px; outline:none;
-               font-family:var(--font-num); font-size:13px; line-height:1.6; resize:vertical;">${(e.pasteText || '').replace(/</g, '&lt;')}</textarea>
-      <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
-        <button class="btn btn--primary" onclick="pasteParse()">🔍 ตรวจข้อความ</button>
-        <button class="btn btn--ghost btn--sm" onclick="state.entry.pasteText=''; state.entry.parsed=null; renderScoreEntry(document.getElementById('mainBody'));">ล้าง</button>
-        <span style="font-size:11.5px; color:var(--gray-dark); align-self:center;">
-          ถ้าข้อความไม่ได้ระบุ "บท:" หรือ "วันที่:" จะใช้ค่าจากช่องด้านบนแทน
-        </span>
-      </div>
     </div>
-    ${table}`;
-}
-
-async function pasteSaveAll() {
-  const e = state.entry;
-  const rows = (e.parsed || []).filter(r => r.ok);
-  if (!rows.length) { toast('ไม่มีรายการที่บันทึกได้', 'error'); return; }
-  const noteEl = document.getElementById('pasteNote');
-  const note = noteEl ? noteEl.value.trim() : '';
-  if (!confirm('บันทึก ' + rows.length + ' คน ลง Google Sheet?')) return;
-
-  const prog = document.getElementById('pasteProgress');
-  let done = 0, fail = 0;
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
-    if (prog) prog.innerHTML = 'กำลังบันทึก ' + (i + 1) + '/' + rows.length + ' — ' + r.rawName + ' …';
-    const [y, m, dd] = r.date.split('-');
-    try {
-      const res = await fetch(SCRIPT_URL, {
-        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          token: TEACHER_TOKEN, action: 'saveExamScore',
-          rec: { full: r.full, group: r.group, chapter: r.chapter,
-                 date: Number(m) + '/' + Number(dd) + '/' + y, note: note, statuses: r.st }
-        })
-      });
-      const j = await res.json();
-      if (j && j.ok) done++; else fail++;
-    } catch (err) { fail++; }
-  }
-  if (prog) prog.innerHTML = '<b style="color:' + (fail ? 'var(--danger)' : 'var(--success)') + ';">' +
-    'บันทึกสำเร็จ ' + done + ' คน' + (fail ? ' · ไม่สำเร็จ ' + fail + ' คน' : '') + '</b>';
-  toast('บันทึก ' + done + '/' + rows.length + ' คนแล้ว', fail ? 'error' : 'success');
-  state.examData = null;
-  e.parsed = null; e.pasteText = '';
-  checkMissingScoresBadge();
+  `;
 }
 
 function entryCounts() {
@@ -4856,346 +4608,6 @@ async function saveEntry(next) {
   }
   renderScoreEntry(document.getElementById('mainBody'));
   checkMissingScoresBadge();
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   เฟส 3 — ครูตรวจคะแนนที่นักเรียนกรอกเอง
-   นักเรียนส่งเข้าชีต results_pending (ยังไม่นับเป็นคะแนนจริง)
-   ครูกดอนุมัติ → เขียนลง results · ครูกดตีกลับ → นักเรียนส่งใหม่ได้
-   ═══════════════════════════════════════════════════════════════ */
-state.pending = { items: null, loading: false, open: {}, edit: {}, busy: {} };
-
-/* เรียก API แบบเงียบ ไม่ขึ้น toast "กำลังบันทึก..." */
-async function pendCall(payload) {
-  if (!SCRIPT_URL) { toast('ยังไม่ได้เชื่อม Apps Script', 'error'); return null; }
-  try {
-    const res = await fetch(SCRIPT_URL, {
-      method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(Object.assign({ token: TEACHER_TOKEN }, payload))
-    });
-    return await res.json();
-  } catch (err) {
-    toast('เชื่อมต่อไม่ได้: ' + err.message, 'error');
-    return null;
-  }
-}
-
-/* วันที่ในชีตเป็น M/D/YYYY (ค.ศ.) → แสดงเป็น วัน/เดือน/ปี พ.ศ. */
-function pendFmtDate(v) {
-  const s = String(v || '').trim();
-  if (!s) return '—';
-  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);          // M/D/YYYY
-  if (m) return String(m[2]).padStart(2, '0') + '/' + String(m[1]).padStart(2, '0') + '/' + (Number(m[3]) + 543);
-  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);                // ISO
-  if (m) return String(m[3]).padStart(2, '0') + '/' + String(m[2]).padStart(2, '0') + '/' + (Number(m[1]) + 543);
-  return s;
-}
-
-const pendShortName = f => String(f || '').replace(/\s*\([^)]*\)\s*$/, '');
-
-/* statuses ที่จะใช้จริง — ของที่ครูแก้ ถ้ายังไม่แก้ก็ของเดิม */
-function pendStatuses(it) {
-  return state.pending.edit[it.pid] || it.statuses.slice();
-}
-const pendIsEdited = pid => !!state.pending.edit[pid];
-
-function pendCounts(st) {
-  const n = { ok: 0, careless: 0, concept: 0, cannot: 0, timeout: 0, blank: 0 };
-  st.forEach(v => {
-    if (!v) n.blank++;
-    else if (v.indexOf('ถูก') !== -1) n.ok++;
-    else if (v.indexOf('สะเพร่า') !== -1) n.careless++;
-    else if (v.indexOf('คอนเซปต์') !== -1) n.concept++;
-    else if (v.indexOf('ทำไม่ได้') !== -1) n.cannot++;
-    else if (v.indexOf('ไม่ทัน') !== -1) n.timeout++;
-  });
-  return n;
-}
-
-/* ---------- โหลดรายการ ---------- */
-async function pendLoad() {
-  const p = state.pending;
-  if (p.loading) return;
-  p.loading = true;
-  const j = await pendCall({ action: 'listPending' });
-  p.loading = false;
-  p.items = (j && j.ok) ? j.items : [];
-  if (j && !j.ok) toast('โหลดรายการไม่สำเร็จ: ' + (j.error || ''), 'error');
-  pendPaintBadge(p.items.length);
-  if (state.view === 'pending') renderPending(document.getElementById('mainBody'));
-}
-
-function pendPaintBadge(n) {
-  const el = document.getElementById('pendingBadge');
-  if (!el) return;
-  el.innerHTML = n
-    ? ` <span title="นักเรียนส่งคะแนนมารอตรวจ ${n} รายการ" style="display:inline-block; min-width:18px; padding:0 5px; background:var(--orange); color:var(--bg); border-radius:999px; font-size:11px; font-family:var(--font-num); line-height:18px; text-align:center;">${n}</span>`
-    : '';
-}
-
-/* เช็คเงียบๆ หลัง login → ตัวเลขส้มบนปุ่ม "รอตรวจ" */
-async function checkPendingBadge() {
-  try {
-    const j = await pendCall({ action: 'listPending' });
-    if (j && j.ok) pendPaintBadge(j.count || j.items.length);
-  } catch (e) { /* เงียบไว้ */ }
-}
-
-/* ---------- หน้าจอ ---------- */
-function renderPending(body) {
-  const p = state.pending;
-
-  if (p.items === null) {
-    body.innerHTML = `<div class="empty"><h3>กำลังโหลดรายการที่รอตรวจ...</h3></div>`;
-    pendLoad();
-    return;
-  }
-
-  if (!p.items.length) {
-    body.innerHTML = `
-      <div class="empty">
-        <h3>ไม่มีรายการรอตรวจ</h3>
-        <p>เมื่อนักเรียนกรอกคะแนนเองในเว็บนักเรียน รายการจะมาโผล่ที่นี่<br>
-           คะแนนจะยังไม่นับจนกว่าครูจะกดอนุมัติ</p>
-        <button class="btn btn--ghost" onclick="state.pending.items=null; renderPending(document.getElementById('mainBody'));">โหลดใหม่</button>
-      </div>`;
-    return;
-  }
-
-  body.innerHTML = `
-    <div class="card" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-      <div style="flex:1; min-width:200px;">
-        <div style="font-size:15px; font-weight:700;">รอตรวจ <span class="num" style="color:var(--orange);">${p.items.length}</span> รายการ</div>
-        <div style="font-size:12px; color:var(--gray-dark); margin-top:2px;">
-          กด <b>ดูรายข้อ</b> เพื่อตรวจก่อนอนุมัติ · แตะที่ข้อเพื่อแก้ให้ตรงกับกระดาษจริงได้
-        </div>
-      </div>
-      <button class="btn btn--ghost btn--sm" onclick="state.pending.items=null; state.pending.edit={}; state.pending.open={}; renderPending(document.getElementById('mainBody'));">โหลดใหม่</button>
-      <button class="btn btn--primary btn--sm" onclick="pendApproveAll()">อนุมัติทั้งหมด</button>
-    </div>
-    ${p.items.map(pendCardHtml).join('')}
-  `;
-}
-
-function pendCardHtml(it) {
-  const p = state.pending;
-  const st = pendStatuses(it);
-  const n = pendCounts(st);
-  const open = !!p.open[it.pid];
-  const edited = pendIsEdited(it.pid);
-  const busy = !!p.busy[it.pid];
-  const badChapter = !isStdChapter(it.chapter);
-
-  const chip = (label, val, bg, fg) => val
-    ? `<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:999px; background:${bg}; color:${fg}; font-size:11px; font-weight:600;">${label} <span style="font-family:var(--font-num);">${val}</span></span>`
-    : '';
-
-  const grid = open ? `
-    <div style="border-top:1px solid var(--line); margin-top:12px; padding-top:12px;">
-      <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;">
-        ${ENTRY_STATES.map((s, i) => `
-          <button onclick="state.pending.brush=${i}; renderPending(document.getElementById('mainBody'));"
-            style="padding:6px 10px; border-radius:8px; cursor:pointer;
-                   border:2px solid ${(p.brush || 1) === i ? 'var(--black)' : 'var(--line)'};
-                   background:${s.bg === 'transparent' ? 'var(--bg-soft)' : s.bg};
-                   color:${s.v ? s.color : 'var(--gray-dark)'};
-                   font-size:12px; font-weight:600; font-family:var(--font-thai);">${s.short} ${s.label}</button>`).join('')}
-      </div>
-      <div style="display:grid; grid-template-columns:repeat(10, minmax(0,1fr)); gap:5px;">
-        ${st.map((v, i) => {
-          const s = ENTRY_STATES[entryStateIdx(v)];
-          return `<button onclick="pendTap('${it.pid}',${i})"
-            style="aspect-ratio:1; min-height:38px; border-radius:8px; border:1px solid var(--line);
-                   background:${s.bg === 'transparent' ? 'var(--bg)' : s.bg}; color:${v ? s.color : 'var(--gray-soft)'};
-                   font-family:var(--font-num); font-weight:700; font-size:12px; cursor:pointer;
-                   display:flex; flex-direction:column; align-items:center; justify-content:center; line-height:1.1;">
-            <span style="font-size:8px; opacity:.7;">${i + 1}</span><span>${s.short}</span></button>`;
-        }).join('')}
-      </div>
-      ${edited ? `<div style="margin-top:10px; font-size:12px; color:var(--orange); font-weight:600;">
-        ✎ ครูแก้แล้ว — กดอนุมัติจะบันทึกตามที่ครูแก้ ไม่ใช่ของเดิมที่นักเรียนส่ง
-        <button class="btn btn--ghost btn--sm" style="margin-left:8px;" onclick="pendResetEdit('${it.pid}')">คืนค่าเดิม</button>
-      </div>` : ''}
-    </div>` : '';
-
-  return `
-    <div class="card" style="${busy ? 'opacity:.5; pointer-events:none;' : ''}">
-      <div style="display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap;">
-        <div style="flex:1; min-width:220px;">
-          <div style="font-size:16px; font-weight:700;">
-            ${pendShortName(it.full)}
-            ${edited ? '<span style="margin-left:6px; font-size:11px; color:var(--orange);">✎ แก้แล้ว</span>' : ''}
-          </div>
-          <div style="font-size:12px; color:var(--gray-dark); margin-top:3px;">
-            ${it.group || '—'} · สอบ ${pendFmtDate(it.date)} · ส่งเมื่อ ${it.submittedAt || '—'}
-          </div>
-          <div style="font-size:13px; margin-top:6px;">
-            <b>${it.chapter}</b>
-            ${badChapter ? '<span style="color:var(--danger); font-size:11px; margin-left:6px;">⚠️ ชื่อบทไม่ตรงมาตรฐาน</span>' : ''}
-          </div>
-          <div style="display:flex; gap:5px; flex-wrap:wrap; margin-top:8px;">
-            ${chip('✓', n.ok, 'var(--success-bg)', 'var(--success)')}
-            ${chip('ส', n.careless, '#FBF1DA', '#7A5500')}
-            ${chip('C', n.concept, '#FFF1EA', 'var(--orange)')}
-            ${chip('X', n.cannot, 'var(--danger-bg)', 'var(--danger)')}
-            ${chip('⏰', n.timeout, '#EDEFF1', '#55606B')}
-            ${chip('–', n.blank, 'var(--bg-soft)', 'var(--gray-dark)')}
-          </div>
-        </div>
-        <div style="text-align:right;">
-          <div style="font-family:var(--font-num); font-size:30px; font-weight:700; line-height:1;">${n.ok}<span style="font-size:15px; color:var(--gray-soft);">/30</span></div>
-          <div style="font-size:11px; color:var(--gray-dark); margin-top:2px;">คะแนน</div>
-        </div>
-      </div>
-
-      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
-        <button class="btn btn--ghost btn--sm" onclick="pendToggle('${it.pid}')">${open ? 'ซ่อนรายข้อ' : 'ดูรายข้อ'}</button>
-        <div style="flex:1;"></div>
-        <button class="btn btn--ghost btn--sm btn--danger" onclick="pendReject('${it.pid}')">ตีกลับ</button>
-        <button class="btn btn--primary btn--sm" onclick="pendApprove('${it.pid}')">อนุมัติ · บันทึกลง results</button>
-      </div>
-      ${grid}
-    </div>`;
-}
-
-/* ---------- โต้ตอบ ---------- */
-function pendToggle(pid) {
-  state.pending.open[pid] = !state.pending.open[pid];
-  renderPending(document.getElementById('mainBody'));
-}
-
-function pendTap(pid, i) {
-  const p = state.pending;
-  const it = p.items.find(x => String(x.pid) === String(pid));
-  if (!it) return;
-  if (!p.edit[pid]) p.edit[pid] = it.statuses.slice();
-  const brush = (p.brush === undefined) ? 1 : p.brush;
-  const cur = entryStateIdx(p.edit[pid][i]);
-  p.edit[pid][i] = (cur === brush) ? ENTRY_STATES[(cur + 1) % ENTRY_STATES.length].v : ENTRY_STATES[brush].v;
-  renderPending(document.getElementById('mainBody'));
-}
-
-function pendResetEdit(pid) {
-  delete state.pending.edit[pid];
-  renderPending(document.getElementById('mainBody'));
-}
-
-function pendDrop(pid) {
-  const p = state.pending;
-  p.items = p.items.filter(x => String(x.pid) !== String(pid));
-  delete p.open[pid]; delete p.edit[pid]; delete p.busy[pid];
-  pendPaintBadge(p.items.length);
-  state.examData = null;                 // ให้หน้ารายงานคะแนนอ่านใหม่
-  renderPending(document.getElementById('mainBody'));
-}
-
-async function pendApprove(pid) {
-  const p = state.pending;
-  const it = p.items.find(x => String(x.pid) === String(pid));
-  if (!it) return;
-  const st = pendStatuses(it);
-  const n = pendCounts(st);
-  const edited = pendIsEdited(pid);
-
-  showModal({
-    title: 'อนุมัติคะแนนนี้?',
-    body: `<b>${pendShortName(it.full)}</b> · ${it.chapter}<br>
-           สอบ ${pendFmtDate(it.date)} · ได้ <b>${n.ok}/30</b>
-           ${n.blank ? `<br><span style="color:var(--danger);">ยังไม่ได้ระบุ ${n.blank} ข้อ — จะถูกบันทึกเป็น "ไม่ทำ"</span>` : ''}
-           ${edited ? '<br><span style="color:var(--orange);">บันทึกตามที่ครูแก้</span>' : ''}
-           <br><br>คะแนนจะถูกเขียนลงชีต <code>results</code> และขึ้นในเว็บนักเรียนทันที`,
-    actions: [
-      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
-      { label: 'อนุมัติ', class: 'btn--primary', onClick: async () => {
-        closeModal();
-        p.busy[pid] = true;
-        renderPending(document.getElementById('mainBody'));
-        const payload = { action: 'approvePending', pid: pid };
-        if (edited) payload.statuses = st;
-        const j = await pendCall(payload);
-        p.busy[pid] = false;
-        if (j && j.ok) {
-          toast(`อนุมัติ "${pendShortName(it.full)}" · ${j.score}/30 แล้ว`, 'success');
-          pendDrop(pid);
-          checkMissingScoresBadge();
-        } else {
-          toast('อนุมัติไม่สำเร็จ: ' + ((j && j.error) || ''), 'error');
-          renderPending(document.getElementById('mainBody'));
-        }
-      }}
-    ]
-  });
-}
-
-async function pendReject(pid) {
-  const p = state.pending;
-  const it = p.items.find(x => String(x.pid) === String(pid));
-  if (!it) return;
-
-  showModal({
-    title: 'ตีกลับให้นักเรียนแก้?',
-    body: `<b>${pendShortName(it.full)}</b> · ${it.chapter}<br>
-           คะแนนจะไม่ถูกบันทึก นักเรียนจะเห็นเหตุผลและส่งใหม่ได้
-           <div style="margin-top:12px;">
-             <label style="font-size:12px; color:var(--gray-dark); display:block; margin-bottom:4px;">เหตุผล (นักเรียนจะเห็นข้อความนี้)</label>
-             <textarea id="pendRejectNote" rows="3" placeholder="เช่น ข้อ 7 กับ 12 ตอบไม่ตรงกับกระดาษ ลองทวนอีกรอบครับ"
-               style="width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:10px; font-family:var(--font-thai); font-size:13px; resize:vertical;"></textarea>
-           </div>`,
-    actions: [
-      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
-      { label: 'ตีกลับ', class: 'btn--danger', onClick: async () => {
-        const el = document.getElementById('pendRejectNote');
-        const note = el ? el.value.trim() : '';
-        if (!note) { toast('ใส่เหตุผลก่อนครับ — นักเรียนจะได้รู้ว่าต้องแก้ตรงไหน', 'error'); return; }
-        closeModal();
-        p.busy[pid] = true;
-        renderPending(document.getElementById('mainBody'));
-        const j = await pendCall({ action: 'rejectPending', pid: pid, note: note });
-        p.busy[pid] = false;
-        if (j && j.ok) {
-          toast(`ตีกลับ "${pendShortName(it.full)}" แล้ว`, 'success');
-          pendDrop(pid);
-        } else {
-          toast('ตีกลับไม่สำเร็จ: ' + ((j && j.error) || ''), 'error');
-          renderPending(document.getElementById('mainBody'));
-        }
-      }}
-    ]
-  });
-}
-
-async function pendApproveAll() {
-  const p = state.pending;
-  const list = p.items.slice();
-  if (!list.length) return;
-
-  const names = list.map(it => `${pendShortName(it.full)} — ${it.chapter} · ${pendCounts(pendStatuses(it)).ok}/30`);
-  showModal({
-    title: `อนุมัติทั้งหมด ${list.length} รายการ?`,
-    body: `ทุกรายการจะถูกเขียนลงชีต <code>results</code> โดยไม่ได้ตรวจรายข้อ
-           <div style="margin-top:10px; max-height:220px; overflow:auto; border:1px solid var(--line); border-radius:10px; padding:10px; font-size:12px; line-height:1.8;">
-             ${names.join('<br>')}
-           </div>`,
-    actions: [
-      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
-      { label: 'อนุมัติทั้งหมด', class: 'btn--primary', onClick: async () => {
-        closeModal();
-        let done = 0, fail = 0;
-        for (const it of list) {
-          p.busy[it.pid] = true;
-          renderPending(document.getElementById('mainBody'));
-          const payload = { action: 'approvePending', pid: it.pid };
-          if (pendIsEdited(it.pid)) payload.statuses = pendStatuses(it);
-          const j = await pendCall(payload);
-          p.busy[it.pid] = false;
-          if (j && j.ok) { done++; pendDrop(it.pid); }
-          else { fail++; renderPending(document.getElementById('mainBody')); }
-        }
-        toast(`อนุมัติแล้ว ${done} รายการ` + (fail ? ` · ไม่สำเร็จ ${fail}` : ''), fail ? 'error' : 'success');
-        checkMissingScoresBadge();
-      }}
-    ]
-  });
 }
 
 /* ---------- จับคู่ชื่อที่ไม่ตรงทะเบียน ---------- */
@@ -6511,11 +5923,6 @@ function init() {
   });
   document.getElementById('btnEntry').addEventListener('click', () => {
     state.view = 'entry';
-    renderAll();
-  });
-  document.getElementById('btnPending').addEventListener('click', () => {
-    state.view = 'pending';
-    state.pending.items = null;   // โหลดใหม่ทุกครั้งที่เข้าหน้านี้
     renderAll();
   });
   document.getElementById('btnAddGroup').addEventListener('click', addGroup);
