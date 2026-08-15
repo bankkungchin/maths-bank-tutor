@@ -1875,6 +1875,7 @@ function renderMain() {
       <div class="card__head">
         <span class="card__title">รายชื่อนักเรียน · <b>Students (${g.students.length})</b></span>
         <div style="display:flex; gap:6px;">
+          <button class="btn btn--ghost btn--xs" onclick="showLinkRegistryModal()" title="ผูกรายชื่อกลุ่มนี้เข้ากับทะเบียนระบบข้อสอบ">🔗 จับคู่ทะเบียน</button>
           <button class="btn btn--ghost btn--xs" onclick="printStudentPins('${g.id}')">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
             พิมพ์ PIN นักเรียน
@@ -1960,7 +1961,7 @@ function renderStudentList(g) {
     row.className = 'student-row';
     row.innerHTML = `
       <span class="student-row__num">${String(i+1).padStart(2,'0')}</span>
-      <span class="student-row__name">${s.name}</span>
+      <span class="student-row__name">${s.name}${(state.examData && !examRecOf(s, g)) ? ' <span title="ยังไม่ได้ผูกกับทะเบียนระบบข้อสอบ — กด 🔗 จับคู่ทะเบียน" style="color:var(--danger); font-size:11px;">⚠︎</span>' : ''}</span>
       <button class="student-row__pin" onclick="showEditPinModal('${g.id}', '${s.id}')" title="แก้ PIN (ปัจจุบัน: ${pin})">
         <span class="num" style="font-size:11px; letter-spacing:0.08em; color:var(--orange); font-weight:600;">${pin}</span>
       </button>
@@ -4275,6 +4276,7 @@ async function renderScores(body) {
         </select>` : ''}
         <div style="margin-left:auto; display:flex; gap:6px; flex-wrap:wrap;">
           <button class="btn btn--ghost btn--sm" onclick="showManageRosterModal()">👥 จัดการรายชื่อ/กลุ่ม</button>
+          <button class="btn btn--ghost btn--sm" onclick="showLinkRegistryModal()" title="ผูกทะเบียนข้อสอบเข้ากับกลุ่มเช็คชื่อ">🔗 จับคู่ทะเบียน</button>
           <button class="btn btn--ghost btn--sm" onclick="showNameVariantsModal()">🧹 รวมชื่อที่สะกดต่าง</button>
           <button class="btn btn--ghost btn--sm" onclick="state.showInactive=!state.showInactive; state.examData=null; renderMain();"
                   title="สลับแสดง/ซ่อนนักเรียนที่แจ้งไม่เรียนต่อ">
@@ -5472,6 +5474,7 @@ function showManageRosterModal() {
     `,
     actions: [
       { label: 'ปิด', class: 'btn--ghost', onClick: closeModal },
+      { label: '🔗 จับคู่ทะเบียน', class: 'btn--ghost', onClick: showLinkRegistryModal },
       { label: '+ เพิ่มนักเรียน', class: 'btn--primary', onClick: rosterAddStudent }
     ]
   });
@@ -5480,30 +5483,77 @@ function showManageRosterModal() {
 async function rosterAction(idx, act) {
   const s = _rosterCache[idx];
   if (!s) return;
+  const link = tdFindByExam(s);          // คู่ของเขาฝั่งเช็คชื่อ (ถ้าผูกไว้)
+  const mirror = (fn) => {
+    if (!link) return '';
+    fn();
+    saveData();
+    autoSync();
+    return ` · อัปเดตฝั่งเช็คชื่อ "${link.g.name}" ให้แล้ว`;
+  };
+
   if (act === 'rename') {
     const nn = prompt('ชื่อใหม่ของ "' + s.name + '" (ไม่ต้องใส่วงเล็บกลุ่ม):', s.name);
     if (!nn || nn.trim() === s.name) return;
     const r = await examWrite({ action: 'examRenameStudent', oldFull: s.full, newName: nn.trim() });
-    if (r) { toast(`เปลี่ยนชื่อแล้ว (แก้ ${r.updated} จุด)`, 'success'); await refreshRoster(); }
+    if (r) {
+      const extra = mirror(() => { link.s.name = nn.trim(); link.s.xid = s.id; });
+      toast(`เปลี่ยนชื่อแล้ว (แก้ ${r.updated} จุด)${extra}`, 'success');
+      await refreshRoster();
+    }
   } else if (act === 'move') {
     const ng = prompt('ย้าย "' + s.name + '" ไปกลุ่มไหน\nกลุ่มที่มี: ' + state.examData.groups.join(' · ') + '\n(พิมพ์ชื่อกลุ่มใหม่ = สร้างกลุ่มใหม่)', s.group);
     if (!ng || ng.trim() === s.group) return;
     const r = await examWrite({ action: 'examMoveStudent', oldFull: s.full, newGroup: ng.trim() });
-    if (r) { toast(`ย้ายกลุ่มแล้ว (แก้ ${r.updated} จุด)`, 'success'); await refreshRoster(); }
+    if (r) {
+      let extra = '';
+      const dest = tdGroupOfExamGroup(ng.trim());
+      if (link && dest && dest !== link.g) {
+        link.g.students = link.g.students.filter(x => x.id !== link.s.id);
+        if (!(dest.students || []).some(x => x.xid === s.id)) {
+          dest.students = dest.students || [];
+          dest.students.push({ id: newStudentId(dest), name: link.s.name, xid: s.id });
+        }
+        saveData(); autoSync();
+        extra = ` · ย้ายฝั่งเช็คชื่อไป "${dest.name}" ให้แล้ว (การเช็คชื่อคาบเก่าของกลุ่มเดิมไม่ย้ายตาม)`;
+      } else if (link && !dest) {
+        extra = ` · ⚠️ ยังไม่มีกลุ่มเช็คชื่อที่ผูกกับ "${ng.trim()}" — ฝั่งเช็คชื่อยังอยู่กลุ่มเดิม`;
+      }
+      toast(`ย้ายกลุ่มแล้ว (แก้ ${r.updated} จุด)${extra}`, 'success');
+      await refreshRoster();
+    }
   } else if (act === 'quit' || act === 'rejoin') {
     const on = act === 'rejoin';
-    if (!on && !confirm('แจ้งว่า "' + s.name + '" ไม่เรียนต่อ\n\n• ผลสอบจะถูกย้ายไปเก็บใน sheet results_archive\n• หน้าครูและเว็บนักเรียนจะไม่นับเขาในค่าเฉลี่ย/อันดับ (ตัวเลขตรงกันทั้ง 2 ระบบ)\n• ประวัติไม่หาย กด "กลับมาเรียน" ได้ทุกเมื่อ')) return;
+    if (!on && !confirm('แจ้งว่า "' + s.name + '" ไม่เรียนต่อ\n\n• ผลสอบจะถูกย้ายไปเก็บใน sheet results_archive\n• หายจากรายชื่อ login ของเว็บนักเรียน\n• เอาออกจากกลุ่มเช็คชื่อให้ด้วย (ถ้าผูกไว้)\n• ประวัติไม่หาย กด "กลับมาเรียน" ได้ทุกเมื่อ')) return;
     const r = await examWrite({ action: 'examSetActive', full: s.full, active: on });
     if (r) {
-      toast(on ? `"${s.name}" กลับมาเรียนแล้ว · คืนผลสอบ ${r.moved || 0} รายการ`
-                : `"${s.name}" ไม่เรียนต่อแล้ว · ย้ายผลสอบ ${r.moved || 0} รายการเข้าคลัง`, 'success');
+      let extra = '';
+      if (!on && link) {
+        link.g.students = link.g.students.filter(x => x.id !== link.s.id);
+        saveData(); autoSync();
+        extra = ` · เอาออกจากกลุ่มเช็คชื่อ "${link.g.name}" แล้ว`;
+      } else if (on && !link) {
+        const dest = tdGroupOfExamGroup(s.group);
+        if (dest && !(dest.students || []).some(x => x.xid === s.id)) {
+          dest.students = dest.students || [];
+          dest.students.push({ id: newStudentId(dest), name: s.name, xid: s.id });
+          saveData(); autoSync();
+          extra = ` · ใส่กลับเข้ากลุ่มเช็คชื่อ "${dest.name}" แล้ว`;
+        }
+      }
+      toast(on ? `"${s.name}" กลับมาเรียนแล้ว · คืนผลสอบ ${r.moved || 0} รายการ${extra}`
+                : `"${s.name}" ไม่เรียนต่อแล้ว · ย้ายผลสอบ ${r.moved || 0} รายการเข้าคลัง${extra}`, 'success');
       state.examData = null;
       await refreshRoster();
     }
   } else if (act === 'delete') {
-    if (!confirm('⚠️ ลบ "' + s.name + '" ออกจากทะเบียนถาวร\n\nถ้าแค่เลิกเรียน แนะนำใช้ปุ่ม "🚪 ไม่เรียนต่อ" แทน (เก็บประวัติไว้)\n\nยืนยันลบถาวร')) return;
+    if (!confirm('⚠️ ลบ "' + s.name + '" ออกจากทะเบียนถาวร\n\nถ้าแค่เลิกเรียน แนะนำใช้ปุ่ม "🚪 ไม่เรียนต่อ" แทน (เก็บประวัติไว้)\n\nจะลบออกจากกลุ่มเช็คชื่อให้ด้วย\n\nยืนยันลบถาวร')) return;
     const r = await examWrite({ action: 'examDeleteStudent', full: s.full });
-    if (r) { toast('ลบแล้ว', 'success'); await refreshRoster(); }
+    if (r) {
+      const extra = mirror(() => { link.g.students = link.g.students.filter(x => x.id !== link.s.id); });
+      toast('ลบแล้ว' + extra, 'success');
+      await refreshRoster();
+    }
   }
 }
 
@@ -5513,11 +5563,29 @@ async function rosterAddStudent() {
   const ng = prompt('อยู่กลุ่มไหน\nกลุ่มที่มี: ' + state.examData.groups.join(' · ') + '\n(พิมพ์ชื่อกลุ่มใหม่ = สร้างกลุ่มใหม่)');
   if (!ng) return;
   const r = await examWrite({ action: 'examAddStudent', name: nn.trim(), group: ng.trim() });
-  if (r) {
-    toast(`เพิ่ม "${nn.trim()}" (${r.id}) · PIN สำหรับเว็บนักเรียน = ${r.pin}`, 'success');
-    alert(`เพิ่ม "${nn.trim()} (${ng.trim()})" เรียบร้อย\n\nรหัส: ${r.id}\nPIN เข้าเว็บดูคะแนน: ${r.pin}\n\n(บอก PIN นี้กับนักเรียนได้เลย — ดูซ้ำได้ในคอลัมน์ F ของชีต students)`);
-    await refreshRoster();
+  if (!r) return;
+
+  // ── กระจกอีกฝั่ง: ใส่เข้ากลุ่มเช็คชื่อที่ผูกกับกลุ่มนี้ ──
+  let side = '', pin6 = '';
+  const dest = tdGroupOfExamGroup(ng.trim());
+  if (dest) {
+    if ((dest.students || []).some(x => x.xid === r.id || nameKey(x.name) === nameKey(nn))) {
+      side = `\nกลุ่มเช็คชื่อ "${dest.name}" มีชื่อนี้อยู่แล้ว — ไม่ได้เพิ่มซ้ำ`;
+    } else {
+      const stu = { id: newStudentId(dest), name: nn.trim(), xid: r.id };
+      dest.students = dest.students || [];
+      dest.students.push(stu);
+      saveData(); autoSync(); checkTeacherDataSize();
+      pin6 = getStudentPin(stu);
+      side = `\nเพิ่มเข้ากลุ่มเช็คชื่อ "${dest.name}" ให้แล้ว\nPIN เช็คชื่อ (6 หลัก): ${pin6}`;
+    }
+  } else {
+    side = `\n⚠️ ยังไม่มีกลุ่มเช็คชื่อที่ผูกกับ "${ng.trim()}"\nกด 🔗 จับคู่ทะเบียน แล้วผูกกลุ่มก่อน ถึงจะเข้าระบบเช็คชื่อ`;
   }
+
+  toast(`เพิ่ม "${nn.trim()}" (${r.id}) · PIN เว็บดูคะแนน = ${r.pin}`, 'success');
+  alert(`เพิ่ม "${nn.trim()} (${ng.trim()})" เรียบร้อย\n\nรหัส: ${r.id}\nPIN เข้าเว็บดูคะแนน (4 หลัก): ${r.pin}\n(ดูซ้ำได้ในคอลัมน์ F ของชีต students)${side}`);
+  await refreshRoster();
 }
 
 async function refreshRoster() {
@@ -6122,50 +6190,405 @@ function confirmDeleteGroup(id) {
 }
 
 /* ===========================================================
-   CRUD — STUDENTS
+   🔗 LINK — ผูกทะเบียนเช็คชื่อ (teacher_data) เข้ากับทะเบียนข้อสอบ (ชีต students)
+   ───────────────────────────────────────────────────────────
+   g.xg  = ชื่อกลุ่มฝั่งข้อสอบที่คู่กับกลุ่มนี้   เช่น "ม.6 วันพุธ" → "วันพุธ"
+   s.xid = รหัสนักเรียนฝั่งข้อสอบ                เช่น "S066"
+   ใช้ชื่อ field สั้นที่สุดโดยตั้งใจ เพราะ teacher_data ทั้งก้อนอยู่ในเซลล์ A1
+   ซึ่ง Google Sheet จำกัด 50,000 ตัวอักษร
    =========================================================== */
-function addStudent(groupId) {
+
+/* เดาชื่อกลุ่มฝั่งข้อสอบจากชื่อกลุ่มฝั่งเช็คชื่อ — "ม.6 วันพุธ" → "วันพุธ" */
+function guessExamGroup(g) {
+  if (!g) return '';
+  const bare = String(g.name || '').replace(/^\s*ม\s*\.?\s*\d+\s*/, '').trim();
+  const d = state.examData;
+  if (!d || !d.groups) return bare;
+  const hit = d.groups.find(x => groupKey(x) === groupKey(bare));
+  if (hit) return hit;
+  const hit2 = d.groups.find(x => groupKey(x) === groupKey(g.name));
+  if (hit2) return hit2;
+  // ชื่อฝั่งเช็คชื่อมักมี " น." ต่อท้าย ("วันจันทร์ 16.30 น." ↔ "วันจันทร์ 16.30")
+  // → รับคู่ที่คีย์ฝั่งหนึ่งเป็นคำขึ้นต้นของอีกฝั่ง เลือกอันที่ยาวที่สุด (เจาะจงที่สุด)
+  const bk = groupKey(bare);
+  let best = null;
+  if (bk) d.groups.forEach(x => {
+    const k = groupKey(x);
+    if (!k) return;
+    if (bk.indexOf(k) === 0 || k.indexOf(bk) === 0) {
+      if (!best || k.length > groupKey(best).length) best = x;
+    }
+  });
+  return best || bare;
+}
+
+function examGroupOf(g) { return (g && g.xg) ? g.xg : guessExamGroup(g); }
+
+/* record ฝั่งข้อสอบของนักเรียน 1 คน — ผูกด้วย xid ก่อน ไม่มีค่อยเดาจากชื่อ+กลุ่ม */
+function examRecOf(s, g) {
+  const d = state.examData;
+  if (!d || !s) return null;
+  if (s.xid) {
+    const byId = d.students.find(x => x.id === s.xid);
+    if (byId) return byId;
+  }
+  const gk = groupKey(examGroupOf(g));
+  return d.students.find(x => groupKey(x.group) === gk && nameKey(x.name) === nameKey(s.name)) || null;
+}
+
+function examFullOf(s, g) {
+  const r = examRecOf(s, g);
+  return r ? r.full : (String(s.name || '').trim() + ' (' + examGroupOf(g) + ')');
+}
+
+/* กลุ่มฝั่งเช็คชื่อที่คู่กับชื่อกลุ่มฝั่งข้อสอบ */
+function tdGroupOfExamGroup(examGroup) {
+  const k = groupKey(examGroup);
+  if (!k) return null;
+  return state.data.groups.find(g => groupKey(examGroupOf(g)) === k) || null;
+}
+
+/* หานักเรียนฝั่งเช็คชื่อจาก record ฝั่งข้อสอบ */
+function tdFindByExam(rec) {
+  if (!rec) return null;
+  for (const g of state.data.groups) {
+    for (const s of (g.students || [])) {
+      if (s.xid && s.xid === rec.id) return { g: g, s: s };
+    }
+  }
+  const gk = groupKey(rec.group);
+  for (const g of state.data.groups) {
+    if (groupKey(examGroupOf(g)) !== gk) continue;
+    const s = (g.students || []).find(x => nameKey(x.name) === nameKey(rec.name));
+    if (s) return { g: g, s: s };
+  }
+  return null;
+}
+
+/* จำนวนคนในกลุ่มที่ยังไม่ได้ผูกทะเบียน */
+function unlinkedCount(g) {
+  if (!state.examData) return 0;
+  return (g.students || []).filter(s => !examRecOf(s, g)).length;
+}
+
+/* เตือนเมื่อ teacher_data ใกล้ชนเพดาน 50,000 ตัวอักษรของเซลล์ A1 */
+function checkTeacherDataSize() {
+  let n = 0;
+  try { n = JSON.stringify(state.data).length; } catch(e) { return 0; }
+  if (n > 46000) {
+    toast(`⚠️ ข้อมูลตารางคาบ ${n.toLocaleString()} ตัวอักษร — ใกล้เพดาน 50,000 ของ Google Sheet`, 'error');
+  }
+  return n;
+}
+
+/* สร้าง id ฝั่งเช็คชื่อที่ PIN 6 หลักไม่ชนใครในกลุ่ม */
+function newStudentId(g) {
+  let sid = uid('std'), guard = 0;
+  while ((g.students || []).some(o => getStudentPin(o) === generateStudentPin(sid)) && guard++ < 20) sid = uid('std');
+  return sid;
+}
+
+/* ===========================================================
+   🔗 ขั้นที่ 1 — จับคู่ "กลุ่ม"
+   =========================================================== */
+async function showLinkRegistryModal() {
+  toast('กำลังโหลดทะเบียนข้อสอบ...', 'success');
+  try { await fetchExamData(true); }
+  catch(e) { toast('อ่านทะเบียนข้อสอบไม่ได้: ' + e.message, 'error'); return; }
+  showLinkGroupsModal();
+}
+
+function showLinkGroupsModal() {
+  const d = state.examData;
+  const rows = state.data.groups.map(g => {
+    const cur = examGroupOf(g);
+    const opts = ['<option value="">— ไม่ผูก —</option>'].concat(
+      d.groups.map(x => `<option value="${_ea(x)}" ${groupKey(x) === groupKey(cur) ? 'selected' : ''}>${_eh(x)}</option>`)
+    ).join('');
+    const nStu = (g.students || []).length;
+    const nExam = d.students.filter(s => groupKey(s.group) === groupKey(cur)).length;
+    return `<div style="display:flex; align-items:center; gap:8px; padding:7px 10px; background:var(--bg-soft); border-radius:8px; margin-bottom:5px; font-size:13px;">
+      <span style="flex:1; min-width:0;"><b>${_eh(g.name)}</b> <span style="color:var(--gray-dark); font-size:11px;">${nStu} คน</span></span>
+      <span style="color:var(--gray-soft);">→</span>
+      <select id="lg_${g.id}" style="flex:1; min-width:0; font-size:12px; padding:4px 6px; border:1px solid var(--line); border-radius:6px; background:var(--bg);">${opts}</select>
+      <span style="font-size:11px; color:var(--gray-dark); width:52px; text-align:right;">${nExam} คน</span>
+    </div>`;
+  }).join('');
+
+  showModal({
+    title: '🔗 จับคู่ทะเบียน · ขั้นที่ 1/2 — กลุ่ม',
+    body: `
+      <div style="font-size:12px; color:var(--gray-dark); margin-bottom:12px; line-height:1.6;">
+        จับคู่ <b>กลุ่มฝั่งเช็คชื่อ</b> (ซ้าย) กับ <b>กลุ่มฝั่งระบบข้อสอบ</b> (ขวา)<br>
+        ระบบเดาให้แล้วโดยตัด "ม.4/ม.5/ม.6" ออก — ตรวจแล้วแก้เฉพาะที่ผิด<br>
+        ตัวเลขขวาสุด = จำนวนคนที่มีในทะเบียนข้อสอบของกลุ่มนั้น ถ้าต่างจากซ้ายมากแปลว่าจับคู่ผิด
+      </div>
+      <div style="max-height:330px; overflow-y:auto;">${rows}</div>
+    `,
+    actions: [
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
+      { label: 'ถัดไป → จับคู่คน', class: 'btn--primary', onClick: linkSaveGroups }
+    ]
+  });
+}
+
+function linkSaveGroups() {
+  let n = 0;
+  state.data.groups.forEach(g => {
+    const el = document.getElementById('lg_' + g.id);
+    if (!el) return;
+    const v = el.value.trim();
+    if (v) { if (g.xg !== v) { g.xg = v; n++; } }
+    else if (g.xg) { delete g.xg; n++; }
+  });
+  saveData();
+  if (n) autoSync();
+  showLinkStudentsModal();
+}
+
+/* ===========================================================
+   🔗 ขั้นที่ 2 — จับคู่ "คน"
+   =========================================================== */
+function showLinkStudentsModal() {
+  const d = state.examData;
+  const used = {};
+  state.data.groups.forEach(g => (g.students || []).forEach(s => { if (s.xid) used[s.xid] = true; }));
+
+  const sections = state.data.groups.map(g => {
+    const xg = g.xg || '';
+    if (!xg) return '';
+    const pool = d.students.filter(s => groupKey(s.group) === groupKey(xg));
+    const taken = {};
+    const rows = (g.students || []).map(s => {
+      let pick = '';
+      const byId = s.xid && pool.find(x => x.id === s.xid);
+      if (byId) pick = byId.id;
+      if (!pick) { const ex = pool.find(x => nameKey(x.name) === nameKey(s.name) && !taken[x.id]); if (ex) pick = ex.id; }
+      if (!pick) { const lo = pool.find(x => looseKey(x.name) === looseKey(s.name) && !taken[x.id]); if (lo) pick = lo.id; }
+      if (pick) taken[pick] = true;
+      const opts = ['<option value="__new__">➕ สร้างใหม่ในทะเบียนข้อสอบ</option>', '<option value="">— ไม่ผูก —</option>']
+        .concat(pool.map(x => `<option value="${_ea(x.id)}" ${x.id === pick ? 'selected' : ''}>${_eh(x.id + ' · ' + x.name)}${x.active ? '' : ' (ไม่เรียนต่อ)'}</option>`))
+        .join('');
+      const warn = pick ? '' : ' style="box-shadow:0 0 0 2px var(--danger) inset;"';
+      return `<div style="display:flex; align-items:center; gap:6px; padding:5px 10px; background:var(--bg-soft); border-radius:8px; margin-bottom:4px; font-size:13px;">
+        <span style="flex:1; min-width:0;">${_eh(s.name)}</span>
+        <span style="color:var(--gray-soft);">→</span>
+        <select id="ls_${g.id}__${s.id}"${warn} style="flex:1.4; min-width:0; font-size:12px; padding:4px 6px; border:1px solid var(--line); border-radius:6px; background:var(--bg);">${opts}</select>
+      </div>`;
+    }).join('');
+
+    const orphan = pool.filter(x => !taken[x.id] && !used[x.id]).map(x => `
+      <label style="display:flex; align-items:center; gap:8px; padding:5px 10px; margin-bottom:4px; font-size:12.5px; background:var(--danger-bg); border-radius:8px; cursor:pointer;">
+        <input type="checkbox" id="lo_${g.id}__${_ea(x.id)}" checked>
+        <span style="flex:1;">${_eh(x.id + ' · ' + x.name)}${x.active ? '' : ' (ไม่เรียนต่อ)'} — มีในทะเบียนข้อสอบ แต่ไม่มีในกลุ่มเช็คชื่อ</span>
+        <span style="font-size:11px; color:var(--gray-dark);">เพิ่มเข้ากลุ่ม</span>
+      </label>`).join('');
+
+    return `<div style="margin-bottom:16px;">
+      <div style="font-size:12px; margin-bottom:6px;"><b>${_eh(g.name)}</b> <span style="color:var(--gray-dark);">↔ ${_eh(xg)}</span></div>
+      ${rows || '<div style="font-size:12px; color:var(--gray-dark); padding:4px 10px;">ยังไม่มีนักเรียนในกลุ่มนี้</div>'}
+      ${orphan}
+    </div>`;
+  }).join('');
+
+  const unlinkedGroups = state.data.groups.filter(g => !g.xg).map(g => g.name);
+
+  showModal({
+    title: '🔗 จับคู่ทะเบียน · ขั้นที่ 2/2 — รายชื่อ',
+    body: `
+      <div style="font-size:12px; color:var(--gray-dark); margin-bottom:12px; line-height:1.6;">
+        ระบบจับคู่ให้แล้วตามชื่อ — <b>ช่องที่ขอบแดง = จับคู่ไม่ได้</b> ให้เลือกเอง<br>
+        ⚠️ "ปัณ" กับ "ปุณ" เป็นคนละคน ระบบจะไม่จับคู่ให้อัตโนมัติ ครูต้องเลือกเองครับ<br>
+        แถวเหลือง = มีในทะเบียนข้อสอบแต่ไม่มีในกลุ่มเช็คชื่อ ติ๊กไว้ = เพิ่มเข้ากลุ่มให้
+        ${unlinkedGroups.length ? `<br><span style="color:var(--danger);">กลุ่มที่ยังไม่ผูก (ข้ามไป): ${_eh(unlinkedGroups.join(' · '))}</span>` : ''}
+      </div>
+      <div style="max-height:330px; overflow-y:auto;">${sections || '<div style="font-size:13px; padding:10px;">ยังไม่ได้จับคู่กลุ่มเลย — ย้อนกลับไปขั้นที่ 1</div>'}</div>
+      <div id="linkProgress" style="font-size:12px; color:var(--orange); margin-top:8px;"></div>
+    `,
+    actions: [
+      { label: 'ย้อนกลับ', class: 'btn--ghost', onClick: showLinkGroupsModal },
+      { label: 'บันทึกการจับคู่', class: 'btn--primary', onClick: linkSaveStudents }
+    ]
+  });
+}
+
+async function linkSaveStudents() {
+  const prog = document.getElementById('linkProgress');
+  const say = m => { if (prog) prog.textContent = m; };
+  const plan = [];      // งานที่ต้องยิง Apps Script
+  const groups = state.data.groups.filter(g => g.xg);
+
+  // 1) อ่านค่าจากหน้าจอก่อน (DOM จะหายเมื่อ modal ถูกปิด)
+  groups.forEach(g => {
+    (g.students || []).forEach(s => {
+      const el = document.getElementById('ls_' + g.id + '__' + s.id);
+      if (!el) return;
+      plan.push({ kind: 'pick', g: g, s: s, v: el.value });
+    });
+    (state.examData.students || []).filter(x => groupKey(x.group) === groupKey(g.xg)).forEach(x => {
+      const el = document.getElementById('lo_' + g.id + '__' + x.id);
+      if (el && el.checked) plan.push({ kind: 'orphan', g: g, rec: x });
+    });
+  });
+
+  let linked = 0, created = 0, added = 0, failed = 0;
+  for (let i = 0; i < plan.length; i++) {
+    const p = plan[i];
+    if (p.kind === 'pick') {
+      if (p.v === '__new__') {
+        say(`กำลังสร้าง "${p.s.name}" ในทะเบียนข้อสอบ... (${i + 1}/${plan.length})`);
+        const r = await examWrite({ action: 'examAddStudent', name: String(p.s.name).trim(), group: p.g.xg });
+        if (r) { p.s.xid = r.id; created++; } else failed++;
+      } else if (p.v) {
+        if (p.s.xid !== p.v) linked++;
+        p.s.xid = p.v;
+      } else if (p.s.xid) {
+        delete p.s.xid; linked++;
+      }
+    } else {
+      if ((p.g.students || []).some(s => s.xid === p.rec.id)) continue;
+      p.g.students = p.g.students || [];
+      p.g.students.push({ id: newStudentId(p.g), name: p.rec.name, xid: p.rec.id });
+      added++;
+    }
+  }
+
+  saveData();
+  state.examData = null;
+  await syncToSheet(true);
+  checkTeacherDataSize();
+  closeModal();
+  renderAll();
+  toast(`จับคู่แล้ว · ผูก ${linked} · สร้างใหม่ในทะเบียนข้อสอบ ${created} · เพิ่มเข้ากลุ่มเช็คชื่อ ${added}${failed ? ' · ล้มเหลว ' + failed : ''}`, failed ? 'error' : 'success');
+}
+
+/* escape สำหรับใส่ใน HTML / attribute */
+function _eh(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function _ea(s) { return _eh(s); }
+
+/* ===========================================================
+   CRUD — STUDENTS
+   ⚠️ ทุกฟังก์ชันในหมวดนี้เขียน "ทั้ง 2 ทะเบียน" เสมอ
+      ฝั่งเช็คชื่อ = teacher_data (ชีตเช็คชื่อ)
+      ฝั่งข้อสอบ  = ชีต students + results + results_long (ชีตคะแนน)
+   =========================================================== */
+async function addStudent(groupId) {
   const g = state.data.groups.find(x => x.id === groupId);
   if (!g) return;
   const input = document.getElementById('newStudentName');
-  const name = input.value.trim();
+  const name = input ? input.value.trim() : '';
   if (!name) { toast('กรุณาพิมพ์ชื่อนักเรียน', 'error'); return; }
-  let sid = uid('std');
-  let guard = 0;
-  while (g.students.some(o => getStudentPin(o) === generateStudentPin(sid)) && guard++ < 20) sid = uid('std');
-  g.students.push({ id: sid, name: name });
-  input.value = '';
+  if ((g.students || []).some(o => nameKey(o.name) === nameKey(name))) {
+    toast(`"${name}" มีอยู่ในกลุ่มนี้แล้ว`, 'error'); return;
+  }
+
+  let d = null;
+  try { d = await fetchExamData(true); }
+  catch(e) { toast('อ่านทะเบียนข้อสอบไม่ได้: ' + e.message + ' — ยังไม่ได้เพิ่ม', 'error'); return; }
+
+  const xg = examGroupOf(g);
+  if (!xg) {
+    toast('กลุ่มนี้ยังไม่ได้จับคู่กับกลุ่มฝั่งข้อสอบ — กด 🔗 จับคู่ทะเบียน ก่อน', 'error');
+    return;
+  }
+
+  // มีอยู่ในทะเบียนข้อสอบแล้วหรือยัง (เผื่อครูเพิ่มจากหน้าคะแนนไปก่อน)
+  let rec = d.students.find(x => groupKey(x.group) === groupKey(xg) && nameKey(x.name) === nameKey(name)) || null;
+  let pin4 = '', createdNew = false;
+  if (!rec) {
+    const r = await examWrite({ action: 'examAddStudent', name: name, group: xg });
+    if (!r) { toast('เพิ่มลงทะเบียนข้อสอบไม่สำเร็จ — ยังไม่ได้เพิ่มเข้ากลุ่ม', 'error'); return; }
+    rec = { id: r.id, full: r.full, group: xg, name: name, active: true };
+    pin4 = r.pin;
+    createdNew = true;
+    state.examData = null;
+  }
+
+  const stu = { id: newStudentId(g), name: name, xid: rec.id };
+  g.students.push(stu);
+  if (!g.xg) g.xg = xg;
+  if (input) input.value = '';
   saveData();
   autoSync();
   renderStudentList(g);
   renderSidebar();
-  // อัปเดต meta ในหัวการ์ด
   const meta = document.querySelector('.group-header__meta');
   if (meta) {
     const c = sessionCounts(g);
     meta.textContent = `${g.dayOfWeek} · ${g.startTime}–${g.endTime} น. · เรียนแล้ว ${c.done}/${c.teaching} คาบ` +
                        `${c.holidays ? ' · หยุด ' + c.holidays : ''} · ${g.students.length} คน`;
   }
-  toast(`เพิ่ม "${name}" แล้ว`, 'success');
+  checkTeacherDataSize();
+
+  showModal({
+    title: `เพิ่ม "${name}" แล้ว`,
+    body: `
+      <div style="font-size:13px; line-height:1.9;">
+        เข้าทั้ง 2 ระบบเรียบร้อยครับ<br><br>
+        <b>กลุ่มเช็คชื่อ</b> · ${_eh(g.name)}<br>
+        <b>ทะเบียนข้อสอบ</b> · ${_eh(rec.full)} <span style="color:var(--gray-dark);">(${_eh(rec.id)})</span>
+        ${createdNew ? '' : '<br><span style="color:var(--gray-dark); font-size:12px;">— มีอยู่ในทะเบียนข้อสอบแล้ว ผูกเข้าด้วยกันให้แทนการสร้างซ้ำ</span>'}
+        <hr style="border:none; border-top:1px solid var(--line); margin:12px 0;">
+        <b>PIN เช็คชื่อ (6 หลัก)</b> · <span style="font-family:var(--font-num); color:var(--orange); letter-spacing:.08em;">${getStudentPin(stu)}</span><br>
+        ${pin4
+          ? `<b>PIN เว็บดูคะแนน (4 หลัก)</b> · <span style="font-family:var(--font-num); color:var(--orange); letter-spacing:.08em;">${_eh(pin4)}</span>`
+          : `<b>PIN เว็บดูคะแนน (4 หลัก)</b> · <span style="color:var(--gray-dark);">ดูในคอลัมน์ F ของชีต students</span>`}
+        <div style="font-size:11.5px; color:var(--gray-dark); margin-top:10px;">
+          PIN คนละตัวกันโดยตั้งใจ — 6 หลักไว้เช็คชื่อที่ iPad · 4 หลักไว้เข้าเว็บดูคะแนน
+        </div>
+      </div>`,
+    actions: [{ label: 'รับทราบ', class: 'btn--primary', onClick: closeModal }]
+  });
 }
 
 function removeStudent(groupId, studentId) {
   const g = state.data.groups.find(x => x.id === groupId);
   if (!g) return;
-  const s = g.students.find(x => x.id === studentId);
+  const s = (g.students || []).find(x => x.id === studentId);
   if (!s) return;
+
+  const pullOut = () => { g.students = g.students.filter(x => x.id !== studentId); };
+  const done = (msg) => {
+    saveData(); autoSync();
+    renderStudentList(g); renderSidebar();
+    closeModal();
+    toast(msg, 'success');
+  };
+
   showModal({
-    title: `ลบ "${s.name}"?`,
-    body: 'นักเรียนคนนี้จะถูกลบออกจากกลุ่ม · ไม่สามารถย้อนกลับได้',
+    title: `เอา "${s.name}" ออก`,
+    body: `
+      <div style="font-size:13px; line-height:1.85;">
+        เลือกว่าจะให้มีผลกับ<b>ระบบข้อสอบ</b>ด้วยหรือไม่ครับ<br><br>
+        <b>เฉพาะเช็คชื่อ</b> — เอาออกจากกลุ่มนี้อย่างเดียว ทะเบียนข้อสอบและเว็บนักเรียนไม่เปลี่ยน<br>
+        <b>ไม่เรียนต่อ</b> — ออกจากเช็คชื่อ + ย้ายผลสอบเข้า <code>results_archive</code> + หายจากรายชื่อ login เว็บนักเรียน · กด "กลับมาเรียน" ที่หน้าคะแนนได้ทุกเมื่อ<br>
+        <b>ลบถาวร</b> — ลบทั้ง 2 ทะเบียน · คะแนนใน <code>results</code> ยังอยู่แต่กลายเป็นชื่อลอย
+      </div>`,
     actions: [
       { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
-      { label: 'ลบ', class: 'btn--danger', onClick: () => {
-        g.students = g.students.filter(x => x.id !== studentId);
-        saveData();
-        renderStudentList(g);
-        renderSidebar();
-        closeModal();
-        toast(`ลบ "${s.name}" แล้ว`, 'success');
+      { label: 'เฉพาะเช็คชื่อ', class: 'btn--ghost', onClick: () => {
+        pullOut();
+        done(`เอา "${s.name}" ออกจากกลุ่มเช็คชื่อแล้ว (ทะเบียนข้อสอบยังอยู่)`);
+      }},
+      { label: 'ไม่เรียนต่อ', class: 'btn--primary', onClick: async () => {
+        let full = examFullOf(s, g);
+        if (!state.examData) { try { await fetchExamData(true); full = examFullOf(s, g); } catch(e) {} }
+        const r = await examWrite({ action: 'examSetActive', full: full, active: false });
+        if (!r) return;
+        pullOut();
+        state.examData = null;
+        done(`"${s.name}" ไม่เรียนต่อแล้ว · ย้ายผลสอบ ${r.moved || 0} รายการเข้าคลัง`);
+      }},
+      { label: 'ลบถาวร', class: 'btn--danger', onClick: async () => {
+        let full = examFullOf(s, g);
+        if (!state.examData) { try { await fetchExamData(true); full = examFullOf(s, g); } catch(e) {} }
+        const r = await examWrite({ action: 'examDeleteStudent', full: full });
+        if (!r) return;
+        pullOut();
+        state.examData = null;
+        done(`ลบ "${s.name}" ออกจากทั้ง 2 ทะเบียนแล้ว`);
       }}
     ]
   });
