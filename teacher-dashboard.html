@@ -1,10 +1,3 @@
-
-
-
-
-
-
-
 <!DOCTYPE html>
 <html lang="th">
 <head>
@@ -895,20 +888,24 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
   border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
   overflow-x: auto;
 }
-.att-table { width: 100%; border-collapse: collapse; min-width: 600px; }
+/* width:max-content = ตารางกว้างเท่าที่เนื้อหาต้องการ แล้วเลื่อนซ้ายขวาเอา
+   (เดิม width:100% บีบทุกคาบให้พอดีจอ ยิ่งคาบเยอะช่องยิ่งหดจนอ่านไม่ออก) */
+.att-table { width: max-content; min-width: 100%; border-collapse: collapse; }
+.att-table th, .att-table td { min-width: 88px; }        /* ~8 คาบต่อหน้าจอ ที่เหลือเลื่อนดู */
+.att-table th:last-child, .att-table td:last-child { min-width: 64px; }
 .att-table th {
   background: var(--bg-soft);
   text-align: center;
-  font-family: var(--font-num); font-size: 10px;
+  font-family: var(--font-num); font-size: 12px;
   letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--gray-dark); font-weight: 600;
-  padding: 10px 8px;
+  padding: 12px 8px;
   border-bottom: 1px solid var(--line);
   position: sticky; top: 0;
 }
 .att-table th:first-child { text-align: left; padding-left: 14px; }
 .att-table td {
-  padding: 8px; border-bottom: 1px solid var(--line);
+  padding: 10px 8px; border-bottom: 1px solid var(--line);
   font-size: 13px; text-align: center;
   vertical-align: middle;
 }
@@ -918,9 +915,9 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
 .att-table th:first-child,
 .att-table td:first-child {
   position: sticky; left: 0; z-index: 3;
-  background: var(--card);
+  background: var(--bg);            /* เดิม var(--card) ซึ่งไม่มีในไฟล์นี้ → พื้นโปร่งใส ช่องที่เลื่อนมาทะลุมาทับชื่อ */
   box-shadow: 1px 0 0 var(--line);
-  min-width: 116px;
+  min-width: 150px; width: 150px;
 }
 .att-table th:first-child { z-index: 4; background: var(--bg-soft); }
 .att-table tr:hover td:first-child { background: var(--bg-soft); }
@@ -942,13 +939,14 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
 }
 /* เฉพาะในตารางสรุป — กว้างขึ้นเพื่อใส่เวลาที่เช็คชื่อไว้ใต้ตัวอักษร
    (ป้ายสีในคำอธิบายและในรายการคาบยังใช้ขนาดเดิม) */
-.att-table .att-cell { min-width: 40px; height: 32px; padding: 0 3px; font-size: 11px; font-weight: 700; }
+.att-table .att-cell { min-width: 66px; height: 46px; gap: 3px; padding: 0 6px; border-radius: 9px; font-size: 15px; font-weight: 700; }
+.att-table .att-cell em { font-size: 11px; opacity: .9; }
 .att-cell em {
   font-style: normal; font-size: 8.5px; font-weight: 500;
   letter-spacing: -.02em; opacity: .85; line-height: 1;
 }
 .att-cell:hover {
-  transform: scale(1.15);
+  transform: scale(1.06);           /* ช่องใหญ่แล้ว ขยาย 1.15 จะไปทับช่องข้าง ๆ */
   box-shadow: 0 4px 10px rgba(23,21,15,.18);
   z-index: 2;
 }
@@ -2671,7 +2669,7 @@ function renderKiosk(body) {
             </div>
             <div id="faceScanStatus" style="text-align:center; margin-top:12px; font-size:14px; color:var(--gray-dark); min-height:22px;">กำลังเตรียมกล้อง...</div>
             <div id="faceCandidateBox" style="display:none; text-align:center; margin-top:12px; padding:16px; background:var(--bg-soft); border-radius:14px;"></div>
-            <div style="text-align:center; margin-top:10px; font-size:11px; color:var(--gray-soft);">จับคู่ไม่ได้? สลับไปโหมด 🔢 PIN ได้เสมอ</div>
+            <div style="text-align:center; margin-top:10px; font-size:11px; color:var(--gray-soft);">จับคู่ไม่ได้ สลับไปโหมด 🔢 PIN ได้เสมอ</div>
           </div>
 
           <div class="kiosk__actions" style="margin-top:20px;">
@@ -2768,11 +2766,12 @@ function renderAttendanceSummary(body) {
 
       // Build tooltip text
       let tip = '';
+      const why = attCleanNote(r) ? ' · ' + attCleanNote(r) : '';
       if (cellStatus === 'present') {
         const m = lateMinutesOf(r, sess, g);
-        tip = `${s.name} · ${tier === 'ontime' ? 'ตรงเวลา' : 'มาแล้ว (ช้า ' + m + ' นาที)'}${r.checkInTime ? ' · เช็ค ' + r.checkInTime + ' น.' : ''}`;
+        tip = `${s.name} · ${tier === 'ontime' ? 'ตรงเวลา' : 'มาแล้ว (ช้า ' + m + ' นาที)'}${r.checkInTime ? ' · เช็ค ' + r.checkInTime + ' น.' : ''}${why}`;
       } else if (cellStatus === 'late') {
-        tip = `${s.name} · สาย ${lateMinutesOf(r, sess, g)} นาที · เช็ค ${r.checkInTime || '-'} น.`;
+        tip = `${s.name} · สาย ${lateMinutesOf(r, sess, g)} นาที · เช็ค ${r.checkInTime || '-'} น.${why}`;
       } else if (cellStatus === 'absent') {
         tip = `${s.name} · ขาด${r.note ? ' · ' + r.note : ''}`;
       } else if (cellStatus === 'leave') {
@@ -3467,7 +3466,7 @@ function copyCheckinInfo(url, code) {
 async function endOnlineCheckin() {
   if (!state.onlineCheckin.code) return;
   showModal({
-    title: 'จบคาบเช็คชื่อ?',
+    title: 'จบคาบเช็คชื่อ',
     body: 'ระบบจะบันทึกคนที่ยังไม่เช็คชื่อเป็น "ขาด" อัตโนมัติ และปิดรหัสเช็คชื่อนี้',
     actions: [
       { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
@@ -3503,7 +3502,7 @@ async function endOnlineCheckin() {
 
 function cancelOnlineCheckin() {
   showModal({
-    title: 'ยกเลิกการเช็คชื่อ?',
+    title: 'ยกเลิกการเช็คชื่อ',
     body: 'รหัสเช็คชื่อจะถูกลบ · ข้อมูลที่นักเรียนเช็คแล้วจะยังอยู่ แต่คนที่ยังไม่เช็คจะไม่ถูกบันทึกเป็นขาด',
     actions: [
       { label: 'ไม่ยกเลิก', class: 'btn--ghost', onClick: closeModal },
@@ -3617,7 +3616,7 @@ function showAttendanceDetail(groupId, sessionNo, studentId) {
       const label = st === 'present' ? 'P' : st === 'late' ? 'L' : st === 'absent' ? 'A' : st === 'leave' ? 'S' : '-';
       const tier2 = attendTier(rec, s, g);
       const cls2 = st + (tier2 === 'soft' ? ' soft' : '');
-      const time = rec && rec.checkInTime
+      const time = rec && rec.checkInTime && (st === 'present' || st === 'late')
         ? rec.checkInTime + ' น.' + (st === 'present' ? (tier2 === 'ontime' ? ' · ตรงเวลา' : ' · ช้า ' + lateMinutesOf(rec, s, g) + ' นาที')
                                    : (st === 'late' ? ' · สาย ' + lateMinutesOf(rec, s, g) + ' นาที' : ''))
         : '-';
@@ -3706,16 +3705,36 @@ function showAttendanceDetail(groupId, sessionNo, studentId) {
         </table>
       </div>
 
-      ${r ? `
-        <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line); display:flex; gap:6px; flex-wrap:wrap;">
-          <span style="font-size:12px; color:var(--gray-dark); align-self:center; margin-right:auto;">แก้สถานะคาบนี้:</span>
-          <button class="btn btn--ghost btn--xs" onclick="overrideAttendanceDetail('${groupId}', ${sessionNo}, '${studentId}', 'present')">ตรงเวลา</button>
-          <button class="btn btn--ghost btn--xs" onclick="overrideAttendanceDetail('${groupId}', ${sessionNo}, '${studentId}', 'late')">สาย</button>
-          <button class="btn btn--ghost btn--xs" style="border-color:#2B6CB0; color:#2B6CB0;" onclick="overrideAttendanceDetail('${groupId}', ${sessionNo}, '${studentId}', 'leave', 'ลาป่วย')">ลาป่วย</button>
-          <button class="btn btn--ghost btn--xs" style="border-color:#2B6CB0; color:#2B6CB0;" onclick="overrideAttendanceDetail('${groupId}', ${sessionNo}, '${studentId}', 'leave', 'ลากิจ')">ลากิจ</button>
-          <button class="btn btn--danger btn--xs" onclick="overrideAttendanceDetail('${groupId}', ${sessionNo}, '${studentId}', 'absent')">ขาด</button>
+      <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line);">
+        <div style="font-family:var(--font-num); font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--gray-dark); font-weight:600; margin-bottom:8px;">
+          แก้สถานะ / ใส่เหตุผล — คาบที่ ${sessionNo}
         </div>
-      ` : ''}
+
+        <input type="text" id="attNoteInput" value="${attCleanNote(r).replace(/"/g, '&quot;')}"
+          placeholder="เหตุผล เช่น ลาป่วย — ไข้หวัด · สาย — รถติดพระราม 2"
+          style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; outline:none;
+                 font-family:var(--font-thai); font-size:13px; margin-bottom:8px;">
+
+        <div style="display:flex; gap:5px; flex-wrap:wrap; margin-bottom:10px;">
+          ${['ลาป่วย', 'ลากิจ', 'ติดสอบ', 'ไปแข่ง/กิจกรรม', 'รถติด', 'ตื่นสาย', 'เรียนที่อื่นต่อ', 'ฝนตก']
+            .map(t => `<button class="btn btn--ghost btn--xs" onclick="attFillNote('${t}')" title="ใส่ข้อความนี้ในช่องเหตุผล">${t}</button>`).join('')}
+        </div>
+
+        <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+          <span style="font-size:12px; color:var(--gray-dark); margin-right:auto;">บันทึกเป็น →</span>
+          <button class="btn btn--ghost btn--xs" onclick="attSetStatus('${groupId}', ${sessionNo}, '${studentId}', 'present')">ตรงเวลา</button>
+          <button class="btn btn--ghost btn--xs" style="border-color:var(--orange); color:var(--orange);" onclick="attSetStatus('${groupId}', ${sessionNo}, '${studentId}', 'late')">สาย</button>
+          <button class="btn btn--ghost btn--xs" style="border-color:#2B6CB0; color:#2B6CB0;" onclick="attSetStatus('${groupId}', ${sessionNo}, '${studentId}', 'leave')">ลา</button>
+          <button class="btn btn--danger btn--xs" onclick="attSetStatus('${groupId}', ${sessionNo}, '${studentId}', 'absent')">ขาด</button>
+          ${r && r.status && r.status !== 'pending'
+            ? `<button class="btn btn--ghost btn--xs" onclick="attSaveNoteOnly('${groupId}', ${sessionNo}, '${studentId}')" title="เก็บสถานะเดิมไว้ เปลี่ยนแค่เหตุผล">💾 เฉพาะเหตุผล</button>`
+            : ''}
+        </div>
+
+        <div style="font-size:11px; color:var(--gray-soft); margin-top:8px;">
+          เหตุผลที่ใส่จะขึ้นในคอลัมน์หมายเหตุ · ในรายงานที่ปริ้น · และในสรุปคาบที่คัดลอกส่ง LINE
+        </div>
+      </div>
     `,
     actions: [
       { label: 'ปิด', class: 'btn--primary', onClick: closeModal }
@@ -3724,22 +3743,56 @@ function showAttendanceDetail(groupId, sessionNo, studentId) {
 }
 
 /* Override attendance from detail modal */
+/* ── ครูแก้สถานะ + ใส่เหตุผลเองหลังหมดคาบ ─────────────────────
+   หมายเหตุอัตโนมัติที่ระบบใส่ให้ ไม่ต้องเอามาโชว์ในช่องให้ครูลบเอง */
+const ATT_AUTO_NOTES = ['ครูแก้ไข', 'เช็คออนไลน์', 'สาย', 'ไม่มาเรียน', 'ขาด', 'เช็คด้วยใบหน้า'];
+function attCleanNote(r) {
+  const n = (r && r.note) ? String(r.note).trim() : '';
+  return ATT_AUTO_NOTES.indexOf(n) >= 0 ? '' : n;
+}
+function attNoteVal() {
+  const el = document.getElementById('attNoteInput');
+  return el ? el.value.trim() : '';
+}
+function attFillNote(t) {
+  const el = document.getElementById('attNoteInput');
+  if (!el) return;
+  el.value = el.value.trim() ? el.value.trim() + ' — ' + t : t;
+  el.focus();
+}
+function attSetStatus(groupId, sessionNo, studentId, st) {
+  overrideAttendanceDetail(groupId, sessionNo, studentId, st, attNoteVal());
+}
+function attSaveNoteOnly(groupId, sessionNo, studentId) {
+  overrideAttendanceDetail(groupId, sessionNo, studentId, null, attNoteVal());
+}
+
 function overrideAttendanceDetail(groupId, sessionNo, studentId, newStatus, note) {
   const g = state.data.groups.find(x => x.id === groupId);
   if (!g) return;
   const session = (g.sessions || []).find(s => s.no === sessionNo);
   if (!session) return;
-  if (!session.attendance) getAttendance(groupId, sessionNo);
-  const r = session.attendance.records[studentId];
-  if (!r) return;
-  r.status = newStatus;
-  r.checkInTime = (newStatus === 'absent' || newStatus === 'leave') ? null : (r.checkInTime || nowTimeStr());
-  r.note = note || 'ครูแก้ไข';
+
+  // คาบที่ยังไม่เคยเช็คชื่อเลยก็แก้ได้ — สร้างที่เก็บให้ก่อน
+  if (!session.attendance) session.attendance = { startedAt: null, finishedAt: null, records: {} };
+  if (!session.attendance.records) session.attendance.records = {};
+  let r = session.attendance.records[studentId];
+  if (!r) r = session.attendance.records[studentId] = { status: 'pending', checkInTime: null, note: '' };
+
+  if (newStatus) {
+    r.status = newStatus;
+    // ไม่แตะ checkInTime เลย — เก็บเวลาที่นักเรียนเช็คจริงไว้เสมอ
+    // ของเดิมทำ 2 อย่างที่ทำให้ข้อมูลหาย: ประทับเวลา "ตอนนี้" (คือเวลาที่ครูมานั่งแก้ ไม่ใช่เวลาที่นักเรียนมา)
+    // และล้างเวลาทิ้งเมื่อเปลี่ยนเป็นลา/ขาด พอครูเปลี่ยนใจกลับมาเป็นสาย เวลาเดิมก็หายไปแล้ว
+    // ตารางสรุปกับหน้าพิมพ์แสดงเวลาเฉพาะ มา/สาย อยู่แล้ว เก็บไว้จึงไม่กวนสายตา
+  }
+  r.note = note || (newStatus ? 'ครูแก้ไข' : (r.note || ''));
+
   saveData();
   autoSync();
-  closeModal();
-  toast(`แก้เป็น ${statusLabel(newStatus)} แล้ว`, 'success');
+  toast(newStatus ? `แก้เป็น ${statusLabel(newStatus)} แล้ว` : 'บันทึกเหตุผลแล้ว', 'success');
   renderMain();
+  showAttendanceDetail(groupId, sessionNo, studentId);   // เปิดค้างไว้ ให้แก้คนต่อไปหรือแก้ซ้ำได้เลย
 }
 
 /* PRINT — Attendance report A4 */
@@ -3762,8 +3815,13 @@ function printAttendanceReport(groupId) {
       else if (st === 'late') late++;
       else if (st === 'absent') absent++;
       else if (st === 'leave') leave++;
-      const sym = st === 'present' ? '/' : st === 'late' ? 'ส' : st === 'absent' ? 'X' : st === 'leave' ? 'ล' : '-';
-      return `<td style="text-align:center;">${sym}</td>`;
+      // '/' = ตรงเวลา (≤5 น.) · 'o' = มาแล้ว (5-10 น.) — ใช้เกณฑ์เดียวกับตารางบนจอ
+      const tier = (st === 'present') ? attendTier(r, sess, g) : '';
+      const sym = st === 'present' ? (tier === 'soft' ? 'o' : '/')
+                : st === 'late' ? 'ส' : st === 'absent' ? 'X' : st === 'leave' ? 'ล' : '-';
+      const tm = ((st === 'present' || st === 'late') && r && r.checkInTime)
+        ? `<div style="font-size:6.5pt; color:#555; line-height:1; margin-top:1px;">${r.checkInTime}</div>` : '';
+      return `<td style="text-align:center; line-height:1.1;">${sym}${tm}</td>`;
     }).join('');
     const checkedIn = present + late;
     const prDenom = sessionCols.length - leave;
@@ -3783,7 +3841,18 @@ function printAttendanceReport(groupId) {
   }).join('');
 
   const _tno = teachingNoMap(g);
-  const sessionHeader = sessionCols.map(s => `<th style="text-align:center; width:24px;">${_tno[s.no]}</th>`).join('');
+  const sessionHeader = sessionCols.map(s => `<th style="text-align:center; width:34px;">${_tno[s.no]}</th>`).join('');
+
+  // เหตุผลที่ครูใส่ไว้ (ลา/สาย/ขาด) — รวบไว้ท้ายรายงาน จะได้ไม่ต้องยัดลงช่องตารางที่แคบอยู่แล้ว
+  const noteLines = [];
+  sessionCols.forEach(se => {
+    g.students.forEach(st2 => {
+      const rec = se.attendance && se.attendance.records[st2.id];
+      const n = attCleanNote(rec);
+      if (!n) return;
+      noteLines.push(`คาบ ${_tno[se.no]} · ${st2.name} — ${statusLabel(rec.status)} (${n})`);
+    });
+  });
 
   const html = `
     <div class="print-report">
@@ -3804,7 +3873,7 @@ function printAttendanceReport(groupId) {
       <div class="print-report__title">${g.name}</div>
       <div class="print-report__sub">วัน${g.dayOfWeek} ${g.startTime}–${g.endTime} น. · ระดับชั้น${g.level} · นักเรียน ${g.students.length} คน · ${sessionCols.length} คาบ</div>
 
-      <div class="print-section-title">ตารางการเข้าเรียน (สัญลักษณ์: / = ตรงเวลา, ส = สาย, ล = ลา, X = ขาด, - = ยังไม่เช็ค)</div>
+      <div class="print-section-title">ตารางการเข้าเรียน (สัญลักษณ์: / = ตรงเวลา, o = มาแล้ว, ส = สาย, ล = ลา, X = ขาด, - = ยังไม่เช็ค · ตัวเลขเล็กใต้สัญลักษณ์ = เวลาที่เช็คชื่อ)</div>
       <table class="print-table">
         <thead>
           <tr>
@@ -3820,6 +3889,11 @@ function printAttendanceReport(groupId) {
         </thead>
         <tbody>${studentRows}</tbody>
       </table>
+
+      ${noteLines.length ? `
+        <div class="print-section-title" style="margin-top:14px;">หมายเหตุรายคาบ</div>
+        <div style="font-size:9pt; line-height:1.7;">${noteLines.join('<br>')}</div>
+      ` : ''}
 
       <div class="print-footer">
         <div>Maths Bank Tutor · ครูแบงค์</div>
@@ -4631,7 +4705,7 @@ function entryPickChapter(v) {
   if (v === '__new__') {
     const t = (prompt('ชื่อบทใหม่ — ต้องสะกดตรงกับเว็บนักเรียนเป๊ะทุกตัวอักษร') || '').trim();
     if (!t) { renderScoreEntry(body); return; }
-    if (!isStdChapter(t) && !confirm('"' + t + '" ไม่อยู่ในรายการมาตรฐาน\n\nนักเรียนจะกรองบทนี้ไม่เจอ จนกว่าจะเพิ่มชื่อนี้เข้า index.html ของเว็บนักเรียนด้วย\n\nยืนยันจะใช้ชื่อนี้?')) {
+    if (!isStdChapter(t) && !confirm('"' + t + '" ไม่อยู่ในรายการมาตรฐาน\n\nนักเรียนจะกรองบทนี้ไม่เจอ จนกว่าจะเพิ่มชื่อนี้เข้า index.html ของเว็บนักเรียนด้วย\n\nยืนยันจะใช้ชื่อนี้')) {
       renderScoreEntry(body); return;
     }
     state.entry.chapter = t;
@@ -4873,7 +4947,7 @@ async function saveEntry(next) {
   if (!e.chapter) { toast('เลือกบทก่อน', 'error'); return; }
   const n = entryCounts();
   if (n.blank === 30) { toast('ยังไม่ได้กรอกข้อไหนเลย', 'error'); return; }
-  if (n.blank > 0 && !confirm(`ยังไม่ได้ระบุ ${n.blank} ข้อ (จะถูกบันทึกเป็น "ไม่ทำ")\nบันทึกเลยไหม?`)) return;
+  if (n.blank > 0 && !confirm(`ยังไม่ได้ระบุ ${n.blank} ข้อ (จะถูกบันทึกเป็น "ไม่ทำ")\nบันทึกเลยไหม`)) return;
 
   const note = document.getElementById('entryNote');
   const [y, m, dd] = e.date.split('-');
@@ -5139,7 +5213,7 @@ async function pendApprove(pid) {
   const edited = pendIsEdited(pid);
 
   showModal({
-    title: 'อนุมัติคะแนนนี้?',
+    title: 'อนุมัติคะแนนนี้',
     body: `<b>${pendShortName(it.full)}</b> · ${it.chapter}<br>
            สอบ ${pendFmtDate(it.date)} · ได้ <b>${n.ok}/30</b>
            ${n.blank ? `<br><span style="color:var(--danger);">ยังไม่ได้ระบุ ${n.blank} ข้อ — จะถูกบันทึกเป็น "ไม่ทำ"</span>` : ''}
@@ -5174,7 +5248,7 @@ async function pendReject(pid) {
   if (!it) return;
 
   showModal({
-    title: 'ตีกลับให้นักเรียนแก้?',
+    title: 'ตีกลับให้นักเรียนแก้',
     body: `<b>${pendShortName(it.full)}</b> · ${it.chapter}<br>
            คะแนนจะไม่ถูกบันทึก นักเรียนจะเห็นเหตุผลและส่งใหม่ได้
            <div style="margin-top:12px;">
@@ -5212,7 +5286,7 @@ async function pendApproveAll() {
 
   const names = list.map(it => `${pendShortName(it.full)} — ${it.chapter} · ${pendCounts(pendStatuses(it)).ok}/30`);
   showModal({
-    title: `อนุมัติทั้งหมด ${list.length} รายการ?`,
+    title: `อนุมัติทั้งหมด ${list.length} รายการ`,
     body: `ทุกรายการจะถูกเขียนลงชีต <code>results</code> โดยไม่ได้ตรวจรายข้อ
            <div style="margin-top:10px; max-height:220px; overflow:auto; border:1px solid var(--line); border-radius:10px; padding:10px; font-size:12px; line-height:1.8;">
              ${names.join('<br>')}
@@ -5412,13 +5486,13 @@ async function rosterAction(idx, act) {
     const r = await examWrite({ action: 'examRenameStudent', oldFull: s.full, newName: nn.trim() });
     if (r) { toast(`เปลี่ยนชื่อแล้ว (แก้ ${r.updated} จุด)`, 'success'); await refreshRoster(); }
   } else if (act === 'move') {
-    const ng = prompt('ย้าย "' + s.name + '" ไปกลุ่มไหน?\nกลุ่มที่มี: ' + state.examData.groups.join(' · ') + '\n(พิมพ์ชื่อกลุ่มใหม่ = สร้างกลุ่มใหม่)', s.group);
+    const ng = prompt('ย้าย "' + s.name + '" ไปกลุ่มไหน\nกลุ่มที่มี: ' + state.examData.groups.join(' · ') + '\n(พิมพ์ชื่อกลุ่มใหม่ = สร้างกลุ่มใหม่)', s.group);
     if (!ng || ng.trim() === s.group) return;
     const r = await examWrite({ action: 'examMoveStudent', oldFull: s.full, newGroup: ng.trim() });
     if (r) { toast(`ย้ายกลุ่มแล้ว (แก้ ${r.updated} จุด)`, 'success'); await refreshRoster(); }
   } else if (act === 'quit' || act === 'rejoin') {
     const on = act === 'rejoin';
-    if (!on && !confirm('แจ้งว่า "' + s.name + '" ไม่เรียนต่อ?\n\n• ผลสอบจะถูกย้ายไปเก็บใน sheet results_archive\n• หน้าครูและเว็บนักเรียนจะไม่นับเขาในค่าเฉลี่ย/อันดับ (ตัวเลขตรงกันทั้ง 2 ระบบ)\n• ประวัติไม่หาย กด "กลับมาเรียน" ได้ทุกเมื่อ')) return;
+    if (!on && !confirm('แจ้งว่า "' + s.name + '" ไม่เรียนต่อ\n\n• ผลสอบจะถูกย้ายไปเก็บใน sheet results_archive\n• หน้าครูและเว็บนักเรียนจะไม่นับเขาในค่าเฉลี่ย/อันดับ (ตัวเลขตรงกันทั้ง 2 ระบบ)\n• ประวัติไม่หาย กด "กลับมาเรียน" ได้ทุกเมื่อ')) return;
     const r = await examWrite({ action: 'examSetActive', full: s.full, active: on });
     if (r) {
       toast(on ? `"${s.name}" กลับมาเรียนแล้ว · คืนผลสอบ ${r.moved || 0} รายการ`
@@ -5427,7 +5501,7 @@ async function rosterAction(idx, act) {
       await refreshRoster();
     }
   } else if (act === 'delete') {
-    if (!confirm('⚠️ ลบ "' + s.name + '" ออกจากทะเบียนถาวร?\n\nถ้าแค่เลิกเรียน แนะนำใช้ปุ่ม "🚪 ไม่เรียนต่อ" แทน (เก็บประวัติไว้)\n\nยืนยันลบถาวร?')) return;
+    if (!confirm('⚠️ ลบ "' + s.name + '" ออกจากทะเบียนถาวร\n\nถ้าแค่เลิกเรียน แนะนำใช้ปุ่ม "🚪 ไม่เรียนต่อ" แทน (เก็บประวัติไว้)\n\nยืนยันลบถาวร')) return;
     const r = await examWrite({ action: 'examDeleteStudent', full: s.full });
     if (r) { toast('ลบแล้ว', 'success'); await refreshRoster(); }
   }
@@ -5436,7 +5510,7 @@ async function rosterAction(idx, act) {
 async function rosterAddStudent() {
   const nn = prompt('ชื่อนักเรียนใหม่ (ไม่ต้องใส่วงเล็บกลุ่ม):');
   if (!nn) return;
-  const ng = prompt('อยู่กลุ่มไหน?\nกลุ่มที่มี: ' + state.examData.groups.join(' · ') + '\n(พิมพ์ชื่อกลุ่มใหม่ = สร้างกลุ่มใหม่)');
+  const ng = prompt('อยู่กลุ่มไหน\nกลุ่มที่มี: ' + state.examData.groups.join(' · ') + '\n(พิมพ์ชื่อกลุ่มใหม่ = สร้างกลุ่มใหม่)');
   if (!ng) return;
   const r = await examWrite({ action: 'examAddStudent', name: nn.trim(), group: ng.trim() });
   if (r) {
@@ -5478,7 +5552,7 @@ function loadFaceStore() {
 }
 function saveFaceStore(store) {
   try { localStorage.setItem(FACE_STORE_KEY, JSON.stringify(store)); return true; }
-  catch(e) { toast('บันทึกข้อมูลใบหน้าไม่สำเร็จ (พื้นที่ localStorage เต็ม?)', 'error'); return false; }
+  catch(e) { toast('บันทึกข้อมูลใบหน้าไม่สำเร็จ (พื้นที่ localStorage เต็ม)', 'error'); return false; }
 }
 function hasFaceData(studentId) {
   const store = loadFaceStore();
@@ -5737,7 +5811,7 @@ function showFaceCandidate(student, distance) {
   box.style.display = '';
   box.innerHTML = `
     <div style="font-size:24px; font-weight:700;">${student.name}</div>
-    <div style="font-size:12px; color:var(--gray-dark); margin:2px 0 12px;">ความมั่นใจ ~${confidence}% — ใช่คุณไหม?</div>
+    <div style="font-size:12px; color:var(--gray-dark); margin:2px 0 12px;">ความมั่นใจ ~${confidence}% — ใช่คุณไหม</div>
     <div style="display:flex; gap:8px; justify-content:center;">
       <button class="btn btn--primary" onclick="confirmFaceCheckin()">✓ ใช่ เช็คชื่อเลย</button>
       <button class="btn btn--ghost" onclick="dismissFaceCandidate()">ไม่ใช่</button>
@@ -6009,7 +6083,7 @@ function regenerateSessions(id) {
   const g = state.data.groups.find(x => x.id === id);
   if (!g) return;
   showModal({
-    title: 'สร้างตารางคาบใหม่?',
+    title: 'สร้างตารางคาบใหม่',
     body: 'ระบบจะลบตารางคาบเดิมทั้งหมดและสร้างใหม่จากวันเริ่มต้น + จำนวนคาบ (เรียนสัปดาห์ละครั้ง) · ข้อมูลวันหยุดและหมายเหตุเดิมจะหายไป',
     actions: [
       { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
