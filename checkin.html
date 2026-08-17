@@ -1233,11 +1233,29 @@ function renderLeaveForm() {
     </button>
   `).join('');
 
+  /* รายการที่เคยแจ้งไว้ — กดยกเลิกได้ ถ้ายกเลิกแล้วจะหายจากหน้าครูด้วย */
+  const mine = info.mine || [];
+  const mineHtml = mine.length ? `
+      <div style="margin:14px 0 4px; padding:10px 12px; border:1px solid #2B6CB0; border-radius:12px;">
+        <div style="font-size:13px; font-weight:600; color:#2B6CB0; margin-bottom:8px;">รายการที่แจ้งไว้แล้ว</div>
+        ${mine.map(x => `
+          <div style="display:flex; align-items:center; gap:8px; font-size:13px; padding:6px 0; border-top:1px solid #eee;">
+            <span style="flex:1;"><b>${x.type}</b> · คาบที่ ${x.sessionNo}<br>
+              <small style="color:#777;">${thDateFull(x.date)}${x.reason ? ' · ' + x.reason : ''}</small></span>
+            <button class="btn btn--ghost btn--sm" style="white-space:nowrap;"
+              onclick="cancelLeaveRequest(${x.sessionNo}, '${String(x.type).replace(/'/g, "\\'")}')">🗑 ยกเลิก</button>
+          </div>`).join('')}
+        <div style="font-size:11.5px; color:#777; margin-top:8px;">
+          เปลี่ยนใจจะมาเรียนตามปกติ — กดยกเลิก หรือมาเช็คชื่อตามปกติก็ได้ ระบบถือว่ามาเรียน
+        </div>
+      </div>` : '';
+
   body.innerHTML = `
     <div class="card">
       <span class="card__label" style="color:#2B6CB0;">แจ้งลา / แจ้งสาย</span>
       <h2 class="card__title">${info.student.name}</h2>
       <p class="card__hint">${info.group.name}</p>
+      ${mineHtml}
 
       <div style="font-size:13px; font-weight:600; margin:14px 0 8px;">1. เลือกคาบ</div>
       ${sessionsHtml}
@@ -1306,6 +1324,43 @@ async function submitLeaveRequest() {
     } else {
       show(result.error || 'ส่งไม่สำเร็จ', 'error');
     }
+  } catch(e) {
+    show('เชื่อมต่อไม่ได้: ' + e.message, 'error');
+  }
+}
+
+async function cancelLeaveRequest(sessionNo, type) {
+  if (!confirm(`ยกเลิก "${type}" คาบที่ ${sessionNo}?\n\nรายการจะถูกลบออกจากระบบ และหายจากหน้าครูด้วย`)) return;
+  const statusEl = document.getElementById('leaveFormStatus');
+  const show = (msg, cls) => { if (statusEl) { statusEl.textContent = msg; statusEl.className = 'status-msg show ' + cls; } };
+  show('กำลังยกเลิก...', 'info');
+
+  if (!SCRIPT_URL) {
+    state.leaveInfo.mine = (state.leaveInfo.mine || []).filter(x => !(x.sessionNo === sessionNo && x.type === type));
+    renderLeaveForm(); restoreLeaveReason();
+    return;
+  }
+
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'cancelLeave', pin: state.leavePin, sessionNo: sessionNo, type: type })
+    });
+    const result = await res.json();
+    if (!result.ok) { show(result.error || 'ยกเลิกไม่สำเร็จ', 'error'); return; }
+    // ดึงรายการใหม่จากเซิร์ฟเวอร์ เพื่อให้แน่ใจว่าตรงกับของจริง
+    const res2 = await fetch(SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'leaveOptions', pin: state.leavePin })
+    });
+    const r2 = await res2.json();
+    if (r2.ok) state.leaveInfo = r2;
+    renderLeaveForm();
+    restoreLeaveReason();
+    const el = document.getElementById('leaveFormStatus');
+    if (el) { el.textContent = 'ยกเลิกแล้ว · ครูจะไม่เห็นรายการนี้แล้ว'; el.className = 'status-msg show info'; }
   } catch(e) {
     show('เชื่อมต่อไม่ได้: ' + e.message, 'error');
   }

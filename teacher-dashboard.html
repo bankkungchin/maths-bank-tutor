@@ -1961,7 +1961,7 @@ function renderStudentList(g) {
     row.className = 'student-row';
     row.innerHTML = `
       <span class="student-row__num">${String(i+1).padStart(2,'0')}</span>
-      <span class="student-row__name">${s.name}${(state.examData && !examRecOf(s, g)) ? ' <span title="ยังไม่ได้ผูกกับทะเบียนระบบข้อสอบ — กด 🔗 จับคู่ทะเบียน" style="color:var(--danger); font-size:11px;">⚠︎</span>' : ''}</span>
+      <span class="student-row__name">${s.name}${(state.examData && g.xg && !examRecOf(s, g)) ? ' <span title="ยังไม่ได้ผูกกับทะเบียนระบบข้อสอบ — กด 🔗 จับคู่ทะเบียน" style="color:var(--danger); font-size:11px;">⚠︎</span>' : ''}</span>
       <button class="student-row__pin" onclick="showEditPinModal('${g.id}', '${s.id}')" title="แก้ PIN (ปัจจุบัน: ${pin})">
         <span class="num" style="font-size:11px; letter-spacing:0.08em; color:var(--orange); font-weight:600;">${pin}</span>
       </button>
@@ -6180,6 +6180,7 @@ function renderLeaveRequestsModal() {
           ${applied
             ? '<span style="font-size:12px; color:var(--success); white-space:nowrap;">✓ บันทึกแล้ว</span>'
             : `<button class="btn btn--primary btn--xs" onclick="applyLeaveRequest(${i})">บันทึกลงตาราง</button>`}
+          <button class="btn btn--danger btn--xs" title="ลบรายการแจ้งนี้ทิ้ง (เช่น นักเรียนเปลี่ยนใจจะมาเรียน)" onclick="cancelLeaveByTeacher(${i})">🗑</button>
         </div>`;
       }).join('');
   showModal({
@@ -6195,6 +6196,27 @@ function renderLeaveRequestsModal() {
       { label: 'บันทึกทั้งหมด', class: 'btn--primary', onClick: applyAllLeaveRequests }
     ]
   });
+}
+
+/* ลบรายการแจ้งลา/แจ้งสายทิ้ง — ลบจากชีต leave_requests จริง
+   นักเรียนกดยกเลิกเองจาก checkin.html ได้เหมือนกัน แล้วรายการนี้จะหายไปด้วย */
+async function cancelLeaveByTeacher(idx) {
+  const r = _leaveRequestsCache[idx];
+  if (!r) return;
+  if (!confirm(`ลบรายการ "${r.studentName} · ${r.type}" คาบ ${r.sessionNo} ทิ้ง?\n\nระบบจะไม่นำไปใช้ตอนจบคาบอีก`)) return;
+  toast('กำลังลบ...', 'success');
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'cancelLeave', token: TEACHER_TOKEN,
+        groupId: r.groupId, studentId: r.studentId, sessionNo: r.sessionNo, type: r.type })
+    });
+    const result = await res.json();
+    if (!result.ok) { toast('ลบไม่สำเร็จ: ' + (result.error || ''), 'error'); return; }
+    toast('ลบรายการแล้ว' + (result.cleared ? ' · ล้างสถานะในตารางให้ด้วย' : ''), 'success');
+    if (result.cleared) await loadFromSheet();
+    await showLeaveRequestsModal();
+  } catch(e) { toast('เชื่อมต่อไม่ได้: ' + e.message, 'error'); }
 }
 
 function applyLeaveRequest(idx) {
@@ -6415,6 +6437,15 @@ function checkTeacherDataSize() {
   return n;
 }
 
+/* อัปเดตบรรทัดสรุปใต้ชื่อกลุ่ม (จำนวนคน/คาบ) โดยไม่ต้อง render ใหม่ทั้งหน้า */
+function updateGroupMeta(g) {
+  const meta = document.querySelector('.group-header__meta');
+  if (!meta) return;
+  const c = sessionCounts(g);
+  meta.textContent = `${g.dayOfWeek} · ${g.startTime}–${g.endTime} น. · เรียนแล้ว ${c.done}/${c.teaching} คาบ` +
+                     `${c.holidays ? ' · หยุด ' + c.holidays : ''} · ${g.students.length} คน`;
+}
+
 /* สร้าง id ฝั่งเช็คชื่อที่ PIN 6 หลักไม่ชนใครในกลุ่ม */
 function newStudentId(g) {
   let sid = uid('std'), guard = 0;
@@ -6455,6 +6486,7 @@ function showLinkGroupsModal() {
       <div style="font-size:12px; color:var(--gray-dark); margin-bottom:12px; line-height:1.6;">
         จับคู่ <b>กลุ่มฝั่งเช็คชื่อ</b> (ซ้าย) กับ <b>กลุ่มฝั่งระบบข้อสอบ</b> (ขวา)<br>
         ระบบเดาให้แล้วโดยตัด "ม.4/ม.5/ม.6" ออก — ตรวจแล้วแก้เฉพาะที่ผิด<br>
+        <b>กลุ่มที่ยังไม่เคยสอบ (เช่น ม.4/ม.5) ปล่อยเป็น "— ไม่ผูก —" ได้เลย</b> ระบบจะข้ามไป ไม่ต้องจับคู่<br>
         ตัวเลขขวาสุด = จำนวนคนที่มีในทะเบียนข้อสอบของกลุ่มนั้น ถ้าต่างจากซ้ายมากแปลว่าจับคู่ผิด
       </div>
       <div style="max-height:330px; overflow-y:auto;">${rows}</div>
@@ -6619,12 +6651,38 @@ async function addStudent(groupId) {
   }
 
   let d = null;
-  try { d = await fetchExamData(true); }
-  catch(e) { toast('อ่านทะเบียนข้อสอบไม่ได้: ' + e.message + ' — ยังไม่ได้เพิ่ม', 'error'); return; }
+  try { d = await fetchExamData(true); } catch(e) { d = null; }
 
-  const xg = examGroupOf(g);
+  /* หากลุ่มฝั่งข้อสอบที่คู่กัน — ผูกไว้แล้วใช้เลย ไม่งั้นลองเดา
+     กลุ่มที่ยังไม่เริ่มสอบ (เช่น ม.4/ม.5) จะไม่มีคู่ = เรื่องปกติ ไม่ใช่ error */
+  let xg = g.xg || '';
+  if (!xg && d) {
+    const guess = guessExamGroup(g);
+    if (d.groups.some(x => groupKey(x) === groupKey(guess))) xg = guess;
+  }
+
   if (!xg) {
-    toast('กลุ่มนี้ยังไม่ได้จับคู่กับกลุ่มฝั่งข้อสอบ — กด 🔗 จับคู่ทะเบียน ก่อน', 'error');
+    // ── กลุ่มยังไม่มีในระบบข้อสอบ → เพิ่มเฉพาะฝั่งเช็คชื่อ ──
+    const only = { id: newStudentId(g), name: name };
+    g.students.push(only);
+    if (input) input.value = '';
+    saveData(); autoSync();
+    renderStudentList(g); renderSidebar();
+    updateGroupMeta(g);
+    checkTeacherDataSize();
+    showModal({
+      title: `เพิ่ม "${name}" แล้ว`,
+      body: `
+        <div style="font-size:13px; line-height:1.9;">
+          <b>กลุ่มเช็คชื่อ</b> · ${_eh(g.name)}<br>
+          <b>PIN เช็คชื่อ (6 หลัก)</b> · <span style="font-family:var(--font-num); color:var(--orange); letter-spacing:.08em;">${getStudentPin(only)}</span>
+          <div style="font-size:11.5px; color:var(--gray-dark); margin-top:10px;">
+            กลุ่มนี้ยังไม่มีในระบบข้อสอบ (ยังไม่เคยมีคะแนนสอบ) จึงเพิ่มเฉพาะฝั่งเช็คชื่อ<br>
+            เมื่อไรที่เริ่มสอบและกรอกคะแนนแล้ว กด 🔗 จับคู่ทะเบียน ครั้งเดียว ระบบจะผูกให้ทั้งกลุ่ม
+          </div>
+        </div>`,
+      actions: [{ label: 'รับทราบ', class: 'btn--primary', onClick: closeModal }]
+    });
     return;
   }
 
@@ -6648,12 +6706,7 @@ async function addStudent(groupId) {
   autoSync();
   renderStudentList(g);
   renderSidebar();
-  const meta = document.querySelector('.group-header__meta');
-  if (meta) {
-    const c = sessionCounts(g);
-    meta.textContent = `${g.dayOfWeek} · ${g.startTime}–${g.endTime} น. · เรียนแล้ว ${c.done}/${c.teaching} คาบ` +
-                       `${c.holidays ? ' · หยุด ' + c.holidays : ''} · ${g.students.length} คน`;
-  }
+  updateGroupMeta(g);
   checkTeacherDataSize();
 
   showModal({
@@ -6690,6 +6743,19 @@ function removeStudent(groupId, studentId) {
     closeModal();
     toast(msg, 'success');
   };
+
+  /* กลุ่มที่ยังไม่มีในระบบข้อสอบ (ม.4/ม.5 ที่ยังไม่เริ่มสอบ) → ลบตรง ๆ ไม่ต้องถาม 3 ทาง */
+  if (!g.xg || !examRecOf(s, g)) {
+    showModal({
+      title: `ลบ "${s.name}"?`,
+      body: 'เอาออกจากกลุ่มเช็คชื่อนี้ · คนนี้ยังไม่มีในทะเบียนระบบข้อสอบ จึงไม่กระทบคะแนน',
+      actions: [
+        { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
+        { label: 'ลบ', class: 'btn--danger', onClick: () => { pullOut(); done(`ลบ "${s.name}" แล้ว`); } }
+      ]
+    });
+    return;
+  }
 
   showModal({
     title: `เอา "${s.name}" ออก`,
