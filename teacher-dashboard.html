@@ -4910,14 +4910,27 @@ function pasteYmd(y, mo, d) {
   return y + '-' + ('0' + mo).slice(-2) + '-' + ('0' + d).slice(-2);
 }
 
-function pasteFindStudent(d, name) {
+function pasteFindStudent(d, name, selGroup) {
   const norm = s => String(s || '').replace(/\s+/g, '').trim();
   const t = norm(name);
   let hit = d.students.find(s => norm(s.full) === t);
   if (hit) return hit;
+
   const bare = norm(String(name).replace(/\s*\([^)]*\)\s*$/, ''));
   const cands = d.students.filter(s => norm(s.name) === bare);
-  return cands.length === 1 ? cands[0] : null;
+  if (cands.length === 1) return cands[0];
+  // ชื่อซ้ำหลายกลุ่ม → ตัดสินด้วยกลุ่มที่ครูเลือกไว้
+  if (cands.length > 1 && selGroup) {
+    const inGrp = cands.filter(s => groupKey(s.group) === groupKey(selGroup));
+    if (inGrp.length === 1) return inGrp[0];
+  }
+  // Gemini มักต่อชื่อกลุ่มท้ายชื่อโดยไม่มีวงเล็บ เช่น "ใยไหม วันจันทร์" → ตัดออกแล้วหาในกลุ่มที่เลือก
+  if (selGroup) {
+    const base2 = norm(baseStudentName(String(name), selGroup));
+    const inGrp2 = d.students.filter(s => groupKey(s.group) === groupKey(selGroup) && norm(s.name) === base2);
+    if (inGrp2.length === 1) return inGrp2[0];
+  }
+  return null;
 }
 
 function pasteParse() {
@@ -4927,18 +4940,31 @@ function pasteParse() {
   const raw = (e.pasteText || '').trim();
   if (!raw) { toast('ยังไม่ได้วางข้อความ', 'error'); return; }
 
-  e.parsed = pasteSplitBlocks(raw).map(block => {
+  const blocks = pasteSplitBlocks(raw);
+  e.parsed = blocks.map(block => {
     const meta = pasteMeta(block);
     const st   = pasteStatuses(block);
-    const stu  = meta.name ? pasteFindStudent(d, meta.name) : null;
+    let stu    = meta.name ? pasteFindStudent(d, meta.name, e.group) : null;
+
+    /* ★ ยังหาไม่เจอ + วางมาคนเดียว → เชื่อช่องเลือกด้านบน (กลุ่ม + นักเรียน) ตามที่ครูสั่ง
+       ทำเฉพาะกรณีคนเดียวเท่านั้น เพราะถ้าวางหลายคนจะไม่รู้ว่าช่องด้านบนหมายถึงใคร */
+    let byDropdown = false;
+    if (!stu && blocks.length === 1 && e.full) {
+      stu = d.students.find(s => s.full === e.full) || null;
+      byDropdown = !!stu;
+    }
+
     const chapter = meta.chapter || e.chapter;
     const filled  = st.filter(Boolean).length;
     const score   = st.filter(v => v.indexOf('ถูก') !== -1).length;
+    const dt      = pasteDate(meta.date, e.date);
     return {
       rawName: meta.name || '(ไม่พบชื่อ)',
       full: stu ? stu.full : '', group: stu ? stu.group : '',
-      matched: !!stu, chapter: chapter, stdChapter: isStdChapter(chapter),
-      date: pasteDate(meta.date, e.date), st: st, filled: filled, score: score,
+      matched: !!stu, byDropdown: byDropdown,
+      chapter: chapter, stdChapter: isStdChapter(chapter),
+      date: dt, dateDiff: !!(e.date && dt !== e.date),
+      st: st, filled: filled, score: score,
       ok: !!stu && filled > 0
     };
   });
@@ -4967,10 +4993,14 @@ function pasteEntryHtml(d, e) {
             <tr style="border-top:1px solid var(--line); ${r.ok ? '' : 'background:var(--danger-bg);'}">
               <td style="padding:7px 8px;">${r.rawName}</td>
               <td style="padding:7px 8px;">${r.matched
-                  ? '<span style="color:var(--success);">✓ ' + r.full + '</span>'
+                  ? (r.byDropdown
+                      ? '<span style="color:var(--orange);" title="ชื่อในข้อความไม่ตรงทะเบียน — ใช้ชื่อจากช่อง &quot;นักเรียน&quot; ด้านบนแทน">↩︎ ' + r.full + ' <small>(จากช่องด้านบน)</small></span>'
+                      : '<span style="color:var(--success);">✓ ' + r.full + '</span>')
                   : '<span style="color:var(--danger);">✕ ไม่พบในทะเบียน</span>'}</td>
               <td style="padding:7px 8px;">${r.stdChapter ? r.chapter : '<span style="color:var(--danger);">⚠️ ' + r.chapter + '</span>'}</td>
-              <td style="padding:7px 8px; font-family:var(--font-num);">${r.date}</td>
+              <td style="padding:7px 8px; font-family:var(--font-num);">${r.dateDiff
+                  ? '<span style="color:var(--orange);" title="วันที่ในข้อความไม่ตรงกับช่อง &quot;วันที่สอบ&quot; ด้านบน — ระบบใช้วันที่ในข้อความ">⚠︎ ' + r.date + '</span>'
+                  : r.date}</td>
               <td style="padding:7px 8px; text-align:right; font-family:var(--font-num); font-weight:700;">${r.score}/30</td>
               <td style="padding:7px 8px; text-align:right; font-family:var(--font-num); color:${r.filled === 30 ? 'var(--gray-dark)' : 'var(--danger)'};">${r.filled}/30</td>
             </tr>`).join('')}
@@ -4978,6 +5008,8 @@ function pasteEntryHtml(d, e) {
         </table>
       </div>
       ${badChapter ? '<div style="margin-top:10px; font-size:12px; color:var(--danger);">⚠️ มีชื่อบทที่ไม่ตรงมาตรฐาน — บันทึกได้ แต่นักเรียนจะกรองบทนั้นไม่เจอ</div>' : ''}
+      ${rows.some(r => r.byDropdown) ? '<div style="margin-top:10px; font-size:12px; color:var(--orange);">↩︎ ชื่อในข้อความไม่ตรงทะเบียน — ใช้ชื่อจากช่อง "นักเรียน" ด้านบนแทน · ตรวจให้แน่ใจว่าเป็นคนเดียวกันก่อนบันทึก</div>' : ''}
+      ${rows.some(r => r.dateDiff) ? '<div style="margin-top:6px; font-size:12px; color:var(--orange);">⚠︎ วันที่ในข้อความไม่ตรงกับช่อง "วันที่สอบ" ด้านบน — ระบบจะบันทึกตามวันที่ในข้อความ</div>' : ''}
       <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:14px;">
         <input type="text" id="pasteNote" placeholder="หมายเหตุ (ไม่บังคับ — ใช้กับทุกคน)"
                style="flex:1; min-width:200px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; outline:none; font-size:14px;">
