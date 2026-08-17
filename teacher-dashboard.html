@@ -2095,12 +2095,18 @@ function selectGroup(id) {
    =========================================================== */
 
 /* Convert "16.30" → minutes from midnight (990) */
+/* แปลงเวลาเป็นนาทีจากเที่ยงคืน
+   ⚠️ ต้องทนค่าที่ Google Sheet แปลงเป็นตัวเลข ("16.30" → 16.3) ไม่งั้นคลาด 27 นาที
+      เติมศูนย์ให้ครบ 2 หลักเสมอ: "3" → 30 · "05" → 05  (ตรงกับ timeStrToMin ใน Code.gs) */
 function timeStrToMinutes(t) {
-  if (!t) return 0;
-  const parts = String(t).split('.');
-  const h = parseInt(parts[0]) || 0;
-  const m = parseInt(parts[1] || '0') || 0;
-  return h * 60 + m;
+  if (t === null || t === undefined || t === '') return 0;
+  if (t instanceof Date) return t.getHours() * 60 + t.getMinutes();
+  const s = String(t).trim().replace(/[:：]/g, '.');
+  const m = s.match(/^(\d{1,2})(?:\.(\d{1,2}))?$/);
+  if (!m) return 0;
+  const h = parseInt(m[1], 10) || 0;
+  const mn = m[2] ? (parseInt((m[2] + '0').slice(0, 2), 10) || 0) : 0;
+  return h * 60 + mn;
 }
 function minutesToTimeStr(mins) {
   const h = Math.floor(mins / 60);
