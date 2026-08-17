@@ -355,7 +355,7 @@ const FACE_CONFIG = {
    STATE
    =========================================================== */
 const state = {
-  step: 'home',         // 'home' | 'code' | 'pin' | 'success' | 'leave_pin' | 'leave_form' | 'leave_success'
+  step: 'home',         // 'home' | 'code' | 'pin' | 'success' | 'leave_pin' | 'leave_form' | 'leave_success' | 'changepin' | 'changepin_done'
   checkinCode: '',      // 6 หลักที่ครูให้มา
   pin: '',              // PIN 6 หลักของนักเรียน
   sessionInfo: null,    // { groupId, groupName, sessionNo, sessionDate, startTime, endTime }
@@ -1074,6 +1074,99 @@ function cancelFaceCheckin() {
 /* ===========================================================
    HOME — เลือกโหมด
    =========================================================== */
+/* ───────────────────────────────────────────────────────────
+   เปลี่ยน PIN 6 หลักของตัวเอง
+   ยืนยันด้วย PIN เดิม · ห้ามซ้ำกับใครทั้งระบบ · ห้ามเลขซ้ำล้วน/เรียง
+   ─────────────────────────────────────────────────────────── */
+function pinWeakReason(pin) {
+  const s = String(pin);
+  if (/^(\d)\1{5}$/.test(s)) return 'ห้ามใช้เลขซ้ำกันทั้งหมด (เช่น 111111)';
+  let up = true, down = true;
+  for (let i = 1; i < s.length; i++) {
+    if (Number(s[i]) !== Number(s[i - 1]) + 1) up = false;
+    if (Number(s[i]) !== Number(s[i - 1]) - 1) down = false;
+  }
+  if (up || down) return 'ห้ามใช้เลขเรียงกัน (เช่น 123456 หรือ 654321)';
+  return '';
+}
+
+function renderChangePinStep() {
+  state.step = 'changepin';
+  const body = document.getElementById('appBody');
+  body.innerHTML = `
+    <div class="card">
+      <span class="card__label">เปลี่ยน PIN</span>
+      <h2 class="card__title">ตั้ง PIN 6 หลักของตัวเอง</h2>
+      <p class="card__hint">PIN นี้ใช้เช็คชื่อและแจ้งลา — อย่าบอกใคร</p>
+
+      <div style="font-size:13px; font-weight:600; margin:16px 0 6px;">PIN เดิม</div>
+      <input class="note-section__input" id="cpOld" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••">
+
+      <div style="font-size:13px; font-weight:600; margin:14px 0 6px;">PIN ใหม่</div>
+      <input class="note-section__input" id="cpNew" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="ตัวเลข 6 หลัก">
+
+      <div style="font-size:13px; font-weight:600; margin:14px 0 6px;">ยืนยัน PIN ใหม่</div>
+      <input class="note-section__input" id="cpNew2" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="พิมพ์ซ้ำอีกครั้ง">
+
+      <div style="font-size:11.5px; color:var(--gray-dark); margin-top:10px; line-height:1.7;">
+        • ตัวเลข 6 หลัก ห้ามซ้ำกับเพื่อนคนอื่น<br>
+        • ห้ามเลขซ้ำล้วน (111111) หรือเลขเรียง (123456)<br>
+        • ลืม PIN → แจ้งครูให้ตั้งใหม่ได้
+      </div>
+
+      <div class="status-msg" id="cpStatus"></div>
+      <button class="btn btn--primary" style="width:100%; margin-top:16px;" onclick="submitChangePin()">บันทึก PIN ใหม่</button>
+      <button class="btn btn--ghost btn--sm" style="width:100%; margin-top:8px;" onclick="renderHome()">← กลับ</button>
+    </div>
+  `;
+  setTimeout(() => { const el = document.getElementById('cpOld'); if (el) el.focus(); }, 100);
+}
+
+async function submitChangePin() {
+  const st = document.getElementById('cpStatus');
+  const show = (msg, cls) => { st.textContent = msg; st.className = 'status-msg show ' + cls; };
+  const oldPin = (document.getElementById('cpOld').value || '').trim();
+  const newPin = (document.getElementById('cpNew').value || '').trim();
+  const newPin2 = (document.getElementById('cpNew2').value || '').trim();
+
+  if (!/^\d{6}$/.test(oldPin))  { show('กรอก PIN เดิมให้ครบ 6 หลัก', 'error'); return; }
+  if (!/^\d{6}$/.test(newPin))  { show('PIN ใหม่ต้องเป็นตัวเลข 6 หลัก', 'error'); return; }
+  if (newPin !== newPin2)        { show('ยืนยัน PIN ใหม่ไม่ตรงกัน', 'error'); return; }
+  if (newPin === oldPin)         { show('PIN ใหม่ซ้ำกับ PIN เดิม', 'error'); return; }
+  const weak = pinWeakReason(newPin);
+  if (weak)                      { show(weak, 'error'); return; }
+
+  show('กำลังบันทึก...', 'info');
+  if (!SCRIPT_URL) { setTimeout(() => show('โหมดทดลอง — ยังไม่ได้เชื่อมระบบจริง', 'error'), 400); return; }
+
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'changeMyPin', pin: oldPin, newPin: newPin })
+    });
+    const r = await res.json();
+    if (!r.ok) { show(r.error || 'บันทึกไม่สำเร็จ', 'error'); return; }
+    renderChangePinSuccess(r);
+  } catch(e) { show('เชื่อมต่อไม่ได้: ' + e.message, 'error'); }
+}
+
+function renderChangePinSuccess(r) {
+  state.step = 'changepin_done';
+  document.getElementById('appBody').innerHTML = `
+    <div class="card success-screen">
+      <div class="success-icon">✓</div>
+      <div class="success-name">${r.student.name}</div>
+      <div class="success-status present">เปลี่ยน PIN แล้ว</div>
+      <div class="success-time">${r.group.name}</div>
+      <div style="margin:16px 0; font-family:var(--font-num, monospace); font-size:26px; letter-spacing:.18em;">${r.newPin}</div>
+      <div style="background:#F5F3EF; border-radius:10px; padding:10px 14px; font-size:12.5px; line-height:1.7;">
+        จำ PIN ใหม่ไว้ให้ดี — ใช้ทั้งเช็คชื่อและแจ้งลา<br>ลืมแล้วต้องขอครูตั้งใหม่
+      </div>
+      <button class="btn btn--primary" style="width:100%; margin-top:16px;" onclick="renderHome()">เสร็จสิ้น</button>
+    </div>
+  `;
+}
+
 function renderHome() {
   state.step = 'home';
   const body = document.getElementById('appBody');
@@ -1088,6 +1181,9 @@ function renderHome() {
         </button>
         <button class="btn btn--leave" onclick="startLeaveFlow()">
           🟦 แจ้งลา / แจ้งสายล่วงหน้า
+        </button>
+        <button class="btn btn--ghost" onclick="renderChangePinStep()">
+          🔑 เปลี่ยน PIN ของตัวเอง
         </button>
       </div>
       <p style="font-size:12px; color:var(--gray-dark); text-align:center; margin-top:14px; line-height:1.6;">

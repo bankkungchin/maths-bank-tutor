@@ -2187,14 +2187,21 @@ function setStudentPin(groupId, studentId, newPin) {
     toast('PIN ต้องเป็นตัวเลข 6 หลัก', 'error');
     return false;
   }
-  // ตรวตไม่ให้ซ้ำกับคนอื่นในกลุ่ม
-  for (const other of g.students) {
-    if (other.id !== studentId && getStudentPin(other) === newPin) {
-      toast(`PIN ซ้ำกับ "${other.name}" — กรุณาใช้ PIN อื่น`, 'error');
-      return false;
+  // ห้ามเลขซ้ำล้วน / เลขเรียง — PIN นี้เป็นกุญแจเช็คชื่อ เดาง่ายไม่ได้
+  const weak = pinWeakReason(newPin);
+  if (weak) { toast(weak, 'error'); return false; }
+  /* ★ ตรวจซ้ำ "ทั้งระบบ" ไม่ใช่แค่ในกลุ่ม —
+     leaveOptions/changeMyPin ค้น PIN ข้ามทุกกลุ่ม ถ้าซ้ำข้ามกลุ่มจะแจ้งลาไม่ได้ทั้งคู่ */
+  for (const og of state.data.groups) {
+    for (const other of (og.students || [])) {
+      if (other.id !== studentId && getStudentPin(other) === newPin) {
+        toast(`PIN ซ้ำกับ "${other.name}" (${og.name}) — กรุณาใช้ PIN อื่น`, 'error');
+        return false;
+      }
     }
   }
   s.customPin = newPin;
+  s.pinAt = new Date().toISOString();   // ใครตั้งทีหลังชนะตอน sync (นักเรียนตั้งเองได้ด้วย)
   saveData();
   autoSync();
   toast(`ตั้ง PIN ของ "${s.name}" เป็น ${newPin} แล้ว`, 'success');
@@ -2202,6 +2209,19 @@ function setStudentPin(groupId, studentId, newPin) {
 }
 
 /* Generate demo PIN for student — based on student.id hash (default) */
+/* PIN อ่อนแอ — ต้องตรงกับ pinIsWeak_() ใน Code.gs และ pinWeakReason() ใน checkin.html */
+function pinWeakReason(pin) {
+  const s = String(pin);
+  if (/^(\d)\1{5}$/.test(s)) return 'ห้ามใช้เลขซ้ำกันทั้งหมด (เช่น 111111)';
+  let up = true, down = true;
+  for (let i = 1; i < s.length; i++) {
+    if (Number(s[i]) !== Number(s[i - 1]) + 1) up = false;
+    if (Number(s[i]) !== Number(s[i - 1]) - 1) down = false;
+  }
+  if (up || down) return 'ห้ามใช้เลขเรียงกัน (เช่น 123456 หรือ 654321)';
+  return '';
+}
+
 function generateStudentPin(studentId) {
   // แปลง student.id เป็นเลข 6 หลัก
   let hash = 0;
