@@ -1863,6 +1863,12 @@ function renderMain() {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
           สร้างตารางคาบใหม่
         </button>
+        <button class="btn btn--ghost btn--sm" onclick="showArchiveGroupModal('${g.id}')" title="เก็บตารางคาบ + ประวัติเช็คชื่อทั้งหมดเข้าคลัง">
+          📦 จบคอร์ส · เก็บเข้าคลัง
+        </button>
+        <button class="btn btn--ghost btn--sm" onclick="showArchiveListModal()" title="ดูกลุ่มที่เก็บเข้าคลังไว้ / กู้กลับ">
+          🗄 คลังคอร์สเก่า
+        </button>
         <button class="btn btn--danger btn--sm" onclick="confirmDeleteGroup('${g.id}')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           ลบกลุ่ม
@@ -4931,6 +4937,14 @@ function pasteDate(s, fallback) {
   if (m) { const a = +m[1], b = +m[2]; return a > 12 ? pasteYmd(+m[3], b, a) : pasteYmd(+m[3], a, b); }
   return fallback;
 }
+/* YYYY-MM-DD → M/D/YYYY · ถ้าค่าเสีย/ว่าง ใช้วันนี้แทน (กันแถววันที่ 1/1/1970) */
+function entryDateMDY(v) {
+  const m = String(v || '').trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m && +m[1] >= 2000) return Number(m[2]) + '/' + Number(m[3]) + '/' + m[1];
+  const t = todayStr().split('-');
+  return Number(t[1]) + '/' + Number(t[2]) + '/' + t[0];
+}
+
 function pasteYmd(y, mo, d) {
   if (y > 2400) y -= 543;
   return y + '-' + ('0' + mo).slice(-2) + '-' + ('0' + d).slice(-2);
@@ -5078,14 +5092,13 @@ async function pasteSaveAll() {
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     if (prog) prog.innerHTML = 'กำลังบันทึก ' + (i + 1) + '/' + rows.length + ' — ' + r.rawName + ' …';
-    const [y, m, dd] = r.date.split('-');
     try {
       const res = await fetch(SCRIPT_URL, {
         method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           token: TEACHER_TOKEN, action: 'saveExamScore',
           rec: { full: r.full, group: r.group, chapter: r.chapter,
-                 date: Number(m) + '/' + Number(dd) + '/' + y, note: note, statuses: r.st }
+                 date: entryDateMDY(r.date), note: note, statuses: r.st }
         })
       });
       const j = await res.json();
@@ -5143,10 +5156,9 @@ async function saveEntry(next) {
   if (n.blank > 0 && !confirm(`ยังไม่ได้ระบุ ${n.blank} ข้อ (จะถูกบันทึกเป็น "ไม่ทำ")\nบันทึกเลยไหม`)) return;
 
   const note = document.getElementById('entryNote');
-  const [y, m, dd] = e.date.split('-');
   const rec = {
     full: e.full, group: e.group, chapter: e.chapter,
-    date: `${Number(m)}/${Number(dd)}/${y}`,
+    date: entryDateMDY(e.date),
     note: note ? note.value.trim() : '',
     statuses: e.st.slice()
   };
@@ -6381,12 +6393,110 @@ function regenerateSessions(id) {
   });
 }
 
+/* ───────────────────────────────────────────────────────────
+   📦 คลังคอร์สเก่า — เก็บ/ดู/กู้กลุ่มที่จบคอร์ส
+   ─────────────────────────────────────────────────────────── */
+async function archiveCall(payload) {
+  if (!SCRIPT_URL) { toast('ยังไม่ได้เชื่อม Apps Script', 'error'); return null; }
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(Object.assign({ token: TEACHER_TOKEN }, payload))
+    });
+    const r = await res.json();
+    if (!r.ok) { toast('ไม่สำเร็จ: ' + (r.error || ''), 'error'); return null; }
+    return r;
+  } catch(e) { toast('เชื่อมต่อไม่ได้: ' + e.message, 'error'); return null; }
+}
+
+function showArchiveGroupModal(id) {
+  const g = state.data.groups.find(x => x.id === id);
+  if (!g) return;
+  const c = sessionCounts(g);
+  const size = (() => { try { return JSON.stringify(state.data).length; } catch(e) { return 0; } })();
+  showModal({
+    title: `📦 จบคอร์ส "${_eh(g.name)}"`,
+    body: `
+      <div style="font-size:13px; line-height:1.85;">
+        เก็บ <b>ตารางคาบ ${(g.sessions || []).length} คาบ</b> และ <b>ประวัติเช็คชื่อของ ${g.students.length} คน</b> เข้าคลังถาวร<br>
+        <span style="color:var(--gray-dark); font-size:12px;">เรียนแล้ว ${c.done}/${c.teaching} คาบ · เก็บลงชีต <code>attendance_archive</code> (อ่านง่าย) + <code>groups_archive</code> (กู้กลับได้)</span>
+        <hr style="border:none; border-top:1px solid var(--line); margin:12px 0;">
+        <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer;">
+          <input type="checkbox" id="arcRemove" checked style="margin-top:3px;">
+          <span><b>เอากลุ่มออกจากระบบด้วย</b> (แนะนำเมื่อจบคอร์สจริง)<br>
+          <span style="font-size:11.5px; color:var(--gray-dark);">คืนพื้นที่ให้ <code>teacher_data</code> ซึ่งจำกัด 50,000 ตัวอักษร · ตอนนี้ใช้ไป ${size.toLocaleString()}<br>
+          ไม่ติ๊ก = เก็บสำเนาไว้เฉย ๆ ยังใช้กลุ่มต่อได้</span></span>
+        </label>
+        <div style="font-size:11.5px; color:var(--gray-dark); margin-top:10px;">
+          กู้กลับเข้าระบบได้ทุกเมื่อจากปุ่ม 🗄 คลังคอร์สเก่า
+        </div>
+      </div>
+      <div id="arcProgress" style="font-size:12px; color:var(--orange); margin-top:10px;"></div>`,
+    actions: [
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
+      { label: 'เก็บเข้าคลัง', class: 'btn--primary', onClick: async () => {
+        const remove = !!(document.getElementById('arcRemove') || {}).checked;
+        const prog = document.getElementById('arcProgress');
+        if (prog) prog.textContent = 'กำลังอัปโหลดข้อมูลล่าสุดขึ้น Sheet...';
+        await syncToSheet(true);                       // ดันของในเครื่องขึ้นก่อน กันเก็บข้อมูลเก่า
+        if (prog) prog.textContent = 'กำลังเก็บเข้าคลัง...';
+        const r = await archiveCall({ action: 'archiveGroup', groupId: id, removeFromActive: remove });
+        if (!r) return;
+        closeModal();
+        if (r.removed) await loadFromSheet();          // ดึงข้อมูลใหม่ลงเครื่อง กันเครื่องดันกลุ่มเก่ากลับขึ้นไป
+        renderAll();
+        toast(`เก็บ "${r.groupName}" เข้าคลังแล้ว · ${r.rows} แถว` +
+              (r.removed ? ` · คืนพื้นที่ ${r.freed.toLocaleString()} ตัวอักษร (เหลือใช้ ${r.sizeNow.toLocaleString()})` : ''), 'success');
+      }}
+    ]
+  });
+}
+
+async function showArchiveListModal() {
+  toast('กำลังโหลดคลัง...', 'success');
+  const r = await archiveCall({ action: 'listArchivedGroups' });
+  if (!r) return;
+  const rows = (r.groups || []).map(x => `
+    <div style="display:flex; align-items:center; gap:8px; padding:9px 11px; border:1px solid var(--line); border-radius:10px; margin-bottom:7px; font-size:13px;">
+      <div style="flex:1; min-width:0;">
+        <b>${_eh(x.groupName)}</b> <span style="color:var(--gray-dark); font-size:11.5px;">${_eh(x.level)} · ${_eh(x.time)} น.</span>
+        <div style="font-size:11.5px; color:var(--gray-dark);">
+          ${x.students} คน · ${x.sessions} คาบ${x.firstDate ? ' · ' + _eh(x.firstDate) + ' → ' + _eh(x.lastDate) : ''} · เก็บเมื่อ ${_eh(x.archivedAt)}
+        </div>
+      </div>
+      <button class="btn btn--ghost btn--xs" onclick="restoreArchivedGroup('${_ea(x.groupId)}')">↩︎ กู้กลับ</button>
+    </div>`).join('');
+  showModal({
+    title: `🗄 คลังคอร์สเก่า (${(r.groups || []).length})`,
+    body: `
+      <div style="font-size:12px; color:var(--gray-dark); margin-bottom:12px; line-height:1.7;">
+        ประวัติแบบอ่านง่ายอยู่ในชีต <code>attendance_archive</code> (1 แถว = 1 คน/คาบ) ค้นและทำรายงานต่อได้<br>
+        "กู้กลับ" = เอากลุ่มกลับเข้าระบบพร้อมประวัติเช็คชื่อครบเหมือนเดิม
+      </div>
+      <div style="max-height:340px; overflow-y:auto;">${rows || '<div style="font-size:13px; padding:10px; color:var(--gray-dark);">ยังไม่มีกลุ่มในคลัง</div>'}</div>`,
+    actions: [{ label: 'ปิด', class: 'btn--ghost', onClick: closeModal }]
+  });
+}
+
+async function restoreArchivedGroup(groupId) {
+  if (!confirm('กู้กลุ่มนี้กลับเข้าระบบ?\n\nตารางคาบและประวัติเช็คชื่อจะกลับมาครบเหมือนเดิม')) return;
+  await syncToSheet(true);
+  const r = await archiveCall({ action: 'restoreArchivedGroup', groupId: groupId });
+  if (!r) return;
+  closeModal();
+  await loadFromSheet();
+  renderAll();
+  toast(`กู้ "${r.groupName}" กลับเข้าระบบแล้ว · teacher_data ใช้ไป ${r.sizeNow.toLocaleString()} ตัวอักษร`, 'success');
+}
+
 function confirmDeleteGroup(id) {
   const g = state.data.groups.find(x => x.id === id);
   if (!g) return;
   showModal({
     title: `ลบกลุ่ม "${g.name}"?`,
-    body: 'จะลบกลุ่มพร้อมรายชื่อนักเรียนและตารางคาบทั้งหมด · ไม่สามารถย้อนกลับได้',
+    body: 'จะลบกลุ่มพร้อมรายชื่อนักเรียนและตารางคาบทั้งหมด · <b>ประวัติเช็คชื่อหายถาวร กู้ไม่ได้</b>' +
+          '<div style="margin-top:10px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:12.5px; line-height:1.7;">' +
+          '📦 ถ้าเป็นการ<b>จบคอร์ส</b> ให้กด "จบคอร์ส · เก็บเข้าคลัง" แทน — ได้ผลเหมือนกัน (กลุ่มหายจากระบบ คืนพื้นที่) แต่ประวัติยังอยู่ครบและกู้กลับได้</div>',
     actions: [
       { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
       { label: 'ลบกลุ่ม', class: 'btn--danger', onClick: () => {
