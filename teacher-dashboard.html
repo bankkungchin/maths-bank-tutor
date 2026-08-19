@@ -7253,7 +7253,7 @@ async function loadFromSheet() {
   }
   toast('กำลังดาวน์โหลด...', 'success');
   try {
-    const url = `${SCRIPT_URL}?action=loadData&t=${Date.now()}`;
+    const url = `${SCRIPT_URL}?action=loadData&token=${encodeURIComponent(TEACHER_TOKEN)}&t=${Date.now()}`;
     const res = await fetch(url);
     const result = await res.json();
     if (result.ok && result.data) {
@@ -7288,7 +7288,7 @@ async function pullAttendanceFromSheet(silent) {
   if (!SCRIPT_URL || state.isDemoData) return 0;
   _attPullAt = Date.now();
   try {
-    const res = await fetch(`${SCRIPT_URL}?action=loadData&t=${Date.now()}`);
+    const res = await fetch(`${SCRIPT_URL}?action=loadData&token=${encodeURIComponent(TEACHER_TOKEN)}&t=${Date.now()}`);
     const result = await res.json();
     if (!result.ok || !result.data || !result.data.groups) {
       if (!silent) toast('ดึงข้อมูลไม่สำเร็จ: ' + (result.error || ''), 'error');
