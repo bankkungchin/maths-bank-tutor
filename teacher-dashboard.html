@@ -1282,7 +1282,9 @@ const FACE_STORE_KEY = 'mathsBankFaceData';
    EXAM SCORES CONFIG — อ่านคะแนนจากระบบข้อสอบ (answer-sheet)
    =========================================================== */
 const EXAM_SHEET_ID = '1U49c1_y3QtTa6LP8rV4Z1dBM5gxKrdpxp5nY1M6ffnU';
-const EXAM_API_KEY  = 'AIzaSyAW7uJtajKOWhfg_Pwc6-NK7siuCVyVpYs';
+/* ★ 21 ส.ค. 69 — ถอด API key ออก ไฟล์นี้เป็น public บน GitHub Pages
+   หน้าครูอ่านคะแนนผ่าน Apps Script (action=examBatch) ซึ่งตรวจ token ให้ก่อน
+   ห้ามใส่คีย์กลับมาที่นี่อีกเด็ดขาด */
 
 /* ===========================================================
    HELPERS — Date formatting (Thai Buddhist calendar)
@@ -4104,14 +4106,20 @@ let _rosterCache = [];
 
 async function fetchExamData(force) {
   if (state.examData && !force) return state.examData;
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${EXAM_SHEET_ID}/values:batchGet` +
-    `?ranges=${encodeURIComponent('students!A2:G')}&ranges=${encodeURIComponent('results!A2:AR')}` +
-    (state.showInactive ? `&ranges=${encodeURIComponent('results_archive!A2:AR')}` +
-                          `&ranges=${encodeURIComponent('students_archive!A2:G')}` : '') +
-    `&key=${EXAM_API_KEY}&t=${Date.now()}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('อ่าน Google Sheet ไม่ได้ (HTTP ' + res.status + ')');
+  /* ★ 21 ส.ค. 69 — เดิมยิง Sheets API ตรง ๆ ด้วย API key ที่ฝังในไฟล์นี้
+     ตอนนี้ผ่าน Apps Script แทน (ตรวจ token ฝั่งเซิร์ฟเวอร์)
+     คำตอบมีรูปแบบ valueRanges[].values เหมือน batchGet เป๊ะ ๆ โค้ดข้างล่างเลยไม่ต้องแก้ */
+  const res = await fetch(SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'examBatch', token: teacherToken(), showInactive: !!state.showInactive })
+  });
+  if (!res.ok) throw new Error('เชื่อมต่อระบบไม่ได้ (HTTP ' + res.status + ')');
   const json = await res.json();
+  if (!json.ok) {
+    if (json.needLogin) { authFailed(json); }
+    throw new Error(json.error || 'อ่านข้อมูลไม่ได้');
+  }
   const stuRows = (json.valueRanges[0].values || []);
   let resRows = (json.valueRanges[1].values || []);
   let arcStuRows = [];
