@@ -1033,7 +1033,7 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
     <div class="login-logo">M<span>B</span></div>
     <span class="login-eyebrow">Teacher Access</span>
     <h1 class="login-title">Teacher Dashboard</h1>
-    <p class="login-sub">กรอกรหัส PIN 6 หลักเพื่อเข้าใช้งาน</p>
+    <p class="login-sub">กรอกรหัส PIN 6 หลักเพื่อเข้าใช้งาน<br><small style="color:var(--gray-soft);">ตรวจที่เซิร์ฟเวอร์ · ใส่ผิด 5 ครั้งล็อก 15 นาที</small></p>
 
     <div class="pin-display" id="pinDisplay">
       <div class="pin-dot"></div>
@@ -1168,8 +1168,13 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
    CONFIG
    =========================================================== */
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzh0M26XbDfjrVuUjUgn1Dr-Z209ms9UibPAxfd-YiB7oHnD-1ubzc3PNtadO7tULjm/exec';
-const TEACHER_TOKEN = 'Bank2569-Bankying1510@';  // ต้องตรงกับใน apps-script-complete.gs
-const DEFAULT_PIN = '123456';
+/* ★ 19 ส.ค. 2569 — ไม่ฝังรหัสลับ (TEACHER_TOKEN ตัวเดิม) ในไฟล์นี้อีกแล้ว
+   ไฟล์นี้อยู่บน GitHub Pages ที่ใครก็ View Source ได้
+   ตอนนี้ใช้ระบบ login จริง: ยิงรหัสไปตรวจฝั่ง Apps Script → ได้ session token
+   อายุ 12 ชม. เก็บใน sessionStorage (ปิดแท็บก็หาย) แล้วใช้ token นั้นแทน */
+function teacherToken() {
+  try { return sessionStorage.getItem(SESSION_KEY) || ''; } catch (e) { return ''; }
+}
 const STORAGE_KEY = 'mathsBankTeacherData';
 const PIN_KEY = 'mathsBankTeacherPin';
 const LOCK_KEY = 'mathsBankTeacherLock';
@@ -1512,14 +1517,12 @@ function getLock() {
 function setLock(lock) {
   localStorage.setItem(LOCK_KEY, JSON.stringify(lock));
 }
-function getPin() {
-  return localStorage.getItem(PIN_KEY) || DEFAULT_PIN;
-}
+/* เลิกใช้ — รหัสผ่านอยู่ฝั่งเซิร์ฟเวอร์แล้ว (Script Properties · เก็บเป็น hash) */
 function setPin(pin) {
   localStorage.setItem(PIN_KEY, pin);
 }
 
-function tryLogin(pin) {
+async function tryLogin(pin) {
   const lock = getLock();
   const now = Date.now();
   if (lock.lockedUntil > now) {
@@ -1527,27 +1530,37 @@ function tryLogin(pin) {
     showLoginWarn(`ระบบล็อค กรุณารอ ${mins} นาที`);
     return false;
   }
-  if (pin === getPin()) {
-    setLock({ attempts: 0, lockedUntil: 0 });
-    sessionStorage.setItem(SESSION_KEY, '1');
-    showApp();
-    return true;
-  } else {
-    lock.attempts++;
-    if (lock.attempts >= MAX_ATTEMPTS) {
-      lock.lockedUntil = now + LOCK_MINUTES * 60000;
-      lock.attempts = 0;
-      setLock(lock);
-      showLoginWarn(`กรอกผิด 5 ครั้ง → ล็อค ${LOCK_MINUTES} นาที`);
-      shakePin();
-    } else {
-      setLock(lock);
-      const left = MAX_ATTEMPTS - lock.attempts;
-      showLoginWarn(`PIN ไม่ถูกต้อง · เหลือ ${left} ครั้ง`);
-      shakePin();
-    }
+  if (!SCRIPT_URL) { showLoginWarn('ยังไม่ได้เชื่อม Apps Script'); return false; }
+
+  showLoginWarn('กำลังตรวจสอบ...');
+  let r;
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'teacherLogin', pin: pin })
+    });
+    r = await res.json();
+  } catch (e) {
+    showLoginWarn('เชื่อมต่อไม่ได้: ' + e.message);
     return false;
   }
+
+  if (r && r.ok) {
+    setLock({ attempts: 0, lockedUntil: 0 });
+    try { sessionStorage.setItem(SESSION_KEY, r.session); } catch (e) {}
+    document.getElementById('loginWarn').classList.remove('show');
+    showApp();
+    return true;
+  }
+
+  if (r && r.needSetup) {
+    showLoginWarn('ยังไม่ได้ตั้งรหัสผ่าน — เปิด Apps Script แล้วรัน setupMyPin()');
+    return false;
+  }
+  // เซิร์ฟเวอร์นับครั้งผิดให้เองแล้ว (กันเดารัวข้ามเครื่อง) — ฝั่งนี้แค่แสดงผล
+  showLoginWarn((r && r.error) || 'รหัสไม่ถูกต้อง');
+  shakePin();
+  return false;
 }
 
 function showLoginWarn(msg) {
@@ -1583,8 +1596,8 @@ function handleKeypad(key) {
   } else if (state.pin.length < 6) {
     state.pin += key;
     if (state.pin.length === 6) {
-      setTimeout(() => {
-        const ok = tryLogin(state.pin);
+      setTimeout(async () => {
+        const ok = await tryLogin(state.pin);
         if (!ok) state.pin = '';
         renderPinDisplay();
       }, 150);
@@ -1634,6 +1647,13 @@ function showApp() {
 }
 
 function logout() {
+  const tok = teacherToken();
+  if (tok && SCRIPT_URL) {          // บอกเซิร์ฟเวอร์ให้ยกเลิก session ด้วย (ไม่ต้องรอผล)
+    try {
+      fetch(SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'teacherLogout', token: tok }) });
+    } catch (e) {}
+  }
   sessionStorage.removeItem(SESSION_KEY);
   state.pin = '';
   renderPinDisplay();
@@ -3102,7 +3122,7 @@ async function startOnlineCheckin(groupId, sessionNo) {
     const res = await fetch(SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'startCheckin', token: TEACHER_TOKEN, groupId: groupId, sessionNo: sessionNo })
+      body: JSON.stringify({ action: 'startCheckin', token: teacherToken(), groupId: groupId, sessionNo: sessionNo })
     });
     const result = await res.json();
     if (result.ok) {
@@ -3537,7 +3557,7 @@ function copyCheckinInfo(url, code) {
 async function fetchLeaveMapForSession(groupId, sessionNo) {
   if (!SCRIPT_URL) return {};
   try {
-    const url = `${SCRIPT_URL}?action=listLeave&token=${encodeURIComponent(TEACHER_TOKEN)}&t=${Date.now()}`;
+    const url = `${SCRIPT_URL}?action=listLeave&token=${encodeURIComponent(teacherToken())}&t=${Date.now()}`;
     const res = await fetch(url);
     const r = await res.json();
     if (!r.ok) return {};
@@ -3581,7 +3601,7 @@ async function endOnlineCheckin() {
           const res = await fetch(SCRIPT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'endCheckin', token: TEACHER_TOKEN, checkinCode: state.onlineCheckin.code })
+            body: JSON.stringify({ action: 'endCheckin', token: teacherToken(), checkinCode: state.onlineCheckin.code })
           });
           const result = await res.json();
           if (result.ok) {
@@ -3620,7 +3640,7 @@ function cancelOnlineCheckin() {
           await fetch(SCRIPT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'endCheckin', token: TEACHER_TOKEN, checkinCode: state.onlineCheckin.code })
+            body: JSON.stringify({ action: 'endCheckin', token: teacherToken(), checkinCode: state.onlineCheckin.code })
           });
         } catch(e) {}
         state.onlineCheckin.code = null;
@@ -4677,15 +4697,24 @@ function showExamDetailByIdx(idx) {
 }
 
 /* ---------- จัดการรายชื่อ/กลุ่ม (เขียนกลับ sheet ผ่าน Apps Script) ---------- */
+/* เซิร์ฟเวอร์ตอบว่าหมดเวลาใช้งาน → เด้งกลับหน้า login ทันที */
+function authFailed(result) {
+  if (!result || !result.needLogin) return false;
+  toast('หมดเวลาใช้งาน — กรุณาเข้าสู่ระบบใหม่', 'error');
+  logout();
+  return true;
+}
+
 async function examWrite(payload) {
   if (!SCRIPT_URL) { toast('ยังไม่ได้เชื่อม Apps Script', 'error'); return null; }
   toast('กำลังบันทึกลง Google Sheet...', 'success');
   try {
     const res = await fetch(SCRIPT_URL, {
       method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(Object.assign({ token: TEACHER_TOKEN }, payload))
+      body: JSON.stringify(Object.assign({ token: teacherToken() }, payload))
     });
     const result = await res.json();
+    if (authFailed(result)) return null;
     if (!result.ok) { toast('ไม่สำเร็จ: ' + (result.error || ''), 'error'); return null; }
     return result;
   } catch(e) { toast('เชื่อมต่อไม่ได้: ' + e.message, 'error'); return null; }
@@ -5096,7 +5125,7 @@ async function pasteSaveAll() {
       const res = await fetch(SCRIPT_URL, {
         method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
-          token: TEACHER_TOKEN, action: 'saveExamScore',
+          token: teacherToken(), action: 'saveExamScore',
           rec: { full: r.full, group: r.group, chapter: r.chapter,
                  date: entryDateMDY(r.date), note: note, statuses: r.st }
         })
@@ -5191,7 +5220,7 @@ async function pendCall(payload) {
   try {
     const res = await fetch(SCRIPT_URL, {
       method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(Object.assign({ token: TEACHER_TOKEN }, payload))
+      body: JSON.stringify(Object.assign({ token: teacherToken() }, payload))
     });
     return await res.json();
   } catch (err) {
@@ -5966,7 +5995,7 @@ function deleteFaceData(studentId, name) {
   renderMain();
   if (SCRIPT_URL) {
     fetch(SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'deleteFace', token: TEACHER_TOKEN, studentId: studentId }) }).catch(() => {});
+      body: JSON.stringify({ action: 'deleteFace', token: teacherToken(), studentId: studentId }) }).catch(() => {});
   }
 }
 
@@ -5975,14 +6004,14 @@ async function syncFaceToSheet(studentId, name) {
   const store = loadFaceStore();
   try {
     await fetch(SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'saveFace', token: TEACHER_TOKEN, studentId: studentId, name: name, descriptors: store[studentId] || [] }) });
+      body: JSON.stringify({ action: 'saveFace', token: teacherToken(), studentId: studentId, name: name, descriptors: store[studentId] || [] }) });
   } catch(e) { console.error('syncFace error:', e); }
 }
 
 async function loadFacesFromSheet() {
   if (!SCRIPT_URL) return;
   try {
-    const res = await fetch(`${SCRIPT_URL}?action=listFaces&token=${encodeURIComponent(TEACHER_TOKEN)}&t=${Date.now()}`);
+    const res = await fetch(`${SCRIPT_URL}?action=listFaces&token=${encodeURIComponent(teacherToken())}&t=${Date.now()}`);
     const result = await res.json();
     if (result.ok && result.faces) {
       const store = loadFaceStore();
@@ -6215,7 +6244,7 @@ async function showLeaveRequestsModal() {
   if (!SCRIPT_URL) { toast('ต้องเชื่อม Google Sheet ก่อน (ใส่ SCRIPT_URL)', 'error'); return; }
   toast('กำลังโหลดรายการแจ้งลา...', 'success');
   try {
-    const url = `${SCRIPT_URL}?action=listLeave&token=${encodeURIComponent(TEACHER_TOKEN)}&t=${Date.now()}`;
+    const url = `${SCRIPT_URL}?action=listLeave&token=${encodeURIComponent(teacherToken())}&t=${Date.now()}`;
     const res = await fetch(url);
     const result = await res.json();
     if (!result.ok) { toast('โหลดไม่สำเร็จ: ' + (result.error || ''), 'error'); return; }
@@ -6278,7 +6307,7 @@ async function cancelLeaveByTeacher(idx) {
   try {
     const res = await fetch(SCRIPT_URL, {
       method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'cancelLeave', token: TEACHER_TOKEN,
+      body: JSON.stringify({ action: 'cancelLeave', token: teacherToken(),
         groupId: r.groupId, studentId: r.studentId, sessionNo: r.sessionNo, type: r.type })
     });
     const result = await res.json();
@@ -6401,9 +6430,10 @@ async function archiveCall(payload) {
   try {
     const res = await fetch(SCRIPT_URL, {
       method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(Object.assign({ token: TEACHER_TOKEN }, payload))
+      body: JSON.stringify(Object.assign({ token: teacherToken() }, payload))
     });
     const r = await res.json();
+    if (authFailed(r)) return null;
     if (!r.ok) { toast('ไม่สำเร็จ: ' + (r.error || ''), 'error'); return null; }
     return r;
   } catch(e) { toast('เชื่อมต่อไม่ได้: ' + e.message, 'error'); return null; }
@@ -6532,16 +6562,27 @@ function guessExamGroup(g) {
   if (hit) return hit;
   const hit2 = d.groups.find(x => groupKey(x) === groupKey(g.name));
   if (hit2) return hit2;
-  // ชื่อฝั่งเช็คชื่อมักมี " น." ต่อท้าย ("วันจันทร์ 16.30 น." ↔ "วันจันทร์ 16.30")
-  // → รับคู่ที่คีย์ฝั่งหนึ่งเป็นคำขึ้นต้นของอีกฝั่ง เลือกอันที่ยาวที่สุด (เจาะจงที่สุด)
+  /* ชื่อฝั่งเช็คชื่อมักมี " น." ต่อท้าย ("วันจันทร์ 16.30 น." ↔ "วันจันทร์ 16.30")
+     → ยอมรับเฉพาะกรณีที่ "ส่วนเกิน" เป็นแค่ น. เท่านั้น
+
+     ⚠️ 20 ส.ค. 2569 — เดิมยอมรับคำขึ้นต้นทุกแบบ ทำให้
+        "ม.4 วันจันทร์ 19.10 น" (→ วนจนทร19.10น)
+        ไปจับคู่กับกลุ่มข้อสอบ "วันจันทร์" (→ วนจนทร) เพราะเป็นคำขึ้นต้นพอดี
+        แล้วสร้างนักเรียน ม.4 ทั้งห้องเข้าไปในกลุ่มคะแนนของ ม.6
+        ส่วนเกินที่เป็น "ตัวเลข/เวลา" ต้องถือว่าคนละกลุ่มเสมอ */
+  const restOk = (long, short) => {
+    if (long.indexOf(short) !== 0) return false;      // ต้องเป็นคำขึ้นต้นจริง ๆ ก่อน
+    const rest = long.slice(short.length);
+    return rest === '' || rest === 'น' || rest === 'น.';
+  };
   const bk = groupKey(bare);
   let best = null;
   if (bk) d.groups.forEach(x => {
     const k = groupKey(x);
     if (!k) return;
-    if (bk.indexOf(k) === 0 || k.indexOf(bk) === 0) {
-      if (!best || k.length > groupKey(best).length) best = x;
-    }
+    const hit = (bk.length >= k.length) ? restOk(bk, k) : restOk(k, bk);
+    if (!hit) return;
+    if (!best || k.length > groupKey(best).length) best = x;
   });
   return best || bare;
 }
@@ -7191,7 +7232,7 @@ async function syncToSheet(silent) {
     const res = await fetch(SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'syncData', token: TEACHER_TOKEN, data: state.data })
+      body: JSON.stringify({ action: 'syncData', token: teacherToken(), data: state.data })
     });
     const result = await res.json();
     if (result.ok) {
@@ -7253,7 +7294,7 @@ async function loadFromSheet() {
   }
   toast('กำลังดาวน์โหลด...', 'success');
   try {
-    const url = `${SCRIPT_URL}?action=loadData&token=${encodeURIComponent(TEACHER_TOKEN)}&t=${Date.now()}`;
+    const url = `${SCRIPT_URL}?action=loadData&token=${encodeURIComponent(teacherToken())}&t=${Date.now()}`;
     const res = await fetch(url);
     const result = await res.json();
     if (result.ok && result.data) {
@@ -7288,7 +7329,7 @@ async function pullAttendanceFromSheet(silent) {
   if (!SCRIPT_URL || state.isDemoData) return 0;
   _attPullAt = Date.now();
   try {
-    const res = await fetch(`${SCRIPT_URL}?action=loadData&token=${encodeURIComponent(TEACHER_TOKEN)}&t=${Date.now()}`);
+    const res = await fetch(`${SCRIPT_URL}?action=loadData&token=${encodeURIComponent(teacherToken())}&t=${Date.now()}`);
     const result = await res.json();
     if (!result.ok || !result.data || !result.data.groups) {
       if (!silent) toast('ดึงข้อมูลไม่สำเร็จ: ' + (result.error || ''), 'error');
@@ -7438,7 +7479,7 @@ function renderAll() {
    =========================================================== */
 function init() {
   // ตรวจ session ว่า login แล้วหรือยัง
-  if (sessionStorage.getItem(SESSION_KEY) === '1') {
+  if (teacherToken()) {                       // มี session token ค้างอยู่ = ยัง login อยู่
     showApp();
   } else {
     // ตรวจ lock ก่อน
