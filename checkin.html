@@ -138,6 +138,47 @@ input, select { font-family: inherit; font-size: 16px; color: var(--black); }
 .keypad button.back { color: var(--gray-dark); }
 
 /* ===========================================================
+   ★ 21 ส.ค. 69 — แยกหน้า "รหัสคาบ" กับ "PIN ส่วนตัว" ให้ต่างกันด้วยตา
+
+   ปัญหาเดิม: สองหน้าใช้ช่อง 6 ช่อง + แป้นเลขเหมือนกันเป๊ะ ต่างแค่ข้อความ
+   นักเรียนที่เช็คชื่อครั้งแรกแยกไม่ออก เผลอใส่ PIN ตัวเองในหน้ารหัสคาบ
+
+   ของใหม่ — จำง่าย ๆ ว่า "ส้ม = ของห้อง · เขียว = ของฉัน"
+     ส้ม  🏫 รหัสคาบ  — ครูให้ทั้งห้อง เหมือนกันทุกคน
+     เขียว 🔒 PIN     — ของเราคนเดียว ไม่ซ้ำกับเพื่อน
+   =========================================================== */
+.card--code { border-color: var(--orange); border-width: 2px; }
+.card--pin  { border-color: var(--success); border-width: 2px; }
+
+.step-badge {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 14px 7px 10px; border-radius: var(--radius-pill);
+  font-size: 13px; font-weight: 700; margin-bottom: 10px;
+}
+.step-badge__icon { font-size: 17px; line-height: 1; }
+.step-badge--code { background: #FFF1E8; color: var(--danger); }
+.step-badge--pin  { background: var(--success-bg); color: var(--success); }
+
+/* กล่องเตือนใต้หัวข้อ — บอกตรง ๆ ว่าอันนี้ไม่ใช่อีกอัน */
+.step-note {
+  font-size: 12.5px; line-height: 1.6;
+  padding: 10px 12px; border-radius: var(--radius-sm);
+  margin-bottom: 16px;
+}
+.step-note--code { background: #FFF1E8; color: var(--danger); }
+.step-note--pin  { background: var(--success-bg); color: var(--success); }
+
+/* ช่องกรอกคนละสี — เห็นปราดเดียวว่าอยู่หน้าไหน */
+#codeDisplay .code-dot { border-color: var(--orange); }
+#codeDisplay .code-dot.filled { background: #FFF1E8; }
+#pinDisplay  .code-dot { border-color: var(--success); }
+#pinDisplay  .code-dot.filled { background: var(--success-bg); }
+
+/* แป้นเลขก็ย้อมโทนตาม จะได้ไม่ต้องอ่านหัวข้อ */
+#codeKeypad button { border-color: #F2C4AC; }
+#pinKeypad  button { border-color: #B8D8CA; }
+
+/* ===========================================================
    STATUS MESSAGE
    =========================================================== */
 .status-msg {
@@ -374,19 +415,43 @@ const THAI_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.
 const THAI_DAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัส','ศุกร์','เสาร์'];
 
 function thDate(s) {
-  if (!s) return '';
-  const [y,m,d] = s.split('-').map(Number);
-  const dt = new Date(y, m-1, d);
-  const yy = (dt.getFullYear() + 543) % 100;
-  return `${dt.getDate()} ${THAI_MONTHS[dt.getMonth()]} ${String(yy).padStart(2,'0')}`;
+  var full = ckDateLabel(s);
+  if (!full) return '';
+  var p = full.split(' ');                       // "21 สิงหาคม 2569" → ปี 2 หลัก
+  return p[0] + ' ' + p[1] + ' ' + p[2].slice(-2);
 }
 function thDateFull(s) {
-  if (!s) return '';
-  const [y,m,d] = s.split('-').map(Number);
-  const dt = new Date(y, m-1, d);
-  const yy = dt.getFullYear() + 543;
-  return `${dt.getDate()} ${THAI_MONTHS[dt.getMonth()]} ${yy}`;
+  return ckDateLabel(s);      /* ★ 21 ส.ค. — เดิม split('-') พังกับ Date object จากชีต */
 }
+/* ═══ ★ 21 ส.ค. 69 — กันค่าที่เพี้ยนมาจาก Google Sheets ═══
+   วันที่: ชีตคืน Date object → JSON เป็น "2026-08-21T17:00:00.000Z"
+           ของเดิม split('-') แล้วได้ "21T17:00:00.000Z" → NaN → จอขึ้น "NaN undefined NaN"
+   เวลา:   "19.10" ถูกเก็บเป็นเลข 19.1 → จอขึ้น "19.1–21.4"
+   สองอย่างนี้แก้ที่เซิร์ฟเวอร์แล้ว แต่กันไว้ที่นี่อีกชั้น เผื่อข้อมูลเก่าในชีต */
+function ckDateLabel(v) {
+  if (!v) return '';
+  var s = String(v);
+  var m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);          // ISO หรือ ISO+เวลา
+  var dt;
+  if (m) dt = new Date(+m[1], +m[2] - 1, +m[3]);
+  else { dt = new Date(s); if (isNaN(dt.getTime())) return ''; }
+  if (isNaN(dt.getTime())) return '';
+  return dt.getDate() + ' ' + THAI_MONTHS[dt.getMonth()] + ' ' + (dt.getFullYear() + 543);
+}
+/** 19.1 → "19.10" · 16.3 → "16.30" · "19:10" → "19.10" */
+function ckTime(v) {
+  if (v === null || v === undefined || v === '') return '';
+  var s = String(v).trim().replace(':', '.');
+  var m = s.match(/^(\d{1,2})[.](\d{1,2})$/);
+  if (!m) return s;
+  return m[1] + '.' + (m[2].length === 1 ? m[2] + '0' : m[2]);   // "1" คือ 10 นาที ไม่ใช่ 01
+}
+function ckTimeRange(a, b) {
+  var x = ckTime(a), y = ckTime(b);
+  if (!x && !y) return '';
+  return ' · ' + x + (y ? '–' + y : '') + ' น.';
+}
+
 function nowTimeStr() {
   const d = new Date();
   return `${String(d.getHours()).padStart(2,'0')}.${String(d.getMinutes()).padStart(2,'0')}`;
@@ -406,10 +471,15 @@ function renderCodeStep() {
   const body = document.getElementById('appBody');
   const hasUrlCode = state.checkinCode.length === 6;
   body.innerHTML = `
-    <div class="card">
+    <div class="card card--code">
       <span class="card__label">Step 1 of 2</span>
-      <h2 class="card__title">กรอกรหัสคาบเรียน</h2>
-      <p class="card__hint">รหัส 6 หลักที่ครูให้ไว้บนกระดาน หรือส่งใน LINE กลุ่ม</p>
+      <span class="step-badge step-badge--code"><span class="step-badge__icon">🏫</span> รหัสของห้อง</span>
+      <h2 class="card__title">รหัสคาบเรียนวันนี้</h2>
+      <p class="card__hint">เลข 6 หลักที่ครูเขียนบนกระดาน หรือส่งใน LINE กลุ่ม</p>
+      <div class="step-note step-note--code">
+        <b>รหัสนี้เหมือนกันทั้งห้อง</b> — ครูเปลี่ยนใหม่ทุกคาบ<br>
+        ไม่ใช่ PIN ส่วนตัวของเรา (อันนั้นใส่ในหน้าถัดไป)
+      </div>
 
       <div class="step-indicator">
         <span class="step-dot active"></span>
@@ -573,13 +643,15 @@ function renderPinStep() {
   const body = document.getElementById('appBody');
   const s = state.sessionInfo;
   body.innerHTML = `
-    <div class="card">
+    <div class="card card--pin">
       <span class="card__label">Step 2 of 2</span>
-      <h2 class="card__title">กรอก PIN ของคุณ</h2>
-      <p class="card__hint">
+      <span class="step-badge step-badge--pin"><span class="step-badge__icon">🔒</span> รหัสของฉัน</span>
+      <h2 class="card__title">PIN ส่วนตัวของคุณ</h2>
+      <div class="step-note step-note--pin">
         <b>${s.groupName}</b> · คาบที่ ${s.sessionNo}<br>
-        ${thDateFull(s.sessionDate)} · ${s.startTime}–${s.endTime} น.
-      </p>
+        ${ckDateLabel(s.sessionDate)}${ckTimeRange(s.startTime, s.endTime)}
+      </div>
+      <p class="card__hint">เลข 6 หลักของเราคนเดียว ไม่ซ้ำกับเพื่อน — จำไม่ได้ให้ถามครู</p>
 
       <div class="step-indicator">
         <span class="step-dot done"></span>
