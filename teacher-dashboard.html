@@ -5039,34 +5039,92 @@ function pasteParse() {
       byDropdown = !!stu;
     }
 
-    /* ★ 21 ส.ค. 69 — ของเดิมเขียน `meta.chapter || e.chapter` คือให้ข้อความที่วางมาชนะเสมอ
-       Gemini อ่านเพี้ยนเป็น "สำคัญและอนุกรม ชุดที่ 2" ก็เข้าชีตตรง ๆ แตกเป็นคอลัมน์ใหม่ในหน้าครู
-       ตอนนี้ยึดช่องเลือก "บท" ด้านบนเสมอ (ตามที่ครูสั่งเรื่องข้อมูลไม่ตรงทะเบียน)
-       ถ้าข้อความระบุบทคนละอันจริง ๆ จะขึ้นเตือนในตารางตรวจก่อนบันทึกให้เห็นก่อน */
+    /* ★ 21 ส.ค. 69 — กติกาที่ครูกำหนด
+         วางคนเดียว  → เชื่อช่องเลือกด้านบน (ครูตั้งใจกรอกคนนั้นอยู่แล้ว)
+         วางหลายคน  → เชื่อข้อความที่วางมา (ช่องด้านบนบอกได้แค่คนเดียว)
+       แล้วไม่ว่ากรณีไหน ถ้า "บท / ชื่อ / กลุ่ม" ไม่ตรงกับทะเบียน
+       จะไม่บันทึกเงียบ ๆ — ขึ้นให้ครูยืนยันหรือแก้ก่อนเสมอ */
+    const many       = blocks.length > 1;
     const chapterRaw = meta.chapter || '';
-    const chapter    = e.chapter || chapterRaw;
+    const chapter    = many ? (chapterRaw || e.chapter) : (e.chapter || chapterRaw);
     const chapterDiff = !!(chapterRaw && chapter && chapterKeyTD(chapterRaw) !== chapterKeyTD(chapter));
     const filled  = st.filter(Boolean).length;
     const score   = st.filter(v => v.indexOf('ถูก') !== -1).length;
     const dt      = pasteDate(meta.date, e.date);
+    const groupDiff = !!(stu && e.group && groupKey(stu.group) !== groupKey(e.group));
+
+    const issues = [];
+    if (!stu)            issues.push('ไม่พบชื่อนี้ในทะเบียน');
+    if (byDropdown)      issues.push('ชื่อในข้อความไม่ตรงทะเบียน — ใช้ชื่อจากช่องด้านบนแทน');
+    if (groupDiff)       issues.push('คนนี้อยู่กลุ่ม "' + stu.group + '" ไม่ใช่ "' + e.group + '" ที่เลือกไว้');
+    if (chapterDiff)     issues.push('บทในข้อความ "' + chapterRaw + '" ไม่ตรงกับที่จะบันทึก');
+    if (chapter && !isStdChapter(chapter)) issues.push('ชื่อบทไม่อยู่ในรายการมาตรฐาน — นักเรียนจะกรองไม่เจอ');
+
     return {
       rawName: meta.name || '(ไม่พบชื่อ)',
       full: stu ? stu.full : '', group: stu ? stu.group : '',
-      matched: !!stu, byDropdown: byDropdown,
+      matched: !!stu, byDropdown: byDropdown, groupDiff: groupDiff,
       chapter: chapter, stdChapter: isStdChapter(chapter),
       chapterRaw: chapterRaw, chapterDiff: chapterDiff,
       date: dt, dateDiff: !!(e.date && dt !== e.date),
       st: st, filled: filled, score: score,
-      ok: !!stu && filled > 0
+      issues: issues, confirmed: false,
+      ok: !!stu && filled > 0 && issues.length === 0
     };
   });
   renderScoreEntry(document.getElementById('mainBody'));
 }
 
+/* ── แก้/ยืนยันรายแถวก่อนบันทึก (ครูสั่ง: ไม่ตรงทะเบียนต้องถามก่อน) ── */
+function pasteRowOk(r) {
+  return !!r.full && r.filled > 0 && (r.issues.length === 0 || r.confirmed);
+}
+function pasteRefresh() {
+  (state.entry.parsed || []).forEach(r => { r.ok = pasteRowOk(r); });
+  renderScoreEntry(document.getElementById('mainBody'));
+}
+/** ครูเลือกนักเรียนเองจากทะเบียน — ใช้เมื่อจับคู่ชื่อไม่ได้ หรือจับผิดคน */
+function pasteSetStudent(i, full) {
+  const r = (state.entry.parsed || [])[i]; if (!r) return;
+  const stu = (state.examData.students || []).find(s => s.full === full);
+  if (!stu) return;
+  r.full = stu.full; r.group = stu.group; r.matched = true; r.byDropdown = false;
+  r.groupDiff = !!(state.entry.group && groupKey(stu.group) !== groupKey(state.entry.group));
+  r.issues = r.issues.filter(x => x.indexOf('ไม่พบชื่อนี้') !== 0 && x.indexOf('ชื่อในข้อความ') !== 0 && x.indexOf('คนนี้อยู่กลุ่ม') !== 0);
+  if (r.groupDiff) r.issues.push('คนนี้อยู่กลุ่ม "' + stu.group + '" ไม่ใช่ "' + state.entry.group + '" ที่เลือกไว้');
+  pasteRefresh();
+}
+/** ครูเลือกบทเองรายแถว */
+function pasteSetChapter(i, ch) {
+  const r = (state.entry.parsed || [])[i]; if (!r) return;
+  r.chapter = ch;
+  r.stdChapter = isStdChapter(ch);
+  r.chapterDiff = !!(r.chapterRaw && chapterKeyTD(r.chapterRaw) !== chapterKeyTD(ch));
+  /* ครูเลือกบทเองแล้ว = ตัดสินใจแล้ว ไม่ต้องถามเรื่อง "ไม่ตรงกับข้อความ" ซ้ำอีก
+     (แต่ถ้าเลือกบทนอกรายการมาตรฐาน ยังต้องเตือน — นักเรียนจะกรองไม่เจอจริง ๆ) */
+  r.issues = r.issues.filter(x => x.indexOf('บทในข้อความ') !== 0 && x.indexOf('ชื่อบทไม่อยู่') !== 0);
+  if (!r.stdChapter) r.issues.push('ชื่อบทไม่อยู่ในรายการมาตรฐาน — นักเรียนจะกรองไม่เจอ');
+  pasteRefresh();
+}
+function pasteConfirmRow(i) {
+  const r = (state.entry.parsed || [])[i]; if (!r) return;
+  r.confirmed = !r.confirmed;
+  pasteRefresh();
+}
+function pasteConfirmAll() {
+  const rows = (state.entry.parsed || []).filter(r => r.full && r.issues.length);
+  if (!rows.length) return;
+  if (!confirm('ยืนยันข้อมูลที่ไม่ตรงทะเบียนทั้ง ' + rows.length + ' รายการตามที่แสดงอยู่\n\nตรวจให้แน่ใจก่อนนะครับว่าชื่อ กลุ่ม และบท ถูกต้อง')) return;
+  rows.forEach(r => { r.confirmed = true; });
+  pasteRefresh();
+}
+
 function pasteEntryHtml(d, e) {
   const rows = e.parsed || [];
   const okN  = rows.filter(r => r.ok).length;
-  const badChapter = rows.some(r => r.ok && !r.stdChapter);
+  const needN = rows.filter(r => r.full && r.issues.length && !r.confirmed).length;
+  const stuOpts = (d.students || []).slice().sort((a, b) =>
+    (a.group + a.name).localeCompare(b.group + b.name, 'th'));
 
   const table = !rows.length ? '' : `
     <div class="card">
@@ -5079,36 +5137,61 @@ function pasteEntryHtml(d, e) {
             <th style="padding:6px 8px;">ชื่อในข้อความ</th><th style="padding:6px 8px;">ทะเบียน</th>
             <th style="padding:6px 8px;">บท</th><th style="padding:6px 8px;">วันที่</th>
             <th style="padding:6px 8px; text-align:right;">คะแนน</th><th style="padding:6px 8px; text-align:right;">ระบุแล้ว</th>
+            <th style="padding:6px 8px;">ต้องตรวจ</th>
           </tr></thead>
           <tbody>
-          ${rows.map(r => `
-            <tr style="border-top:1px solid var(--line); ${r.ok ? '' : 'background:var(--danger-bg);'}">
+          ${rows.map((r, i) => {
+            const need = r.issues.length && !r.confirmed;
+            const bg = r.ok ? '' : (need ? 'background:var(--warn-bg, #FFF7ED);' : 'background:var(--danger-bg);');
+            return `
+            <tr style="border-top:1px solid var(--line); ${bg}">
               <td style="padding:7px 8px;">${r.rawName}</td>
-              <td style="padding:7px 8px;">${r.matched
-                  ? (r.byDropdown
-                      ? '<span style="color:var(--orange);" title="ชื่อในข้อความไม่ตรงทะเบียน — ใช้ชื่อจากช่อง &quot;นักเรียน&quot; ด้านบนแทน">↩︎ ' + r.full + ' <small>(จากช่องด้านบน)</small></span>'
-                      : '<span style="color:var(--success);">✓ ' + r.full + '</span>')
-                  : '<span style="color:var(--danger);">✕ ไม่พบในทะเบียน</span>'}</td>
-              <td style="padding:7px 8px;">${r.stdChapter ? r.chapter : '<span style="color:var(--danger);">⚠️ ' + r.chapter + '</span>'}${
-                  r.chapterDiff ? '<div style="font-size:10.5px; color:var(--orange);" title="ข้อความที่วางมาระบุบทนี้ — ระบบใช้ชื่อจากช่อง &quot;บท&quot; ด้านบนแทน">↩︎ ข้อความว่า &ldquo;' + r.chapterRaw + '&rdquo;</div>' : ''}</td>
+              <td style="padding:7px 8px;">
+                <select onchange="pasteSetStudent(${i}, this.value)" style="max-width:210px; padding:4px 6px; border:1px solid ${r.matched && !r.byDropdown && !r.groupDiff ? 'var(--line)' : 'var(--orange)'}; border-radius:6px; font-size:12px;">
+                  ${r.matched ? '' : '<option value="">— เลือกนักเรียน —</option>'}
+                  ${stuOpts.map(s => `<option value="${s.full.replace(/"/g, '&quot;')}" ${s.full === r.full ? 'selected' : ''}>${s.name} (${s.group})</option>`).join('')}
+                </select>
+                ${r.matched && !r.byDropdown && !r.groupDiff ? '<span style="color:var(--success); font-size:11px;"> ✓ ตรงทะเบียน</span>' : ''}
+              </td>
+              <td style="padding:7px 8px;">
+                <select onchange="pasteSetChapter(${i}, this.value)" style="max-width:200px; padding:4px 6px; border:1px solid ${r.stdChapter && !r.chapterDiff ? 'var(--line)' : 'var(--orange)'}; border-radius:6px; font-size:12px;">
+                  ${CHAPTERS.map(c => `<option value="${c.replace(/"/g, '&quot;')}" ${c === r.chapter ? 'selected' : ''}>${c}</option>`).join('')}
+                  ${isStdChapter(r.chapter) ? '' : `<option value="${String(r.chapter).replace(/"/g, '&quot;')}" selected>⚠️ ${r.chapter}</option>`}
+                  ${r.chapterRaw && !isStdChapter(r.chapterRaw) && r.chapterRaw !== r.chapter ? `<option value="${r.chapterRaw.replace(/"/g, '&quot;')}">⚠️ ตามข้อความ: ${r.chapterRaw}</option>` : ''}
+                </select>
+              </td>
               <td style="padding:7px 8px; font-family:var(--font-num);">${r.dateDiff
                   ? '<span style="color:var(--orange);" title="วันที่ในข้อความไม่ตรงกับช่อง &quot;วันที่สอบ&quot; ด้านบน — ระบบใช้วันที่ในข้อความ">⚠︎ ' + r.date + '</span>'
                   : r.date}</td>
               <td style="padding:7px 8px; text-align:right; font-family:var(--font-num); font-weight:700;">${r.score}/30</td>
               <td style="padding:7px 8px; text-align:right; font-family:var(--font-num); color:${r.filled === 30 ? 'var(--gray-dark)' : 'var(--danger)'};">${r.filled}/30</td>
-            </tr>`).join('')}
+              <td style="padding:7px 8px; max-width:260px;">
+                ${!r.issues.length
+                  ? '<span style="color:var(--success); font-size:12px;">✓ ไม่มีปัญหา</span>'
+                  : `<div style="font-size:11px; color:var(--orange); line-height:1.5;">${r.issues.map(x => '• ' + x).join('<br>')}</div>
+                     <button class="btn btn--ghost btn--xs" style="margin-top:4px; ${r.confirmed ? 'color:var(--success);' : ''}"
+                             onclick="pasteConfirmRow(${i})">${r.confirmed ? '✓ ยืนยันแล้ว (กดเพื่อยกเลิก)' : 'ยืนยันว่าถูกต้อง'}</button>`}
+              </td>
+            </tr>`; }).join('')}
           </tbody>
         </table>
       </div>
-      ${badChapter ? '<div style="margin-top:10px; font-size:12px; color:var(--danger);">⚠️ มีชื่อบทที่ไม่ตรงมาตรฐาน — บันทึกได้ แต่นักเรียนจะกรองบทนั้นไม่เจอ</div>' : ''}
-      ${rows.some(r => r.byDropdown) ? '<div style="margin-top:10px; font-size:12px; color:var(--orange);">↩︎ ชื่อในข้อความไม่ตรงทะเบียน — ใช้ชื่อจากช่อง "นักเรียน" ด้านบนแทน · ตรวจให้แน่ใจว่าเป็นคนเดียวกันก่อนบันทึก</div>' : ''}
+      ${needN ? `<div style="margin-top:12px; padding:10px 12px; border:1px solid var(--orange); border-radius:8px; font-size:12.5px; color:var(--orange); display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <span style="flex:1;">⚠️ มี <b>${needN}</b> รายการที่ข้อมูลไม่ตรงทะเบียน — แก้ในช่องของแถวนั้น หรือกดยืนยันว่าถูกต้อง ก่อนถึงจะบันทึกได้</span>
+        <button class="btn btn--ghost btn--sm" onclick="pasteConfirmAll()">✓ ยืนยันทั้งหมด</button>
+      </div>` : ''}
       ${rows.some(r => r.dateDiff) ? '<div style="margin-top:6px; font-size:12px; color:var(--orange);">⚠︎ วันที่ในข้อความไม่ตรงกับช่อง "วันที่สอบ" ด้านบน — ระบบจะบันทึกตามวันที่ในข้อความ</div>' : ''}
-      ${rows.some(r => r.chapterDiff) ? '<div style="margin-top:6px; font-size:12px; color:var(--orange);">↩︎ ชื่อบทในข้อความไม่ตรงกับช่อง "บท" ด้านบน — ระบบใช้ชื่อจากช่องด้านบนเสมอ (กัน Gemini อ่านชื่อบทเพี้ยน) ถ้าเป็นคนละบทจริง ให้เปลี่ยนช่องด้านบนก่อนบันทึก</div>' : ''}
+      <div style="margin-top:6px; font-size:11.5px; color:var(--gray-dark);">
+        ${rows.length > 1
+          ? 'วางมาหลายคน → ระบบเชื่อ "ชื่อ/บท" ตามข้อความที่วาง แล้วเทียบกับทะเบียนให้'
+          : 'วางมาคนเดียว → ระบบเชื่อช่องเลือกด้านบนก่อน แล้วเทียบกับข้อความให้'}
+      </div>
       <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:14px;">
         <input type="text" id="pasteNote" placeholder="หมายเหตุ (ไม่บังคับ — ใช้กับทุกคน)"
                style="flex:1; min-width:200px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; outline:none; font-size:14px;">
         <button class="btn btn--primary" onclick="pasteSaveAll()" ${okN ? '' : 'disabled'}
                 style="background:var(--success);">💾 บันทึกทั้งหมด ${okN} คน</button>
+        ${needN ? `<span style="font-size:12px; color:var(--orange);">ค้างตรวจ ${needN} รายการ</span>` : ''}
       </div>
       <div id="pasteProgress" style="margin-top:10px; font-size:13px;"></div>
     </div>`;
