@@ -4762,6 +4762,14 @@ const CHAPTERS = [
 ];
 const isStdChapter = c => CHAPTERS.indexOf(String(c || '').trim()) >= 0;
 
+/* คีย์เทียบชื่อบท — ต้องเหมือน chapterKeyGS_() ใน Code.gs และ chapterKey() ใน topic-marker.js
+   ตัดช่องว่าง · ตัดคำว่า "การ" · ตัดสระบน-ล่าง/วรรณยุกต์ · "ชุดที่" = "ชุด"
+   (ตัวเลขชุดไม่ถูกตัด — ชุด 1 กับ ชุด 2 ไม่มีทางถือว่าเป็นบทเดียวกัน) */
+const chapterKeyTD = ch => String(ch || '')
+  .replace(/\s+/g, '').replace(/การ/g, '')
+  .replace(/[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/g, '')
+  .replace(/ชดท/g, 'ชด').toLowerCase();
+
 state.entry = { group: '', full: '', chapter: '', date: '',
                 st: new Array(30).fill(''), brush: 1,
                 mode: 'tap', pasteText: '', parsed: null };
@@ -5031,7 +5039,13 @@ function pasteParse() {
       byDropdown = !!stu;
     }
 
-    const chapter = meta.chapter || e.chapter;
+    /* ★ 21 ส.ค. 69 — ของเดิมเขียน `meta.chapter || e.chapter` คือให้ข้อความที่วางมาชนะเสมอ
+       Gemini อ่านเพี้ยนเป็น "สำคัญและอนุกรม ชุดที่ 2" ก็เข้าชีตตรง ๆ แตกเป็นคอลัมน์ใหม่ในหน้าครู
+       ตอนนี้ยึดช่องเลือก "บท" ด้านบนเสมอ (ตามที่ครูสั่งเรื่องข้อมูลไม่ตรงทะเบียน)
+       ถ้าข้อความระบุบทคนละอันจริง ๆ จะขึ้นเตือนในตารางตรวจก่อนบันทึกให้เห็นก่อน */
+    const chapterRaw = meta.chapter || '';
+    const chapter    = e.chapter || chapterRaw;
+    const chapterDiff = !!(chapterRaw && chapter && chapterKeyTD(chapterRaw) !== chapterKeyTD(chapter));
     const filled  = st.filter(Boolean).length;
     const score   = st.filter(v => v.indexOf('ถูก') !== -1).length;
     const dt      = pasteDate(meta.date, e.date);
@@ -5040,6 +5054,7 @@ function pasteParse() {
       full: stu ? stu.full : '', group: stu ? stu.group : '',
       matched: !!stu, byDropdown: byDropdown,
       chapter: chapter, stdChapter: isStdChapter(chapter),
+      chapterRaw: chapterRaw, chapterDiff: chapterDiff,
       date: dt, dateDiff: !!(e.date && dt !== e.date),
       st: st, filled: filled, score: score,
       ok: !!stu && filled > 0
@@ -5074,7 +5089,8 @@ function pasteEntryHtml(d, e) {
                       ? '<span style="color:var(--orange);" title="ชื่อในข้อความไม่ตรงทะเบียน — ใช้ชื่อจากช่อง &quot;นักเรียน&quot; ด้านบนแทน">↩︎ ' + r.full + ' <small>(จากช่องด้านบน)</small></span>'
                       : '<span style="color:var(--success);">✓ ' + r.full + '</span>')
                   : '<span style="color:var(--danger);">✕ ไม่พบในทะเบียน</span>'}</td>
-              <td style="padding:7px 8px;">${r.stdChapter ? r.chapter : '<span style="color:var(--danger);">⚠️ ' + r.chapter + '</span>'}</td>
+              <td style="padding:7px 8px;">${r.stdChapter ? r.chapter : '<span style="color:var(--danger);">⚠️ ' + r.chapter + '</span>'}${
+                  r.chapterDiff ? '<div style="font-size:10.5px; color:var(--orange);" title="ข้อความที่วางมาระบุบทนี้ — ระบบใช้ชื่อจากช่อง &quot;บท&quot; ด้านบนแทน">↩︎ ข้อความว่า &ldquo;' + r.chapterRaw + '&rdquo;</div>' : ''}</td>
               <td style="padding:7px 8px; font-family:var(--font-num);">${r.dateDiff
                   ? '<span style="color:var(--orange);" title="วันที่ในข้อความไม่ตรงกับช่อง &quot;วันที่สอบ&quot; ด้านบน — ระบบใช้วันที่ในข้อความ">⚠︎ ' + r.date + '</span>'
                   : r.date}</td>
@@ -5087,6 +5103,7 @@ function pasteEntryHtml(d, e) {
       ${badChapter ? '<div style="margin-top:10px; font-size:12px; color:var(--danger);">⚠️ มีชื่อบทที่ไม่ตรงมาตรฐาน — บันทึกได้ แต่นักเรียนจะกรองบทนั้นไม่เจอ</div>' : ''}
       ${rows.some(r => r.byDropdown) ? '<div style="margin-top:10px; font-size:12px; color:var(--orange);">↩︎ ชื่อในข้อความไม่ตรงทะเบียน — ใช้ชื่อจากช่อง "นักเรียน" ด้านบนแทน · ตรวจให้แน่ใจว่าเป็นคนเดียวกันก่อนบันทึก</div>' : ''}
       ${rows.some(r => r.dateDiff) ? '<div style="margin-top:6px; font-size:12px; color:var(--orange);">⚠︎ วันที่ในข้อความไม่ตรงกับช่อง "วันที่สอบ" ด้านบน — ระบบจะบันทึกตามวันที่ในข้อความ</div>' : ''}
+      ${rows.some(r => r.chapterDiff) ? '<div style="margin-top:6px; font-size:12px; color:var(--orange);">↩︎ ชื่อบทในข้อความไม่ตรงกับช่อง "บท" ด้านบน — ระบบใช้ชื่อจากช่องด้านบนเสมอ (กัน Gemini อ่านชื่อบทเพี้ยน) ถ้าเป็นคนละบทจริง ให้เปลี่ยนช่องด้านบนก่อนบันทึก</div>' : ''}
       <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:14px;">
         <input type="text" id="pasteNote" placeholder="หมายเหตุ (ไม่บังคับ — ใช้กับทุกคน)"
                style="flex:1; min-width:200px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; outline:none; font-size:14px;">
