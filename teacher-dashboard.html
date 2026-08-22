@@ -955,6 +955,14 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
 .att-cell.late    { background: var(--orange);  color: var(--bg); }
 .att-cell.absent  { background: var(--danger);  color: var(--bg); }
 .att-cell.holiday { background: var(--bg-canvas); color: var(--gray-soft); }
+/* ★ 22 ส.ค. 69 — คาบที่อยู่นอกช่วงเรียนของนักเรียนคนนั้น (ยังไม่เข้า / ออกไปแล้ว) */
+.att-cell.outside { background: transparent; color: #D6D2C9; border: 1px dotted #E4E0D6; }
+.att-row--former td { opacity: .62; }
+.att-row--former:hover td { opacity: 1; }
+.att-tag { font-size: 9.5px; padding: 1px 6px; border-radius: 999px; vertical-align: middle;
+           font-family: var(--font-num); letter-spacing: .02em; white-space: nowrap; }
+.att-tag--left   { background: #FBE9E7; color: #B3261E; border: 1px solid #E4C7C5; }
+.att-tag--joined { background: #E8F0FB; color: #2B6CB0; border: 1px solid #C7D8EE; }
 .att-cell.pending { background: transparent; color: var(--gray-soft); border: 1px dashed var(--line); }
 .att-cell.leave   { background: #2B6CB0; color: var(--bg); }
 
@@ -1243,6 +1251,7 @@ const state = {
   data: { groups: [] },
   selectedGroupId: null,
   view: 'detail', // 'detail' | 'overview' | 'attendance' | 'kiosk'
+  showFormer: false,   // ★ แสดงคนที่ออกกลางคอร์สต่อท้ายตารางเช็คชื่อ
   pin: '',
   today: new Date(),
   // attendance kiosk state
@@ -2507,6 +2516,29 @@ function attScreenStatus(r, sess, g) {
   return lateMinutesOf(r, sess, g) <= ATTENDANCE_CONFIG.lateThresholdMinutes ? 'present' : 'late';
 }
 
+/* ★ 22 ส.ค. 69 — คนเข้า/ออกกลางคอร์ส
+   s.joinedAt = 'YYYY-MM-DD' วันแรกที่มีสิทธิ์เรียน (ไม่มี = ตั้งแต่เริ่มคอร์ส)
+   s.leftAt   = 'YYYY-MM-DD' วันสุดท้ายที่มีสิทธิ์เรียน (ไม่มี = ยังเรียนอยู่)
+   คาบที่อยู่นอกช่วงนี้ → ไม่ใช่ "ขาด" แต่คือ "ยังไม่เข้า/ออกไปแล้ว"
+   ต้องไม่นับในตัวหารของ % ไม่งั้นเด็กเข้าใหม่จะได้ % ต่ำผิดความจริง */
+function attInWindow(s, sess) {
+  const d = sess && sess.date;
+  if (!d) return true;
+  if (s.joinedAt && d < s.joinedAt) return false;
+  if (s.leftAt   && d > s.leftAt)   return false;
+  return true;
+}
+
+/* รายชื่อที่จะวาดในตาราง — คนที่เรียนอยู่ก่อน แล้วต่อด้วยคนที่ออกไปแล้ว (ถ้าเปิดแสดง)
+   คนที่ออกไปแล้วถูกย้ายออกจาก g.students เพื่อไม่ให้ระบบเช็คชื่อ/จบคาบไปยุ่งด้วย
+   แต่เก็บไว้ใน g.formerStudents เพื่อให้ประวัติยังดูได้ */
+function rosterFor(g, includeFormer) {
+  const act = (g.students || []).map(s => Object.assign({}, s, { _former: false }));
+  if (!includeFormer) return act;
+  const fmr = (g.formerStudents || []).map(s => Object.assign({}, s, { _former: true }));
+  return act.concat(fmr);
+}
+
 /* ระดับการมาเรียน — ใช้แต่งสีเท่านั้น
    หลังตั้งเกณฑ์เป็น 5 นาที สถานะ present จะช้าได้ไม่เกิน 5 อยู่แล้ว → คืน 'ontime' เสมอ
    ('soft' กับ CSS .att-cell.present.soft กลายเป็นของที่ไม่ถูกเรียกใช้ ปล่อยไว้ไม่มีผล) */
@@ -2828,6 +2860,55 @@ function showOverrideModal(studentId, name) {
   });
 }
 
+/* ★ 22 ส.ค. 69 — สลับแสดง/ซ่อนคนที่ออกกลางคอร์ส */
+function toggleShowFormer() {
+  state.showFormer = !state.showFormer;
+  renderMain();
+}
+
+/* แก้วันเข้า/วันออก — เผื่อระบบเดาวันผิด หรือย้อนหลังให้คนที่เข้ามาก่อนหน้านี้
+   ใส่รูปแบบ YYYY-MM-DD · เว้นว่าง = ล้างค่า (ถือว่าเรียนตั้งแต่ต้น / ยังเรียนอยู่) */
+function editStudentWindow(groupId, sid, which) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+  const inActive = (g.students || []).find(x => x.id === sid);
+  const inFormer = (g.formerStudents || []).find(x => x.id === sid);
+  const s = inActive || inFormer;
+  if (!s) return;
+  const label = which === 'joinedAt' ? 'วันแรกที่เข้าเรียน' : 'วันสุดท้ายที่เรียน';
+  const cur = s[which] || '';
+  const v = prompt(`${s.name} — ${label}\n\nรูปแบบ YYYY-MM-DD เช่น 2026-08-15\nเว้นว่างแล้วกด OK = ล้างค่า`, cur);
+  if (v === null) return;
+  const t = String(v).trim();
+  if (t && !/^\d{4}-\d{2}-\d{2}$/.test(t)) { toast('รูปแบบวันที่ไม่ถูกต้อง', 'error'); return; }
+  if (t) s[which] = t; else delete s[which];
+  saveData(); autoSync(); renderMain();
+  toast(t ? `ตั้ง${label}ของ ${s.name} เป็น ${thDate(t)}` : `ล้าง${label}ของ ${s.name} แล้ว`, 'success');
+}
+
+/* ★ 22 ส.ค. 69 — รับคนที่เคยออกกลับเข้ากลุ่มเช็คชื่อ
+   ประวัติเดิมไม่หาย เพราะ records ผูกกับ id เดิมอยู่แล้ว
+   หมายเหตุ: ถ้าตอนออกเลือก "ไม่เรียนต่อ" ฝั่งทะเบียนข้อสอบต้องกด
+   "↩︎ กลับมาเรียน" ที่หน้าคะแนนอีกทีหนึ่ง (คนละทะเบียนกัน) */
+function rejoinStudent(groupId, sid) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+  const i = (g.formerStudents || []).findIndex(x => x.id === sid);
+  if (i < 0) return;
+  const rec = g.formerStudents[i];
+  if (!confirm(`รับ "${rec.name}" กลับเข้ากลุ่มเช็คชื่อ\n\n` +
+               `• กลับมาอยู่ในรายชื่อเช็คชื่อและถูกนับตอนจบคาบ\n` +
+               `• ประวัติเดิมยังอยู่ครบ\n` +
+               `• ถ้าเคยเลือก "ไม่เรียนต่อ" ต้องกด "กลับมาเรียน" ที่หน้าคะแนนด้วย`)) return;
+  g.formerStudents.splice(i, 1);
+  const stu = { id: rec.id, name: rec.name };
+  if (rec.xid) stu.xid = rec.xid;
+  if (rec.joinedAt) stu.joinedAt = rec.joinedAt;
+  (g.students = g.students || []).push(stu);
+  saveData(); autoSync(); renderMain(); renderSidebar();
+  toast(`รับ "${rec.name}" กลับเข้ากลุ่มแล้ว`, 'success');
+}
+
 /* ATTENDANCE SUMMARY — สรุปการเข้าเรียนทั้งคอร์ส */
 function renderAttendanceSummary(body) {
   if (state.data.groups.length === 0) {
@@ -2847,9 +2928,17 @@ function renderAttendanceSummary(body) {
   totalSessions = sessionCols.length;
 
   // Build table
-  let tableRows = g.students.map((s, idx) => {
-    let ontime = 0, soft = 0, late = 0, absent = 0, leave = 0;
+  const _roster = rosterFor(g, state.showFormer);
+  let tableRows = _roster.map((s, idx) => {
+    let ontime = 0, soft = 0, late = 0, absent = 0, leave = 0, outside = 0;
     const cells = sessionCols.map(sess => {
+      /* ★ คาบที่อยู่นอกช่วงเรียนของคนนี้ — ยังไม่เข้า หรือออกไปแล้ว
+         วาดเป็นช่องว่างจาง ๆ และไม่นับในตัวหารของ % */
+      if (!attInWindow(s, sess)) {
+        outside++;
+        const why = (s.joinedAt && sess.date < s.joinedAt) ? 'ยังไม่เข้าเรียน' : 'ออกไปแล้ว';
+        return `<td><span class="att-cell outside" data-tip="${s.name} · ${why}" title="${why}">·</span></td>`;
+      }
       const att = sess.attendance;
       const r = att && att.records[s.id];
       let cellStatus = 'pending';
@@ -2886,20 +2975,36 @@ function renderAttendanceSummary(body) {
 
     const present = ontime + soft;
     const checkedIn = present + late;
-    const denom = totalSessions - leave;
+    const denom = totalSessions - leave - outside;   /* ★ ไม่นับคาบนอกช่วงเรียน */
     const rate = denom > 0 ? Math.round(checkedIn / denom * 100) : 0;
     const rateClass = rate >= 80 ? 'good' : rate >= 60 ? 'warn' : 'bad';
 
-    totalPresent += present;
-    totalLate += late;
-    totalAbsent += absent;
-    totalLeave += leave;
+    if (!s._former) {
+      totalPresent += present;
+      totalLate += late;
+      totalAbsent += absent;
+      totalLeave += leave;
+    }
+
+    const _tag = (cls, txt, which, tip) =>
+      ` <span class="att-tag att-tag--${cls}" style="cursor:pointer" title="${tip}"` +
+      ` onclick="editStudentWindow('${g.id}','${s.id}','${which}')">${txt}</span>`;
+    let badge = '';
+    if (s._former) {
+      badge = _tag('left', 'ออก ' + thDate(s.leftAt), 'leftAt', 'กดเพื่อแก้วันสุดท้ายที่เรียน') +
+        ` <span class="att-tag att-tag--joined" style="cursor:pointer" title="รับกลับเข้ากลุ่ม"` +
+        ` onclick="rejoinStudent('${g.id}','${s.id}')">↩︎ กลับเข้ากลุ่ม</span>`;
+    } else if (s.joinedAt) {
+      badge = _tag('joined', 'เข้า ' + thDate(s.joinedAt), 'joinedAt', 'กดเพื่อแก้วันแรกที่เข้าเรียน');
+    }
+    const win = denom > 0 && (outside > 0)
+      ? `<span style="color:var(--gray-soft);"> · จาก ${denom} คาบที่มีสิทธิ์</span>` : '';
 
     return `
-      <tr>
+      <tr${s._former ? ' class="att-row--former"' : ''}>
         <td>
-          <div class="att-student-name">${idx+1}. ${s.name}</div>
-          <div class="att-student-meta">ตรงเวลา ${ontime} · สาย ${late} · ลา ${leave} · ขาด ${absent}</div>
+          <div class="att-student-name">${idx+1}. ${s.name}${badge}</div>
+          <div class="att-student-meta">ตรงเวลา ${ontime} · สาย ${late} · ลา ${leave} · ขาด ${absent}${win}</div>
         </td>
         ${cells}
         <td><span class="att-rate ${rateClass}">${rate}%</span></td>
@@ -2990,12 +3095,17 @@ function renderAttendanceSummary(body) {
     <div class="card">
       <div class="card__head">
         <span class="card__title">ตารางการเข้าเรียน · <b>${g.name}</b></span>
-        <div style="display:flex; gap:8px; font-size:11px;">
+        <div style="display:flex; gap:8px; font-size:11px; align-items:center;">
+          ${(g.formerStudents || []).length ? `<button class="btn btn--ghost btn--xs" onclick="toggleShowFormer()"
+              title="คนที่ออกกลางคอร์ส — ประวัติเช็คชื่อยังอยู่ครบ">${state.showFormer
+                ? '👁 กำลังแสดงคนที่ออกแล้ว ' + g.formerStudents.length + ' คน'
+                : '🚪 ซ่อนคนที่ออกแล้ว ' + g.formerStudents.length + ' คน'}</button>` : ''}
           <span class="att-cell present">P</span><span style="color:var(--gray-dark);">ตรงเวลา (≤${ATTENDANCE_CONFIG.ontimeThresholdMinutes} น.)</span>
           <span class="att-cell late">L</span><span style="color:var(--gray-dark);">สาย</span>
           <span class="att-cell absent">A</span><span style="color:var(--gray-dark);">ขาด</span>
           <span class="att-cell leave">S</span><span style="color:var(--gray-dark);">ลา</span>
           <span class="att-cell pending">-</span><span style="color:var(--gray-dark);">ยังไม่เช็ค</span>
+          <span class="att-cell outside">·</span><span style="color:var(--gray-dark);">ยังไม่เข้า/ออกแล้ว</span>
         </div>
       </div>
       <div class="att-table-wrap">
@@ -3971,10 +4081,18 @@ function printAttendanceReport(groupId) {
   // ── นับสรุปรายคน (นับจากทุกคาบ ไม่ใช่เฉพาะหน้านั้น) + จำสัญลักษณ์ไว้ใช้ซ้ำ ──
   const cellOf = {};          // cellOf[studentId][sessionNo] = html <td>
   const sum = {};             // sum[studentId] = {ontime, late, leave, absent, rate}
-  g.students.forEach(s => {
-    let ontime = 0, late = 0, absent = 0, leave = 0;
+  /* ★ 22 ส.ค. 69 — หน้าพิมพ์แสดง "ทุกคน" ตามที่ครูสั่ง
+     ทั้งคนที่เรียนอยู่ และคนที่ออกกลางคอร์ส (มีป้ายกำกับให้ผู้ปกครองอ่านออก) */
+  const printRoster = rosterFor(g, true);
+  printRoster.forEach(s => {
+    let ontime = 0, late = 0, absent = 0, leave = 0, outside = 0;
     cellOf[s.id] = {};
     sessionCols.forEach(sess => {
+      if (!attInWindow(s, sess)) {          /* นอกช่วงเรียน — เว้นว่าง ไม่นับ */
+        outside++;
+        cellOf[s.id][sess.no] = `<td style="text-align:center; color:#BBB;">·</td>`;
+        return;
+      }
       const r = sess.attendance && sess.attendance.records[s.id];
       const st = printAttStatus(r, sess, g);
       if (st === 'ontime') ontime++;
@@ -3985,7 +4103,7 @@ function printAttendanceReport(groupId) {
         ? `<div style="font-size:6.5pt; color:#555; line-height:1; margin-top:1px;">${r.checkInTime}</div>` : '';
       cellOf[s.id][sess.no] = `<td style="text-align:center; line-height:1.1;">${PRINT_SYM[st]}${tm}</td>`;
     });
-    const denom = sessionCols.length - leave;
+    const denom = sessionCols.length - leave - outside;
     sum[s.id] = { ontime, late, leave, absent, rate: denom > 0 ? Math.round((ontime + late) / denom * 100) : 0 };
   });
 
@@ -4024,12 +4142,14 @@ function printAttendanceReport(groupId) {
 
   const tables = pages.map((cols, pi) => {
     const header = cols.map(s => `<th style="text-align:center; width:34px;">${_tno[s.no]}</th>`).join('');
-    const rows = g.students.map((s, idx) => {
+    const rows = printRoster.map((s, idx) => {
       const u = sum[s.id];
+      const mark = s._former ? ` <span style="font-size:6.5pt; color:#B3261E;">(ออก ${thDate(s.leftAt)})</span>`
+                 : (s.joinedAt ? ` <span style="font-size:6.5pt; color:#2B6CB0;">(เข้า ${thDate(s.joinedAt)})</span>` : '');
       return `
-      <tr>
+      <tr${s._former ? ' style="color:#666;"' : ''}>
         <td style="text-align:center;">${idx + 1}</td>
-        <td>${s.name}</td>
+        <td>${s.name}${mark}</td>
         ${cols.map(sess => cellOf[s.id][sess.no]).join('')}
         <td style="text-align:center;">${u.ontime}</td>
         <td style="text-align:center;">${u.late}</td>
@@ -4043,7 +4163,7 @@ function printAttendanceReport(groupId) {
     return `
       <div ${pi > 0 ? 'style="page-break-before:always; break-before:page;"' : ''}>
         ${pi > 0 ? brandHead + `<div class="print-report__title">${g.name}</div>
-        <div class="print-report__sub">วัน${g.dayOfWeek} ${g.startTime}–${g.endTime} น. · ระดับชั้น${g.level} · นักเรียน ${g.students.length} คน · ${sessionCols.length} คาบ</div>` + legend : ''}
+        <div class="print-report__sub">วัน${g.dayOfWeek} ${g.startTime}–${g.endTime} น. · ระดับชั้น${g.level} · นักเรียน ${g.students.length} คน${(g.formerStudents||[]).length ? ' + ออกแล้ว ' + g.formerStudents.length + ' คน' : ''} · ${sessionCols.length} คาบ</div>` + legend : ''}
         <div class="print-section-title">ตารางการเข้าเรียน · ${range}${pageTag}</div>
         <table class="print-table">
           <thead>
@@ -4066,7 +4186,8 @@ function printAttendanceReport(groupId) {
   // เหตุผลที่ครูใส่ไว้ (ลา/สาย/ขาด) — รวบไว้ท้ายรายงาน จะได้ไม่ต้องยัดลงช่องตารางที่แคบอยู่แล้ว
   const noteLines = [];
   sessionCols.forEach(se => {
-    g.students.forEach(st2 => {
+    printRoster.forEach(st2 => {
+      if (!attInWindow(st2, se)) return;
       const rec = se.attendance && se.attendance.records[st2.id];
       const n = attCleanNote(rec);
       if (!n) return;
@@ -4079,7 +4200,7 @@ function printAttendanceReport(groupId) {
       ${brandHead}
 
       <div class="print-report__title">${g.name}</div>
-      <div class="print-report__sub">วัน${g.dayOfWeek} ${g.startTime}–${g.endTime} น. · ระดับชั้น${g.level} · นักเรียน ${g.students.length} คน · ${sessionCols.length} คาบ</div>
+      <div class="print-report__sub">วัน${g.dayOfWeek} ${g.startTime}–${g.endTime} น. · ระดับชั้น${g.level} · นักเรียน ${g.students.length} คน${(g.formerStudents||[]).length ? ' + ออกแล้ว ' + g.formerStudents.length + ' คน' : ''} · ${sessionCols.length} คาบ</div>
 
       ${legend}
       ${tables}
@@ -7028,6 +7149,10 @@ async function addStudent(groupId) {
   }
 
   const stu = { id: newStudentId(g), name: name, xid: rec.id };
+  /* ★ 22 ส.ค. 69 — เข้ากลางคอร์ส: จำวันแรกที่มีสิทธิ์เรียนไว้
+     ไม่งั้นคาบที่ผ่านมาก่อนเขาเข้าจะถูกนับเป็นตัวหารของ % ด้วย */
+  const _past = (g.sessions || []).filter(x => x.date && x.date < todayStr() && x.status !== 'holiday');
+  if (_past.length) stu.joinedAt = todayStr();
   g.students.push(stu);
   if (!g.xg) g.xg = xg;
   if (input) input.value = '';
@@ -7065,7 +7190,22 @@ function removeStudent(groupId, studentId) {
   const s = (g.students || []).find(x => x.id === studentId);
   if (!s) return;
 
-  const pullOut = () => { g.students = g.students.filter(x => x.id !== studentId); };
+  /* ★ 22 ส.ค. 69 — เดิมลบทิ้งเลย ทำให้ประวัติเช็คชื่อกลายเป็นของกำพร้า
+     (records ยังอยู่ใน sess.attendance.records แต่ไม่มีใครวาดออกมา)
+     ตอนนี้ย้ายไป g.formerStudents พร้อมวันที่ออก — ตารางยังดูย้อนหลังได้
+     ยังคงเอาออกจาก g.students เหมือนเดิม เพื่อไม่ให้ endCheckin ฝั่งเซิร์ฟเวอร์
+     ไปบันทึกว่า "ขาด" ให้ทุกคาบตลอดไป */
+  const pullOut = (why) => {
+    const rec = (g.students || []).find(x => x.id === studentId);
+    g.students = g.students.filter(x => x.id !== studentId);
+    if (!rec) return;
+    if (!g.formerStudents) g.formerStudents = [];
+    if (g.formerStudents.some(x => x.id === rec.id)) return;
+    g.formerStudents.push({
+      id: rec.id, name: rec.name, xid: rec.xid || '',
+      joinedAt: rec.joinedAt || '', leftAt: todayStr(), why: why || ''
+    });
+  };
   const done = (msg) => {
     saveData(); autoSync();
     renderStudentList(g); renderSidebar();
@@ -7080,7 +7220,7 @@ function removeStudent(groupId, studentId) {
       body: 'เอาออกจากกลุ่มเช็คชื่อนี้ · คนนี้ยังไม่มีในทะเบียนระบบข้อสอบ จึงไม่กระทบคะแนน',
       actions: [
         { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
-        { label: 'ลบ', class: 'btn--danger', onClick: () => { pullOut(); done(`ลบ "${s.name}" แล้ว`); } }
+        { label: 'ลบ', class: 'btn--danger', onClick: () => { pullOut('ลบ'); done(`ลบ "${s.name}" แล้ว`); } }
       ]
     });
     return;
@@ -7098,7 +7238,7 @@ function removeStudent(groupId, studentId) {
     actions: [
       { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
       { label: 'เฉพาะเช็คชื่อ', class: 'btn--ghost', onClick: () => {
-        pullOut();
+        pullOut('เฉพาะเช็คชื่อ');
         done(`เอา "${s.name}" ออกจากกลุ่มเช็คชื่อแล้ว (ทะเบียนข้อสอบยังอยู่)`);
       }},
       { label: 'ไม่เรียนต่อ', class: 'btn--primary', onClick: async () => {
@@ -7106,7 +7246,7 @@ function removeStudent(groupId, studentId) {
         if (!state.examData) { try { await fetchExamData(true); full = examFullOf(s, g); } catch(e) {} }
         const r = await examWrite({ action: 'examSetActive', full: full, active: false });
         if (!r) return;
-        pullOut();
+        pullOut('ไม่เรียนต่อ');
         state.examData = null;
         done(`"${s.name}" ไม่เรียนต่อแล้ว · ย้ายผลสอบ ${r.moved || 0} รายการเข้าคลัง`);
       }},
@@ -7115,7 +7255,7 @@ function removeStudent(groupId, studentId) {
         if (!state.examData) { try { await fetchExamData(true); full = examFullOf(s, g); } catch(e) {} }
         const r = await examWrite({ action: 'examDeleteStudent', full: full });
         if (!r) return;
-        pullOut();
+        pullOut('ลบถาวร');
         state.examData = null;
         done(`ลบ "${s.name}" ออกจากทั้ง 2 ทะเบียนแล้ว`);
       }}
