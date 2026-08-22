@@ -1260,9 +1260,9 @@ const state = {
    ATTENDANCE CONFIG
    =========================================================== */
 const ATTENDANCE_CONFIG = {
-  ontimeThresholdMinutes: 5,   // ภายใน 5 นาทีแรก = "ตรงเวลา" (เขียวเข้ม)
-  lateThresholdMinutes: 5,    // 5-10 นาที = "มาแล้ว" (เขียวอ่อน) · เกิน 10 = "สาย" (ส้ม)
-                               // ต้องตรงกับ ONTIME_/LATE_THRESHOLD_MINUTES ใน Code.gs
+  ontimeThresholdMinutes: 5,   // ภายใน 5 นาทีแรก = "ตรงเวลา"
+  lateThresholdMinutes: 5,     // ★ 22 ส.ค. 69 — เกิน 5 นาที = "สาย" (เดิม 10 และมีระดับกลาง "มาแล้ว")
+                               // ต้องตรงกับ LATE_THRESHOLD_MINUTES ใน Code.gs
   autoAbsentOnFinish: true    // กด "จบคาบ" → คนที่ยังไม่เช็คอิน = ขาด อัตโนมัติ
 };
 
@@ -2495,8 +2495,21 @@ function lateMinutesOf(r, sess, g) {
   return d > 0 ? d : 0;
 }
 
-/* ระดับการมาเรียน — ใช้แสดงผลเท่านั้น สถานะในข้อมูลยังเป็น present/late เหมือนเดิม
-   'ontime' = ภายใน 5 นาทีแรก · 'soft' = 5-10 นาที (มาแล้ว) · สถานะ late = เกิน 10 นาที */
+/* ★ 22 ส.ค. 69 — สถานะที่ใช้ "แสดงบนจอ" คิดใหม่จากเวลาเช็คจริงทุกครั้ง
+   ไม่เชื่อ r.status ที่บันทึกไว้ เพราะแถวเก่าถูกบันทึกตอนเกณฑ์ยังเป็น 10 นาที
+   → เปลี่ยนเกณฑ์แล้วของเก่าเป็น "สาย" ตามไปด้วยทันที ไม่ต้องแก้ข้อมูลในชีต
+   (ใช้กติกาเดียวกับ printAttStatus ที่หน้าพิมพ์ใช้อยู่แล้ว — จอกับกระดาษจะตรงกัน)
+   ลา/ขาด/ไม่มีเวลาเช็ค (แจ้งสายล่วงหน้า) → คงสถานะเดิมไว้ ไม่แตะ */
+function attScreenStatus(r, sess, g) {
+  if (!r || !r.status) return 'pending';
+  if (r.status !== 'present' && r.status !== 'late') return r.status;
+  if (!r.checkInTime) return r.status;
+  return lateMinutesOf(r, sess, g) <= ATTENDANCE_CONFIG.lateThresholdMinutes ? 'present' : 'late';
+}
+
+/* ระดับการมาเรียน — ใช้แต่งสีเท่านั้น
+   หลังตั้งเกณฑ์เป็น 5 นาที สถานะ present จะช้าได้ไม่เกิน 5 อยู่แล้ว → คืน 'ontime' เสมอ
+   ('soft' กับ CSS .att-cell.present.soft กลายเป็นของที่ไม่ถูกเรียกใช้ ปล่อยไว้ไม่มีผล) */
 function attendTier(r, sess, g) {
   if (!r || r.status !== 'present') return '';
   return lateMinutesOf(r, sess, g) <= ATTENDANCE_CONFIG.ontimeThresholdMinutes ? 'ontime' : 'soft';
@@ -2840,7 +2853,7 @@ function renderAttendanceSummary(body) {
       const att = sess.attendance;
       const r = att && att.records[s.id];
       let cellStatus = 'pending';
-      if (r) cellStatus = r.status;
+      if (r) cellStatus = attScreenStatus(r, sess, g);   /* ★ คิดจากเวลาจริง ไม่ใช่ค่าที่บันทึกไว้ */
       const tier = attendTier(r, sess, g);          // '' | 'ontime' | 'soft'
       if (cellStatus === 'present') { if (tier === 'ontime') ontime++; else soft++; }
       else if (cellStatus === 'late') late++;
@@ -2886,7 +2899,7 @@ function renderAttendanceSummary(body) {
       <tr>
         <td>
           <div class="att-student-name">${idx+1}. ${s.name}</div>
-          <div class="att-student-meta">ตรงเวลา ${ontime} · มาแล้ว ${soft} · สาย ${late} · ลา ${leave} · ขาด ${absent}</div>
+          <div class="att-student-meta">ตรงเวลา ${ontime} · สาย ${late} · ลา ${leave} · ขาด ${absent}</div>
         </td>
         ${cells}
         <td><span class="att-rate ${rateClass}">${rate}%</span></td>
@@ -2979,7 +2992,6 @@ function renderAttendanceSummary(body) {
         <span class="card__title">ตารางการเข้าเรียน · <b>${g.name}</b></span>
         <div style="display:flex; gap:8px; font-size:11px;">
           <span class="att-cell present">P</span><span style="color:var(--gray-dark);">ตรงเวลา (≤${ATTENDANCE_CONFIG.ontimeThresholdMinutes} น.)</span>
-          <span class="att-cell present soft">P</span><span style="color:var(--gray-dark);">มาแล้ว (≤${ATTENDANCE_CONFIG.lateThresholdMinutes} น.)</span>
           <span class="att-cell late">L</span><span style="color:var(--gray-dark);">สาย</span>
           <span class="att-cell absent">A</span><span style="color:var(--gray-dark);">ขาด</span>
           <span class="att-cell leave">S</span><span style="color:var(--gray-dark);">ลา</span>
@@ -3738,7 +3750,7 @@ function showAttendanceDetail(groupId, sessionNo, studentId) {
     .map(s => {
       const a = s.attendance;
       const rec = a && a.records[studentId];
-      const st = rec ? rec.status : 'pending';
+      const st = rec ? attScreenStatus(rec, s, g) : 'pending';   /* ★ คิดจากเวลาจริง */
       const stInfo = statusInfo[st];
       const label = st === 'present' ? 'P' : st === 'late' ? 'L' : st === 'absent' ? 'A' : st === 'leave' ? 'S' : '-';
       const tier2 = attendTier(rec, s, g);
