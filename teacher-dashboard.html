@@ -2945,7 +2945,7 @@ function renderAttendanceSummary(body) {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
             เช็คชื่อออนไลน์
           </button>
-          <button class="btn btn--ghost btn--sm" onclick="pullAttendanceFromSheet(false)" title="ดึงการเช็คชื่อที่นักเรียนกดจากมือถือ ลงมาที่เครื่องนี้">
+          <button class="btn btn--ghost btn--sm" onclick="pullAttendanceFromSheet(false)" title="ดึงการเช็คชื่อที่นักเรียนกดจากมือถือ ลงมาที่เครื่องนี้ · ถ้าเครื่องนี้ไม่ตรงกับชีต จะถามก่อนว่าจะเชื่อฝั่งไหน">
             ⬇︎ ดึงการเช็คชื่อล่าสุด
           </button>
           <button class="btn btn--ghost btn--sm" onclick="showLeaveRequestsModal()" style="border-color:#2B6CB0; color:#2B6CB0;">
@@ -7445,7 +7445,13 @@ async function loadFromSheet() {
    ═══════════════════════════════════════════════════════════════ */
 let _attPullAt = 0;
 
-async function pullAttendanceFromSheet(silent) {
+/* ★ 22 ส.ค. 69 — เพิ่มโหมด force
+   เคสจริง: ครูกด "จบคาบ" ตอนรหัสหมดอายุ → เบราว์เซอร์บันทึก absent ลง localStorage
+   ส่วนเซิร์ฟเวอร์ไม่ได้บันทึก · พอกู้ข้อมูลที่เซิร์ฟเวอร์แล้วกดดึง
+   กติกา "ของครูชนะ" เห็นว่าเครื่องมี absent อยู่ เลยไม่ยอมรับค่าที่ถูกต้องจากชีต
+   → โหมดปกติยังกันทับเหมือนเดิม แต่จะ "นับ" รายการที่ขัดกันแล้วถามครูก่อน
+     ถ้าครูยืนยัน ค่อยเรียกซ้ำแบบ force เพื่อให้ชีตชนะ */
+async function pullAttendanceFromSheet(silent, force) {
   if (!SCRIPT_URL || state.isDemoData) return 0;
   _attPullAt = Date.now();
   try {
@@ -7459,7 +7465,7 @@ async function pullAttendanceFromSheet(silent) {
     const remote = {};
     result.data.groups.forEach(g => { remote[g.id] = g; });
 
-    let added = 0;
+    let added = 0, conflict = 0;
     state.data.groups.forEach(g => {
       const rg = remote[g.id];
       if (!rg || !rg.sessions) return;
@@ -7476,7 +7482,15 @@ async function pullAttendanceFromSheet(silent) {
           const rr = r.attendance.records[sid];
           if (!rr || !rr.status || rr.status === 'pending') return;
           const mine = s.attendance.records[sid];
-          if (mine && mine.status && mine.status !== 'pending') return;   // ของครูชนะ ไม่ทับ
+          if (mine && mine.status && mine.status !== 'pending') {
+            const differs = mine.status !== rr.status ||
+                            (rr.checkInTime && mine.checkInTime !== rr.checkInTime);
+            if (!force) { if (differs) conflict++; return; }   // ของครูชนะ ไม่ทับ
+            if (!differs) return;                              // เหมือนกันอยู่แล้ว
+            /* ★ แม้โหมด force ก็ไม่ทับ "ลา" ที่ครูบันทึกเอง — เป็นการตัดสินใจของครู
+               ไม่ใช่ผลพลอยได้จากระบบ ถ้าจะเปลี่ยนให้แก้ทีละคนที่หน้ารายละเอียด */
+            if (mine.status === 'leave') { conflict++; return; }
+          }
           s.attendance.records[sid] = rr;
           added++;
         });
@@ -7490,10 +7504,24 @@ async function pullAttendanceFromSheet(silent) {
     if (added) {
       saveData();
       if (state.view === 'attendance' || state.view === 'detail') renderMain();
-      toast(`ดึงการเช็คชื่อจากชีตมาแล้ว ${added} รายการ`, 'success');
-    } else if (!silent) {
-      toast('ข้อมูลตรงกับชีตอยู่แล้ว ไม่มีอะไรใหม่', 'success');
+      toast(force ? `ใช้ข้อมูลจากชีตทับของเครื่องนี้ ${added} รายการ`
+                  : `ดึงการเช็คชื่อจากชีตมาแล้ว ${added} รายการ`, 'success');
     }
+
+    /* มีรายการที่เครื่องนี้กับชีตไม่ตรงกัน — ถามก่อน ไม่ทับเงียบ ๆ */
+    if (!force && conflict && !silent) {
+      const ok = confirm(
+        'พบ ' + conflict + ' รายการที่เครื่องนี้ไม่ตรงกับชีต\n\n' +
+        'ปกติระบบจะไม่ทับของที่ครูแก้เอง แต่ถ้าเพิ่งกู้ข้อมูลที่ฝั่งชีต ' +
+        'ให้เลือก OK เพื่อใช้ข้อมูลจากชีตทับเครื่องนี้\n\n' +
+        'OK = เชื่อชีต   ·   Cancel = เก็บของเครื่องนี้ไว้\n\n' +
+        '(คนที่ครูบันทึก "ลา" ไว้เอง จะไม่ถูกทับไม่ว่ากรณีใด)');
+      if (ok) return pullAttendanceFromSheet(false, true);
+      toast('เก็บข้อมูลของเครื่องนี้ไว้ ไม่ได้ทับ', 'success');
+      return added;
+    }
+
+    if (!added && !conflict && !silent) toast('ข้อมูลตรงกับชีตอยู่แล้ว ไม่มีอะไรใหม่', 'success');
     return added;
   } catch (e) {
     if (!silent) toast('เชื่อมต่อไม่ได้: ' + e.message, 'error');
