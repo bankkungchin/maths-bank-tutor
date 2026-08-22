@@ -1261,7 +1261,7 @@ const state = {
    =========================================================== */
 const ATTENDANCE_CONFIG = {
   ontimeThresholdMinutes: 5,   // ภายใน 5 นาทีแรก = "ตรงเวลา" (เขียวเข้ม)
-  lateThresholdMinutes: 10,    // 5-10 นาที = "มาแล้ว" (เขียวอ่อน) · เกิน 10 = "สาย" (ส้ม)
+  lateThresholdMinutes: 5,    // 5-10 นาที = "มาแล้ว" (เขียวอ่อน) · เกิน 10 = "สาย" (ส้ม)
                                // ต้องตรงกับ ONTIME_/LATE_THRESHOLD_MINUTES ใน Code.gs
   autoAbsentOnFinish: true    // กด "จบคาบ" → คนที่ยังไม่เช็คอิน = ขาด อัตโนมัติ
 };
