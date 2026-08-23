@@ -2675,7 +2675,9 @@ function doFinishKiosk(leaveMap) {
         note: lv.type + (lv.reason ? ' — ' + lv.reason : '') };
       markedLeave++;
     } else {
-      att.records[s.id] = { status: 'absent', checkInTime: null, note: 'ไม่มาเรียน' };
+      /* ★ 23 ส.ค. 69 — ไม่เก็บ note/checkInTime ที่ระบบเดาเองได้
+         (ATT_AUTO_NOTES ถือว่า "ไม่มาเรียน" เท่ากับว่างอยู่แล้ว) — กัน teacher_data บวม */
+      att.records[s.id] = { status: 'absent' };
       markedAbsent++;
     }
   });
