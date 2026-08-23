@@ -1894,8 +1894,11 @@ function renderMain() {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
           สร้างตารางคาบใหม่
         </button>
-        <button class="btn btn--ghost btn--sm" onclick="showArchiveGroupModal('${g.id}')" title="เก็บตารางคาบ + ประวัติเช็คชื่อทั้งหมดเข้าคลัง">
-          📦 จบคอร์ส · เก็บเข้าคลัง
+        <button class="btn btn--ghost btn--sm" onclick="showRenewCourseModal('${g.id}')" title="ขึ้นคอร์สใหม่ — เก็บคอร์สที่จบเข้าคลัง แล้วเริ่มนับคาบ 1 ใหม่ (กลุ่มยังอยู่)">
+          🔄 ต่อคอร์ส · ขึ้นคอร์สใหม่
+        </button>
+        <button class="btn btn--ghost btn--sm" onclick="showArchiveGroupModal('${g.id}')" title="เลิกเรียนจริง — เอากลุ่มออกจากระบบ เก็บประวัติเข้าคลัง">
+          📦 เลิกเรียน · เก็บเข้าคลัง
         </button>
         <button class="btn btn--ghost btn--sm" onclick="showArchiveListModal()" title="ดูกลุ่มที่เก็บเข้าคลังไว้ / กู้กลับ">
           🗄 คลังคอร์สเก่า
@@ -2002,6 +2005,10 @@ function renderStudentList(g) {
       <button class="student-row__pin" onclick="showEditPinModal('${g.id}', '${s.id}')" title="แก้ PIN (ปัจจุบัน: ${pin})">
         <span class="num" style="font-size:11px; letter-spacing:0.08em; color:var(--orange); font-weight:600;">${pin}</span>
       </button>
+      ${Number(g.courseNo || 1) > 1 ? `<button class="student-row__pin" onclick="togglePaid('${g.id}', '${s.id}')"
+        title="${s.paid ? 'ชำระคอร์สนี้แล้ว — กดเพื่อยกเลิก' : 'ยังไม่ชำระคอร์สนี้ — กดเมื่อชำระแล้ว'}">
+        <span style="font-size:12px; ${s.paid ? '' : 'filter:grayscale(1); opacity:.4;'}">${s.paid ? '💰' : '⏳'}</span>
+      </button>` : ''}
       <button class="student-row__pin" onclick="showFaceEnrollModal('${g.id}', '${s.id}')" title="${hasFaceData(s.id) ? 'ลงทะเบียนใบหน้าแล้ว — กดเพื่อถ่ายใหม่/ลบ' : 'ลงทะเบียนใบหน้า (สำหรับเช็คชื่อแบบสแกนหน้า)'}">
         <span style="font-size:12px; ${hasFaceData(s.id) ? '' : 'filter:grayscale(1); opacity:.4;'}">📷</span>
       </button>
@@ -3096,7 +3103,11 @@ function renderAttendanceSummary(body) {
     <!-- Attendance table -->
     <div class="card">
       <div class="card__head">
-        <span class="card__title">ตารางการเข้าเรียน · <b>${g.name}</b></span>
+        <span class="card__title">ตารางการเข้าเรียน · <b>${g.name}</b>${Number(g.courseNo || 1) > 1
+          ? ` <span class="att-tag att-tag--joined">คอร์สที่ ${g.courseNo}</span>` +
+            ((g.students || []).filter(x => !x.paid).length
+              ? ` <span class="att-tag att-tag--left">ค้างชำระ ${(g.students || []).filter(x => !x.paid).length} คน</span>` : '')
+          : ''}</span>
         <div style="display:flex; gap:8px; font-size:11px; align-items:center;">
           ${(g.formerStudents || []).length ? `<button class="btn btn--ghost btn--xs" onclick="toggleShowFormer()"
               title="คนที่ออกกลางคอร์ส — ประวัติเช็คชื่อยังอยู่ครบ">${state.showFormer
@@ -6725,6 +6736,137 @@ function showArchiveGroupModal(id) {
   });
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   🔄 ต่อคอร์ส — 23 ส.ค. 69
+   คอร์สละ 10–15 ครั้ง แล้วต่อคอร์สใหม่ · ระหว่างต่อรายชื่อเปลี่ยนบางส่วน
+   "ต่อคอร์ส" ≠ "เลิกเรียน" — ปุ่มแยกกันคนละปุ่ม
+   ═══════════════════════════════════════════════════════════════ */
+/* ติ๊กชำระเงินของคอร์สปัจจุบัน — ติ๊กทีหลังได้ ไม่ต้องรอตอนต่อคอร์ส */
+function togglePaid(groupId, sid) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+  const s = (g.students || []).find(x => x.id === sid);
+  if (!s) return;
+  if (s.paid) delete s.paid; else s.paid = true;
+  saveData(); autoSync(); renderStudentList(g);
+  toast(`${s.name} — ${s.paid ? 'ชำระคอร์สที่ ' + (g.courseNo || 1) + ' แล้ว' : 'ยังไม่ชำระ'}`, 'success');
+}
+
+function showRenewCourseModal(groupId) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+  ensureSessions(g);
+  const cNo = Number(g.courseNo || 1);
+  const ses = (g.sessions || []).filter(s => s.status !== 'holiday');
+  const dates = ses.map(s => s.date).filter(Boolean).sort();
+  const last = dates.length ? dates[dates.length - 1] : todayStr();
+  const nextStart = addDays(last, 7);
+  const doneN = ses.filter(s => s.status === 'done').length;
+
+  const rows = (g.students || []).map((st, i) => `
+    <tr>
+      <td style="padding:4px 6px; font-family:var(--font-num); color:var(--gray-soft); font-size:11px;">${i + 1}</td>
+      <td style="padding:4px 6px;">${_eh(st.name)}</td>
+      <td style="padding:4px 6px; text-align:center;">
+        <input type="checkbox" class="rc-keep" data-sid="${_ea(st.id)}" checked
+               onchange="rcUpdateCount()" style="width:17px; height:17px; accent-color:#185FA5; cursor:pointer;">
+      </td>
+      <td style="padding:4px 6px; text-align:center;">
+        <input type="checkbox" class="rc-paid" data-sid="${_ea(st.id)}"
+               style="width:17px; height:17px; accent-color:#2E7D32; cursor:pointer;">
+      </td>
+    </tr>`).join('');
+
+  showModal({
+    title: `🔄 ต่อคอร์ส · ${_eh(g.name)}`,
+    body: `
+      <div style="font-size:12.5px; line-height:1.8; color:var(--gray-dark); margin-bottom:12px;">
+        กำลังจบ <b>คอร์สที่ ${cNo}</b> (สอนไปแล้ว ${doneN} จาก ${ses.length} คาบ · คาบสุดท้าย ${_eh(thDate(last))})<br>
+        ประวัติคอร์สนี้จะถูกเก็บเข้าคลัง แล้ว<b>เริ่มนับคาบ 1 ใหม่</b>เป็นคอร์สที่ ${cNo + 1}
+      </div>
+
+      <div style="display:flex; gap:10px; margin-bottom:12px;">
+        <label style="flex:1; font-size:12px;">จำนวนคาบคอร์สใหม่
+          <input id="rcTotal" type="number" min="1" max="60" value="${g.sessionsTotal || 10}"
+                 style="width:100%; padding:7px 9px; border:1px solid var(--line); border-radius:8px; font-family:var(--font-num);">
+        </label>
+        <label style="flex:1; font-size:12px;">วันเริ่มคอร์สใหม่
+          <input id="rcStart" type="date" value="${nextStart}"
+                 style="width:100%; padding:7px 9px; border:1px solid var(--line); border-radius:8px; font-family:var(--font-num);">
+        </label>
+      </div>
+
+      <div id="rcCount" style="font-size:12.5px; margin-bottom:6px;"></div>
+      <div style="max-height:280px; overflow-y:auto; border:1px solid var(--line); border-radius:10px;">
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <thead><tr style="background:var(--bg-soft); position:sticky; top:0;">
+            <th style="padding:6px;"></th><th style="padding:6px; text-align:left;">ชื่อ</th>
+            <th style="padding:6px; width:74px;">เรียนต่อ</th><th style="padding:6px; width:80px;">ชำระแล้ว</th>
+          </tr></thead>
+          <tbody>${rows || '<tr><td colspan="4" style="padding:12px; text-align:center; color:var(--gray-dark);">ยังไม่มีนักเรียน</td></tr>'}</tbody>
+        </table>
+      </div>
+      <div style="font-size:11.5px; color:var(--gray-dark); margin-top:10px; line-height:1.7;">
+        • คนที่ไม่ติ๊ก "เรียนต่อ" จะย้ายไปกลุ่มคนที่ออกแล้ว — <b>ประวัติไม่หาย</b> ดูได้จากปุ่ม 🚪 ในตารางเช็คชื่อ<br>
+        • "ชำระแล้ว" ติ๊กทีหลังได้ ไม่ต้องรอให้ครบ<br>
+        • ถ้าทำผิด กดย้อนได้จาก 🗄 คลังคอร์สเก่า
+      </div>`,
+    actions: [
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
+      { label: 'ต่อคอร์ส', class: 'btn--primary', onClick: () => doRenewCourse(groupId) }
+    ]
+  });
+  rcUpdateCount();
+}
+
+function rcUpdateCount() {
+  const el = document.getElementById('rcCount');
+  if (!el) return;
+  const all = [...document.querySelectorAll('.rc-keep')];
+  const keep = all.filter(x => x.checked).length;
+  const left = all.length - keep;
+  el.innerHTML = `เรียนต่อ <b>${keep}</b> คน` +
+    (left ? ` · <span style="color:var(--danger);">ไม่ต่อ ${left} คน</span>` : '');
+}
+
+async function doRenewCourse(groupId) {
+  const total = parseInt(document.getElementById('rcTotal').value, 10);
+  const start = document.getElementById('rcStart').value;
+  if (!(total >= 1 && total <= 60)) { toast('จำนวนคาบต้องอยู่ระหว่าง 1–60', 'error'); return; }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) { toast('เลือกวันเริ่มคอร์สใหม่ก่อน', 'error'); return; }
+  const keepIds = [...document.querySelectorAll('.rc-keep')].filter(x => x.checked).map(x => x.dataset.sid);
+  const paidIds = [...document.querySelectorAll('.rc-paid')].filter(x => x.checked).map(x => x.dataset.sid);
+  if (!keepIds.length) { toast('ต้องมีคนเรียนต่ออย่างน้อย 1 คน — ถ้ากลุ่มเลิกจริงให้ใช้ "เลิกเรียน · เก็บเข้าคลัง"', 'error'); return; }
+
+  const g = state.data.groups.find(x => x.id === groupId);
+  const left = (g.students || []).filter(s => keepIds.indexOf(s.id) < 0).map(s => s.name);
+  if (left.length && !confirm('คนที่ไม่ได้ติ๊ก "เรียนต่อ" ' + left.length + ' คน:\n\n' + left.join(' · ') +
+      '\n\nจะย้ายออกจากกลุ่ม (ประวัติยังอยู่ ดูได้จากปุ่ม 🚪)\n\nยืนยันต่อคอร์ส?')) return;
+
+  await syncToSheet(true);                       /* ดันของในเครื่องขึ้นก่อน กันของหาย */
+  const r = await archiveCall({ action: 'renewCourse', groupId: groupId,
+                                keepIds: keepIds, paidIds: paidIds,
+                                sessionsTotal: total, startDate: start });
+  if (!r) return;
+  closeModal();
+  await loadFromSheet();                          /* เอาของจากชีตมาทับเครื่อง */
+  renderAll();
+  toast(`ขึ้นคอร์สที่ ${r.courseNew} แล้ว · เรียนต่อ ${r.kept} คน · ชำระแล้ว ${r.paid} · ` +
+        `เก็บประวัติคอร์ส ${r.courseDone} ไว้ ${r.archivedRows} แถว`, 'success');
+}
+
+async function undoRenewCourse(blockId) {
+  if (!confirm('ย้อนการต่อคอร์สนี้?\n\n• ตารางคาบและรายชื่อจะกลับไปเป็นตอนก่อนต่อคอร์ส\n' +
+               '• คาบของคอร์สใหม่ที่เช็คชื่อไปแล้ว (ถ้ามี) จะหายไป')) return;
+  await syncToSheet(true);
+  const r = await archiveCall({ action: 'undoRenewCourse', blockId: blockId });
+  if (!r) return;
+  closeModal();
+  await loadFromSheet();
+  renderAll();
+  toast(`ย้อนกลับเป็นคอร์สที่ ${r.courseNo} ของ "${r.groupName}" แล้ว`, 'success');
+}
+
 async function showArchiveListModal() {
   toast('กำลังโหลดคลัง...', 'success');
   const r = await archiveCall({ action: 'listArchivedGroups' });
@@ -6737,14 +6879,17 @@ async function showArchiveListModal() {
           ${x.students} คน · ${x.sessions} คาบ${x.firstDate ? ' · ' + _eh(x.firstDate) + ' → ' + _eh(x.lastDate) : ''} · เก็บเมื่อ ${_eh(x.archivedAt)}
         </div>
       </div>
-      <button class="btn btn--ghost btn--xs" onclick="restoreArchivedGroup('${_ea(x.groupId)}')">↩︎ กู้กลับ</button>
+      ${String(x.groupId).indexOf('#c') > -1
+        ? `<button class="btn btn--ghost btn--xs" onclick="undoRenewCourse('${_ea(x.groupId)}')" title="เอาตารางคาบ+รายชื่อกลับไปเป็นตอนก่อนต่อคอร์ส">↩︎ ย้อนการต่อคอร์ส</button>`
+        : `<button class="btn btn--ghost btn--xs" onclick="restoreArchivedGroup('${_ea(x.groupId)}')">↩︎ กู้กลับ</button>`}
     </div>`).join('');
   showModal({
     title: `🗄 คลังคอร์สเก่า (${(r.groups || []).length})`,
     body: `
       <div style="font-size:12px; color:var(--gray-dark); margin-bottom:12px; line-height:1.7;">
         ประวัติแบบอ่านง่ายอยู่ในชีต <code>attendance_archive</code> (1 แถว = 1 คน/คาบ) ค้นและทำรายงานต่อได้<br>
-        "กู้กลับ" = เอากลุ่มกลับเข้าระบบพร้อมประวัติเช็คชื่อครบเหมือนเดิม
+        <b>กู้กลับ</b> = เอากลุ่มที่เลิกเรียนกลับเข้าระบบพร้อมประวัติครบเหมือนเดิม<br>
+        <b>ย้อนการต่อคอร์ส</b> = รายการที่ชื่อลงท้าย "· คอร์ส N" คือบล็อกที่จบไปแล้วของกลุ่มที่ยังเรียนอยู่
       </div>
       <div style="max-height:340px; overflow-y:auto;">${rows || '<div style="font-size:13px; padding:10px; color:var(--gray-dark);">ยังไม่มีกลุ่มในคลัง</div>'}</div>`,
     actions: [{ label: 'ปิด', class: 'btn--ghost', onClick: closeModal }]
