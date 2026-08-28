@@ -1648,7 +1648,7 @@ function showApp() {
   }
   renderAll();
   checkMissingScoresBadge();   // เช็คคะแนนที่ยังไม่ได้กรอก (เงียบๆ เบื้องหลัง)
-  checkPendingBadge();         // เช็คว่ามีนักเรียนส่งคะแนนมารอตรวจไหม
+  startPendingWatch();         // ★ 28 ส.ค. 69 — เช็ครอตรวจทุก 2 นาที ไม่ต้องรอครูเปิดหน้า
 
   // เครื่องใหม่ (ยังไม่มีข้อมูลในเครื่อง) → ดึงจาก Sheet อัตโนมัติ ไม่ต้องกดเอง
   if (state.isDemoData && SCRIPT_URL) {
@@ -1746,6 +1746,8 @@ function renderMain() {
     renderOverview(body);
     return;
   }
+
+  refreshPendingBadge();       /* ★ ตัวเลขรอตรวจอัปเดตทุกครั้งที่เปลี่ยนหน้า (throttle 60 วิ) */
 
   if (state.view === 'attendance') {
     eyebrow.textContent = 'Attendance';
@@ -4517,6 +4519,8 @@ async function fetchExamData(force) {
   });
 
   state.examData = { students, exams, groups, fetchedAt: new Date(), rawRows: resRows.length, repaired };
+  skipApplyList(json.skips);          /* ★ 28 ส.ค. 69 — "ไม่ได้เรียน" ของกลางจากชีต */
+  skipMigrateLocal();                 /* ดันของเก่าในเครื่องขึ้นชีตครั้งเดียว */
   return state.examData;
 }
 
@@ -4524,9 +4528,144 @@ async function fetchExamData(force) {
 const MISSING_LOOKBACK_DAYS = 45;
 const MISSING_IGNORE_KEY = 'mathsBankIgnoreMissing';
 
-function loadIgnoreMissing() {
+/* ═══════════════════════════════════════════════════════════════
+   ★ 28 ส.ค. 69 — ชุด C + ย้าย "ไม่ได้เรียน" ขึ้นชีต
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── (1) "ไม่ได้เรียนบทนี้" — ใช้ร่วมกันทุกเครื่องผ่านชีต score_skip ──
+   อ่าน  : มาพร้อม examBatch (json.skips) ทุกครั้งที่โหลดคะแนน
+   เขียน : ยิง scoreSkipSet ขึ้นชีต แล้วอัปเดตในเครื่องทันที (ไม่ต้องรอโหลดใหม่)
+   ของเก่าที่เคยติ๊กไว้ในเครื่อง (localStorage) จะถูกดันขึ้นชีตให้อัตโนมัติครั้งแรก */
+let _skipSheet = {};          /* group|ck|full → {name, at} — ของกลาง */
+let _skipMigrated = false;
+
+function skipApplyList(list) {
+  const m = {};
+  (list || []).forEach(function (r) {
+    if (!r || !r.full) return;
+    m[ignoreKeyOf(r.group || '', r.ck || '', r.full)] = { name: r.name || '', at: r.at || '', _sheet: true };
+  });
+  _skipSheet = m;
+}
+
+function loadIgnoreLocal() {
   try { return JSON.parse(localStorage.getItem(MISSING_IGNORE_KEY)) || {}; }
-  catch(e) { return {}; }
+  catch (e) { return {}; }
+}
+
+/* ดันของเก่าในเครื่องขึ้นชีตครั้งเดียว — ทำเงียบ ๆ ไม่รบกวนครู */
+async function skipMigrateLocal() {
+  if (_skipMigrated) return;
+  _skipMigrated = true;
+  const local = loadIgnoreLocal();
+  const keys = Object.keys(local).filter(function (k) { return !_skipSheet[k]; });
+  if (!keys.length) return;
+  for (let i = 0; i < keys.length; i++) {
+    const p = keys[i].split('|');
+    if (p.length < 3) continue;
+    const r = await pendCall({ action: 'scoreSkipSet', group: p[0], ck: p[1], full: p.slice(2).join('|'),
+                               name: (local[keys[i]] || {}).name || '', on: true });
+    if (r && r.ok) _skipSheet[keys[i]] = { name: (local[keys[i]] || {}).name || '', _sheet: true };
+  }
+  toast('ย้ายเครื่องหมาย "ไม่ได้เรียน" ' + keys.length + ' รายการขึ้นชีตแล้ว — ใช้ได้ทุกเครื่อง', 'success');
+}
+
+/* ★ ของกลางจากชีต + ของในเครื่อง (เผื่อยิงขึ้นชีตไม่สำเร็จ) */
+function loadIgnoreMissing() {
+  return Object.assign({}, _skipSheet, loadIgnoreLocal());
+}
+
+/* ติ๊ก/เอาออก 1 รายการ — เขียนทั้งชีตและในเครื่องให้ตรงกันเสมอ */
+async function skipSet(group, ck, full, name, on) {
+  const key = ignoreKeyOf(group, ck, full);
+  const local = loadIgnoreLocal();
+  if (on) { local[key] = { name: name, at: Date.now() }; _skipSheet[key] = { name: name, _sheet: true }; }
+  else    { delete local[key]; delete _skipSheet[key]; }
+  saveIgnoreMissing(local);
+  const r = await pendCall({ action: 'scoreSkipSet', group: group, ck: ck, full: full, name: name, on: !!on });
+  if (!r || !r.ok) {
+    toast('บันทึกขึ้นชีตไม่สำเร็จ — เครื่องนี้เห็นแล้ว แต่เครื่องอื่นยังไม่เห็น', 'error');
+    return false;
+  }
+  return true;
+}
+
+/* ── (2) ข้อ 4 · ตัวเลขรอตรวจ — เช็คเองเป็นระยะ ไม่ต้องรอครูเปิดหน้า ── */
+let _pendBadgeAt = 0, _pendLastN = -1, _pendTimer = null;
+
+async function refreshPendingBadge(force) {
+  if (!SCRIPT_URL) return;
+  if (!force && Date.now() - _pendBadgeAt < 60000) return;
+  _pendBadgeAt = Date.now();
+  try {
+    const j = await pendCall({ action: 'listPending' });
+    if (!j || !j.ok) return;
+    const n = j.count != null ? j.count : (j.items || []).length;
+    pendPaintBadge(n);
+    /* มีของใหม่เข้ามาระหว่างที่ครูเปิดหน้าอื่นอยู่ → บอกครั้งเดียว */
+    if (_pendLastN >= 0 && n > _pendLastN && state.view !== 'pending') {
+      toast('📥 นักเรียนส่งคะแนนมาใหม่ ' + (n - _pendLastN) + ' รายการ — รอตรวจทั้งหมด ' + n, 'success');
+    }
+    _pendLastN = n;
+  } catch (e) { /* เงียบไว้ */ }
+}
+
+function startPendingWatch() {
+  if (_pendTimer) return;
+  refreshPendingBadge(true);
+  _pendTimer = setInterval(function () { refreshPendingBadge(true); }, 120000);
+}
+
+/* ── (3) ข้อ 5 · ลบคะแนนที่กรอกบทผิด ── */
+function confirmDeleteExam(idx) {
+  const e = (window._examDetailCache || [])[idx];
+  if (!e) return;
+  const name = e.full.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  showModal({
+    title: '🗑 ลบคะแนนนี้ทิ้ง',
+    body:
+      '<div style="line-height:2;">' +
+        '<b>' + _eh(name) + '</b><br>' +
+        'บท <b>' + _eh(e.chapter) + '</b><br>' +
+        'วันที่ <span class="num">' + _eh(e.date || '-') + '</span> · คะแนน <span class="num">' + e.score + '/30</span>' +
+      '</div>' +
+      '<div style="margin-top:10px; padding:9px 11px; border:1px solid var(--orange); border-radius:9px; font-size:13px; line-height:1.8;">' +
+        'แถวนี้จะถูกย้ายไปชีต <b>results_deleted</b> (กู้คืนได้) แล้วลบออกจาก <b>results</b> และ <b>results_long</b><br>' +
+        '<span style="color:var(--gray-dark); font-size:12px;">ใช้กับกรณีกรอกผิดบท/ผิดคน — ถ้าแค่แก้คะแนน ให้กรอกใหม่ทับได้เลย</span>' +
+      '</div>',
+    actions: [
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
+      { label: 'ลบทิ้ง', class: 'btn--danger', onClick: function () { doDeleteExam(idx); } }
+    ]
+  });
+}
+
+async function doDeleteExam(idx) {
+  const e = (window._examDetailCache || [])[idx];
+  if (!e) return;
+  closeModal();
+  const r = await examWrite({
+    action: 'deleteExamScore',
+    full: e.fullRaw || e.full,      /* ★ ชื่อที่อยู่ในชีตจริง — หน้าครูซ่อมชื่อให้ตรงทะเบียนไว้ */
+    chapter: e.chapter, date: e.date, ts: e.ts,
+    note: 'ลบจากหน้าคะแนนรวม'
+  });
+  if (!r) return;
+  toast('ลบแล้ว · results_long ' + (r.longDeleted || 0) + ' แถว · สำรองไว้ที่ results_deleted', 'success');
+  if (r.needRebuild) {
+    /* คนนี้สอบบทนี้วันเดียวกันหลายครั้ง — results_long แยกไม่ได้ ต้อง rebuild */
+    showModal({
+      title: '⚠️ ต้องรัน rebuildResultsLong()',
+      body: 'คนนี้มีคะแนนบท "' + _eh(r.chapter) + '" วันที่ ' + _eh(r.date) + ' เหลืออีก ' +
+            r.stillLeft + ' แถวใน results<br>' +
+            'แต่ results_long ของวันนั้นถูกลบไปด้วย (ชีตนั้นไม่มีเวลาบันทึกให้แยกแถว)<br><br>' +
+            '<b>เปิด Apps Script → เลือก rebuildResultsLong() → Run</b> แล้วเว็บนักเรียนจะกลับมาถูกต้อง',
+      actions: [{ label: 'เข้าใจแล้ว', class: 'btn--primary', onClick: closeModal }]
+    });
+  }
+  await fetchExamData(true);
+  try { checkMissingScoresBadge(); } catch (err) {}
+  renderMain();
 }
 function saveIgnoreMissing(o) {
   try { localStorage.setItem(MISSING_IGNORE_KEY, JSON.stringify(o)); } catch(e) {}
@@ -4534,32 +4673,33 @@ function saveIgnoreMissing(o) {
 function ignoreKeyOf(group, ck, full) { return group + '|' + ck + '|' + full; }
 
 /* ซ่อน 1 คนออกจากรายการค้างกรอก (เช่น เข้ากลางคอร์ส ไม่ได้สอบบทนี้) */
-function ignoreMissingOne(group, ck, full, name) {
-  const o = loadIgnoreMissing();
-  o[ignoreKeyOf(group, ck, full)] = { name: name, at: Date.now() };
-  saveIgnoreMissing(o);
+async function ignoreMissingOne(group, ck, full, name) {
+  await skipSet(group, ck, full, name, true);      /* ★ 28 ส.ค. 69 — ขึ้นชีต ใช้ได้ทุกเครื่อง */
   renderMissingBanner();
   checkMissingScoresBadge();
   toast(`ซ่อน "${name}" ออกจากรายการค้างกรอกแล้ว`, 'success');
 }
 
 /* ซ่อนทั้งชุดสอบ */
-function ignoreMissingSet(group, ck) {
+async function ignoreMissingSet(group, ck) {
   const list = findMissingScoreSets(state.examData, true).filter(x => x.group === group && x.ck === ck);
   if (!list.length) return;
-  const o = loadIgnoreMissing();
-  list[0].missing.forEach(m => { o[ignoreKeyOf(group, ck, m.full)] = { name: m.name, at: Date.now() }; });
-  saveIgnoreMissing(o);
+  for (const m of list[0].missing) { await skipSet(group, ck, m.full, m.name, true); }
   renderMissingBanner();
   checkMissingScoresBadge();
-  toast('ซ่อนทั้งชุดแล้ว', 'success');
+  toast('ซ่อนทั้งชุดแล้ว (ทุกเครื่องเห็นตรงกัน)', 'success');
 }
 
-function resetIgnoreMissing() {
+async function resetIgnoreMissing() {
+  const keys = Object.keys(loadIgnoreMissing());
   saveIgnoreMissing({});
+  for (const k of keys) {                          /* ★ ต้องลบบนชีตด้วย ไม่งั้นโหลดใหม่แล้วกลับมา */
+    const p = k.split('|');
+    if (p.length >= 3) await skipSet(p[0], p[1], p.slice(2).join('|'), '', false);
+  }
   renderMissingBanner();
   checkMissingScoresBadge();
-  toast('แสดงรายการที่ซ่อนไว้ทั้งหมดแล้ว', 'success');
+  toast('แสดงรายการที่ซ่อนไว้ทั้งหมดแล้ว (' + keys.length + ' รายการ)', 'success');
 }
 function findMissingScoreSets(d, includeIgnored) {
   if (!d) return [];
@@ -5058,7 +5198,10 @@ function showExamDetailByIdx(idx) {
       </div>
       <div style="display:grid; grid-template-columns:repeat(10,1fr); gap:4px;">${grid}</div>
     `,
-    actions: [{ label: 'ปิด', class: 'btn--primary', onClick: closeModal }]
+    actions: [
+      { label: '🗑 ลบคะแนนนี้', class: 'btn--ghost', onClick: () => confirmDeleteExam(idx) },
+      { label: 'ปิด', class: 'btn--primary', onClick: closeModal }
+    ]
   });
 }
 
@@ -5195,14 +5338,15 @@ function entryToggleSkip() {
   const e = state.entry, d = state.examData;
   if (!e.full) { toast('ยังไม่ได้เลือกนักเรียน', 'error'); return; }
   const ck = chapterKey(e.chapter);
-  const o = loadIgnoreMissing();
-  const key = ignoreKeyOf(e.group, ck, e.full);
+  const on = !loadIgnoreMissing()[ignoreKeyOf(e.group, ck, e.full)];
   const st = (d.students || []).find(function (s) { return s.full === e.full; });
   const name = st ? st.name : e.full;
-  if (o[key]) { delete o[key]; toast('เอาเครื่องหมาย "ไม่ได้เรียน" ของ ' + name + ' ออกแล้ว', 'success'); }
-  else { o[key] = { name: name, at: Date.now() }; toast(name + ' = ไม่ได้เรียนบท "' + e.chapter + '"', 'success'); }
-  saveIgnoreMissing(o);
-  try { renderMissingBanner(); checkMissingScoresBadge(); } catch (err) {}
+  skipSet(e.group, ck, e.full, name, on).then(function () {
+    toast(on ? (name + ' = ไม่ได้เรียนบท "' + e.chapter + '" (ทุกเครื่องเห็นตรงกัน)')
+             : ('เอาเครื่องหมาย "ไม่ได้เรียน" ของ ' + name + ' ออกแล้ว'), 'success');
+    try { renderMissingBanner(); checkMissingScoresBadge(); } catch (err) {}
+    renderScoreEntry(document.getElementById('mainBody'));
+  });
   renderScoreEntry(document.getElementById('mainBody'));
 }
 
