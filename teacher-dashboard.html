@@ -1752,6 +1752,7 @@ function renderMain() {
     title.textContent = 'สรุปการเข้าเรียน';
     renderAttendanceSummary(body);
     if (Date.now() - _attPullAt > 60000) pullAttendanceFromSheet(true);
+    ensureLeaveCache();   /* ★ 28 ส.ค. 69 — รายชื่อคนแจ้งลาของคาบถัดไป */
     return;
   }
 
@@ -2919,6 +2920,201 @@ function rejoinStudent(groupId, sid) {
 }
 
 /* ATTENDANCE SUMMARY — สรุปการเข้าเรียนทั้งคอร์ส */
+/* ═══════════════════════════════════════════════════════════════
+   ★ 28 ส.ค. 69 — ชุด A · แจ้งลาก่อนถึงคาบ · สรุปรายคาบ · เตือนสาย/ลาครบเกณฑ์
+   เกณฑ์นับ "เฉพาะคอร์สปัจจุบัน" — g.sessions ถูก renewCourse รีเซ็ตทุกครั้ง
+   ที่ต่อคอร์ส จึงเป็นของคอร์สนี้อยู่แล้ว ไม่ต้องกรองเพิ่ม
+   ═══════════════════════════════════════════════════════════════ */
+const ATT_ALERT = { lateCount: 3, leaveCount: 3 };
+
+let _leaveCacheAt = 0, _leaveCacheBusy = false;
+
+/* โหลดรายการแจ้งลามาเก็บไว้ใช้ทั้งหน้า (cache 2 นาที) แล้ววาดใหม่รอบเดียว
+   ★ กันวนซ้ำ: ตั้ง _leaveCacheAt ก่อนเรียก renderMain() รอบถัดไปจึง return ทันที */
+async function ensureLeaveCache(force) {
+  if (!SCRIPT_URL || _leaveCacheBusy) return;
+  if (!force && _leaveCacheAt && Date.now() - _leaveCacheAt < 120000) return;
+  _leaveCacheBusy = true;
+  try {
+    const url = SCRIPT_URL + '?action=listLeave&token=' + encodeURIComponent(teacherToken()) + '&t=' + Date.now();
+    const r = await (await fetch(url)).json();
+    if (r && r.ok) {
+      _leaveRequestsCache = r.requests || [];
+      _leaveCacheAt = Date.now();
+      if (state.view === 'attendance') renderMain();
+    }
+  } catch (e) { /* ออฟไลน์ก็ปล่อยไป — การ์ดไม่ขึ้นเฉย ๆ ไม่ต้องรบกวนครู */ }
+  finally { _leaveCacheBusy = false; }
+}
+
+/* รายการแจ้งลาของคาบหนึ่ง (อ่านจาก cache — ไม่ยิงเน็ตซ้ำ) */
+function leaveOfSession(groupId, sessionNo) {
+  return (_leaveRequestsCache || []).filter(function (r) {
+    return r.groupId === groupId && Number(r.sessionNo) === Number(sessionNo);
+  });
+}
+
+/* คาบถัดไปที่ยังมาไม่ถึง (นับวันนี้ด้วย) */
+function nextSessionOf(g) {
+  const today = todayStr();
+  return (g.sessions || [])
+    .filter(function (s) { return s.status !== 'holiday' && s.date >= today; })
+    .sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); })[0] || null;
+}
+
+/* ★ ข้อ 1 — การ์ด "คาบถัดไป" + ใครแจ้งลา/แจ้งสายไว้ล่วงหน้าแล้วบ้าง */
+function upcomingLeaveCard(g) {
+  const s = nextSessionOf(g);
+  if (!s) return '';
+  const tNo = teachingNoMap(g);
+  const list = leaveOfSession(g.id, s.no);
+  const isToday = s.date === todayStr();
+  const head = (isToday ? 'คาบวันนี้' : 'คาบถัดไป') + ' — คาบที่ ' + (tNo[s.no] || s.no) +
+               ' · ' + thDayName(s.date) + ' ' + thDate(s.date) + ' · ' + getSessionTime(s, g);
+
+  const chips = list.map(function (r) {
+    const isLate = r.type === 'แจ้งสาย';
+    return '<span class="att-tag" style="background:' + (isLate ? '#FFF3E6' : '#EBF3FB') +
+      '; color:' + (isLate ? '#B45309' : '#2B6CB0') + '; border:1px solid ' +
+      (isLate ? '#F5C88F' : '#B8D4EE') + ';">' + (isLate ? '⏰ ' : '📝 ') + _eh(r.studentName) +
+      ' · ' + _eh(r.type) + (r.reason ? ' — ' + _eh(r.reason) : '') + '</span>';
+  }).join(' ');
+
+  return '<div class="card" style="padding:13px 18px; border-left:3px solid ' +
+    (list.length ? '#2B6CB0' : 'var(--line-strong)') + ';">' +
+    '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">' +
+      '<div style="flex:1; min-width:200px;">' +
+        '<div style="font-weight:700;">' + (isToday ? '📅 ' : '🗓 ') + head + '</div>' +
+        '<div style="font-size:13px; color:var(--gray-dark); margin-top:4px; line-height:1.9;">' +
+          (list.length
+            ? 'แจ้งลา/แจ้งสายไว้ล่วงหน้า <b>' + list.length + ' คน</b> &nbsp; ' + chips
+            : 'ยังไม่มีใครแจ้งลาสำหรับคาบนี้') +
+        '</div>' +
+      '</div>' +
+      '<button class="btn btn--ghost btn--sm" onclick="showSessionSummary(\'' + g.id + '\', ' + s.no + ')">ดูสรุปคาบนี้</button>' +
+      '<button class="btn btn--ghost btn--sm" onclick="ensureLeaveCache(true)" title="ดึงรายการแจ้งลาล่าสุดจากชีต">⟳</button>' +
+    '</div></div>';
+}
+
+/* ★ ข้อ 3 — แถบเตือน "สายครบ N / ลาครบ N" ของคอร์สปัจจุบัน */
+function attAlertBanner(g, list) {
+  if (!list || !list.length) return '';
+  const rows = list.map(function (x) {
+    const bits = [];
+    if (x.late  >= ATT_ALERT.lateCount)  bits.push('⏰ สาย ' + x.late + ' ครั้ง');
+    if (x.leave >= ATT_ALERT.leaveCount) bits.push('📝 ลา ' + x.leave + ' ครั้ง');
+    return '<span class="att-tag" style="background:#FFF1F0; color:#B42318; border:1px solid #F5B5B0; cursor:pointer;"' +
+      ' onclick="showStudentAttHistory(\'' + g.id + '\', \'' + x.id + '\')" title="ดูรายคาบของ ' + _eh(x.name) + '">' +
+      _eh(x.name) + ' · ' + bits.join(' · ') + '</span>';
+  }).join(' ');
+  return '<div class="card" style="padding:13px 18px; border-left:3px solid var(--danger); background:#FFFAF9;">' +
+    '<div style="font-weight:700; color:var(--danger);">⚠️ ถึงเกณฑ์ต้องคุย — ' + list.length + ' คน</div>' +
+    '<div style="margin-top:6px; line-height:2;">' + rows + '</div>' +
+    '<div style="font-size:12px; color:var(--gray-dark); margin-top:6px;">' +
+      'เกณฑ์: สายครบ ' + ATT_ALERT.lateCount + ' ครั้ง หรือ ลาครบ ' + ATT_ALERT.leaveCount +
+      ' ครั้ง · นับเฉพาะคอร์สนี้ (คอร์สที่ ' + (g.courseNo || 1) + ') · กดชื่อเพื่อดูว่าเป็นคาบไหนบ้าง</div></div>';
+}
+
+/* ★ ข้อ 2 — สรุปรายคาบ: ใครตรงเวลา/สาย/ลา/ขาด/ยังไม่เช็ค */
+function showSessionSummary(groupId, sessionNo) {
+  const g = state.data.groups.find(function (x) { return x.id === groupId; });
+  if (!g) return;
+  ensureSessions(g);
+  const sess = (g.sessions || []).find(function (s) { return s.no === Number(sessionNo); });
+  if (!sess) { toast('ไม่พบคาบนี้', 'error'); return; }
+
+  const B = { present: [], late: [], leave: [], absent: [], pending: [], outside: [] };
+  rosterFor(g, true).forEach(function (s) {
+    if (!attInWindow(s, sess)) { B.outside.push({ s: s }); return; }
+    const r = sess.attendance && sess.attendance.records[s.id];
+    const st = r ? attScreenStatus(r, sess, g) : 'pending';
+    (B[st] || B.pending).push({ s: s, r: r });
+  });
+
+  const line = function (title, color, bg, arr, showTime) {
+    if (!arr.length) return '';
+    return '<div style="margin-bottom:10px;">' +
+      '<div style="font-weight:700; color:' + color + '; font-size:13px;">' + title + ' · ' + arr.length + ' คน</div>' +
+      '<div style="line-height:2; margin-top:3px;">' + arr.map(function (o) {
+        const r = o.r, note = r ? attCleanNote(r) : '';
+        const t = (showTime && r && r.checkInTime) ? ' <span class="num" style="opacity:.75;">' + r.checkInTime + '</span>' : '';
+        return '<span class="att-tag" style="background:' + bg + '; color:' + color + '; border:1px solid ' + color +
+          '33; cursor:pointer;" onclick="showAttendanceDetail(\'' + g.id + '\', ' + sess.no + ', \'' + o.s.id + '\')">' +
+          _eh(o.s.name) + t + (note ? ' · ' + _eh(note) : '') + '</span>';
+      }).join(' ') + '</div></div>';
+  };
+
+  const tNo = teachingNoMap(g);
+  const lv = leaveOfSession(g.id, sess.no);
+  const notApplied = lv.filter(function (r) { return !isLeaveApplied(r); });
+  const total = B.present.length + B.late.length + B.leave.length + B.absent.length + B.pending.length;
+
+  showModal({
+    title: 'สรุปคาบที่ ' + (tNo[sess.no] || sess.no) + ' · ' + thDayName(sess.date) + ' ' + thDate(sess.date),
+    body:
+      '<div style="font-size:12px; color:var(--gray-dark); margin-bottom:10px;">' +
+        _eh(g.name) + ' · ' + getSessionTime(sess, g) + ' · นักเรียน ' + total + ' คน' +
+        (sess.attendance && sess.attendance.finishedAt ? ' · <b>จบคาบแล้ว</b>' : ' · <b>ยังไม่ได้กดจบคาบ</b>') +
+      '</div>' +
+      (notApplied.length
+        ? '<div style="padding:8px 11px; border:1px solid #2B6CB0; border-radius:9px; font-size:13px; margin-bottom:10px;">' +
+          '🔔 มีใบแจ้งลา/แจ้งสาย <b>' + notApplied.length + ' ใบ</b> ที่ยังไม่ได้บันทึกลงตาราง: ' +
+          notApplied.map(function (r) { return _eh(r.studentName) + ' (' + _eh(r.type) + ')'; }).join(' · ') +
+          '<div style="font-size:12px; color:var(--gray-dark); margin-top:3px;">กด "จบคาบ" ระบบจะจัดให้เอง หรือกดบันทึกเองที่ปุ่ม 🔔 รายการแจ้งลา</div></div>'
+        : '') +
+      '<div style="max-height:330px; overflow-y:auto;">' +
+        line('✓ ตรงเวลา', '#2F855A', '#EFF7F1', B.present, true) +
+        line('⏰ สาย', '#B45309', '#FFF6EC', B.late, true) +
+        line('📝 ลา', '#2B6CB0', '#EDF4FB', B.leave, false) +
+        line('✗ ขาด', '#B42318', '#FFF1F0', B.absent, false) +
+        line('– ยังไม่เช็คชื่อ', '#6B7280', '#F4F4F5', B.pending, false) +
+        line('· ยังไม่เข้า/ออกไปแล้ว', '#9CA3AF', '#FAFAFA', B.outside, false) +
+      '</div>',
+    actions: [
+      { label: 'ปิด', class: 'btn--ghost', onClick: closeModal },
+      { label: '📋 คัดลอกสรุป', class: 'btn--primary', onClick: function () {
+          const text = buildSessionSummaryText(g, sess);
+          navigator.clipboard.writeText(text).then(
+            function () { toast('คัดลอกแล้ว — วางใน LINE ได้เลย', 'success'); closeModal(); },
+            function () { toast('คัดลอกไม่สำเร็จ — เบราว์เซอร์ไม่อนุญาต', 'error'); }
+          );
+        } }
+    ]
+  });
+}
+
+/* ★ ข้อ 3 (ต่อ) — กดชื่อในแถบเตือน → ดูว่าสาย/ลาคาบไหนบ้าง */
+function showStudentAttHistory(groupId, studentId) {
+  const g = state.data.groups.find(function (x) { return x.id === groupId; });
+  if (!g) return;
+  ensureSessions(g);
+  const st = rosterFor(g, true).find(function (s) { return s.id === studentId; });
+  if (!st) return;
+  const tNo = teachingNoMap(g);
+  const rows = (g.sessions || []).filter(function (s) {
+    return s.status !== 'holiday' && attInWindow(st, s);
+  }).map(function (s) {
+    const r = s.attendance && s.attendance.records[studentId];
+    const cs = r ? attScreenStatus(r, s, g) : 'pending';
+    if (cs !== 'late' && cs !== 'leave' && cs !== 'absent') return '';
+    const color = cs === 'late' ? '#B45309' : cs === 'leave' ? '#2B6CB0' : '#B42318';
+    const note = attCleanNote(r);
+    return '<div style="display:flex; gap:10px; padding:7px 10px; border:1px solid var(--line); border-radius:9px; margin-bottom:6px; cursor:pointer;"' +
+      ' onclick="showAttendanceDetail(\'' + g.id + '\', ' + s.no + ', \'' + studentId + '\')">' +
+      '<b style="color:' + color + '; min-width:52px;">' + statusLabel(cs) + '</b>' +
+      '<span>คาบที่ ' + (tNo[s.no] || s.no) + ' · ' + thDayName(s.date) + ' ' + thDate(s.date) +
+      (r && r.checkInTime ? ' · เช็ค ' + r.checkInTime + ' น.' : '') +
+      (cs === 'late' ? ' · ช้า ' + lateMinutesOf(r, s, g) + ' นาที' : '') +
+      (note ? ' · ' + _eh(note) : '') + '</span></div>';
+  }).join('');
+  showModal({
+    title: _eh(st.name) + ' — คาบที่ต้องดู (คอร์สที่ ' + (g.courseNo || 1) + ')',
+    body: rows || '<div style="color:var(--gray-dark); text-align:center; padding:16px;">ไม่มีคาบที่สาย/ลา/ขาด</div>',
+    actions: [{ label: 'ปิด', class: 'btn--ghost', onClick: closeModal }]
+  });
+}
+
+
 function renderAttendanceSummary(body) {
   if (state.data.groups.length === 0) {
     body.innerHTML = `<div class="empty"><h3>ยังไม่มีกลุ่ม</h3><p>เพิ่มกลุ่มก่อนเริ่มเช็คชื่อ</p></div>`;
@@ -2938,6 +3134,7 @@ function renderAttendanceSummary(body) {
 
   // Build table
   const _roster = rosterFor(g, state.showFormer);
+  const attAlertList = [];   /* ★ ข้อ 3 — คนที่สาย/ลาถึงเกณฑ์ในคอร์สนี้ */
   let tableRows = _roster.map((s, idx) => {
     let ontime = 0, soft = 0, late = 0, absent = 0, leave = 0, outside = 0;
     const cells = sessionCols.map(sess => {
@@ -2988,6 +3185,10 @@ function renderAttendanceSummary(body) {
     const rate = denom > 0 ? Math.round(checkedIn / denom * 100) : 0;
     const rateClass = rate >= 80 ? 'good' : rate >= 60 ? 'warn' : 'bad';
 
+    if (!s._former && (late >= ATT_ALERT.lateCount || leave >= ATT_ALERT.leaveCount)) {
+      attAlertList.push({ id: s.id, name: s.name, late: late, leave: leave });
+    }
+
     if (!s._former) {
       totalPresent += present;
       totalLate += late;
@@ -3006,13 +3207,19 @@ function renderAttendanceSummary(body) {
     } else if (s.joinedAt) {
       badge = _tag('joined', 'เข้า ' + thDate(s.joinedAt), 'joinedAt', 'กดเพื่อแก้วันแรกที่เข้าเรียน');
     }
+    const alertTag =
+      (late >= ATT_ALERT.lateCount
+        ? ` <span class="att-tag" style="background:#FFF6EC; color:#B45309; border:1px solid #F5C88F; cursor:pointer;" title="สายครบเกณฑ์ในคอร์สนี้ — กดดูว่าคาบไหนบ้าง" onclick="showStudentAttHistory('${g.id}','${s.id}')">⏰ สาย ${late}</span>` : '') +
+      (leave >= ATT_ALERT.leaveCount
+        ? ` <span class="att-tag" style="background:#EDF4FB; color:#2B6CB0; border:1px solid #B8D4EE; cursor:pointer;" title="ลาครบเกณฑ์ในคอร์สนี้ — กดดูว่าคาบไหนบ้าง" onclick="showStudentAttHistory('${g.id}','${s.id}')">📝 ลา ${leave}</span>` : '');
+
     const win = denom > 0 && (outside > 0)
       ? `<span style="color:var(--gray-soft);"> · จาก ${denom} คาบที่มีสิทธิ์</span>` : '';
 
     return `
       <tr${s._former ? ' class="att-row--former"' : ''}>
         <td>
-          <div class="att-student-name">${idx+1}. ${s.name}${badge}</div>
+          <div class="att-student-name">${idx+1}. ${s.name}${badge}${alertTag}</div>
           <div class="att-student-meta">ตรงเวลา ${ontime} · สาย ${late} · ลา ${leave} · ขาด ${absent}${win}</div>
         </td>
         ${cells}
@@ -3043,6 +3250,8 @@ function renderAttendanceSummary(body) {
 
   body.innerHTML = `
     ${resumeBanner}
+    ${upcomingLeaveCard(g)}
+    ${attAlertBanner(g, attAlertList)}
     <!-- Group selector -->
     <div class="card" style="padding:14px 18px;">
       <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
@@ -3126,7 +3335,10 @@ function renderAttendanceSummary(body) {
           <thead>
             <tr>
               <th>ชื่อ</th>
-              ${(()=>{const m=teachingNoMap(g);return sessionCols.map(s => `<th>${m[s.no]}</th>`).join('');})()}
+              ${(()=>{const m=teachingNoMap(g);return sessionCols.map(s => {
+                const nlv = leaveOfSession(g.id, s.no).length;
+                return `<th style="cursor:pointer;" onclick="showSessionSummary('${g.id}', ${s.no})" title="ดูสรุปคาบนี้${nlv ? ' · แจ้งลาไว้ ' + nlv + ' คน' : ''}">${m[s.no]}${nlv ? `<span style="display:block; font-size:9px; color:#2B6CB0; line-height:1;">●${nlv}</span>` : ''}</th>`;
+              }).join('');})()}
               <th>%</th>
             </tr>
           </thead>
