@@ -5137,6 +5137,132 @@ function entryStateIdx(v) {
   return i < 0 ? 0 : i;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   ★ 28 ส.ค. 69 — ชุด B · dropdown กรอกคะแนนบอกได้ว่าใคร/บทไหนยังไม่กรอก
+   ใช้ ignore map เดิม (localStorage) เป็นเครื่องหมาย "ไม่ได้เรียนบทนี้"
+   → คนที่ติ๊กไว้จะหายจากทั้ง dropdown นี้และแถบเตือนค้างกรอก (ที่เดียวกัน)
+   ⚠️ เครื่องหมายนี้เก็บในเครื่องนี้เครื่องเดียว (กฎข้อ 30 — หลายเครื่อง = หลายสำเนา)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* คะแนนล่าสุดของแต่ละ (บท × คน) ในกลุ่มหนึ่ง → idx[ck][full] = {ms, date, score} */
+function entryScoreIndex(d, group) {
+  const idx = {};
+  (d.exams || []).forEach(function (e) {
+    if (e.group !== group) return;
+    const ck = chapterKey(e.chapter);
+    if (!ck) return;
+    if (!idx[ck]) idx[ck] = {};
+    const ms = examDateMs(e);
+    const cur = idx[ck][e.full];
+    if (!cur || ms >= cur.ms) idx[ck][e.full] = { ms: ms, date: e.date, score: e.score };
+  });
+  return idx;
+}
+
+function entryIsSkip(map, group, ck, full) { return !!map[ignoreKeyOf(group, ck, full)]; }
+
+/* ป้ายสถานะของคู่ (คน × บท) — ใช้ทั้ง dropdown ชื่อและ dropdown บท */
+function entryMark(idx, skipMap, group, ck, full) {
+  if (entryIsSkip(skipMap, group, ck, full)) return { k: 'skip', t: '— ไม่ได้เรียน' };
+  const hit = idx[ck] && idx[ck][full];
+  if (hit) {
+    const sc = (hit.score === '' || hit.score == null) ? 'กรอกแล้ว' : hit.score + '/30';
+    return { k: 'done', t: '✓ ' + sc + (hit.date ? ' · ' + thDate(hit.date) : '') };
+  }
+  if (!idx[ck]) return { k: 'never', t: '' };     /* กลุ่มนี้ยังไม่เคยสอบบทนี้ — ไม่ถือว่าค้าง */
+  return { k: 'miss', t: '• ยังไม่กรอก' };
+}
+
+/* ไปที่นักเรียน/บท ด้วยลำดับ — เลี่ยงปัญหา quote ในชื่อบน onclick */
+function entryGoIdx(i) {
+  const r = rosterOf(state.examData, state.entry.group);
+  if (!r[i]) return;
+  state.entry.full = r[i].full;
+  renderScoreEntry(document.getElementById('mainBody'));
+}
+function entryGoCkIdx(i) {
+  const d = state.examData;
+  const cks = chapterOrder(d.exams).filter(function (k) { return entryScoreIndex(d, state.entry.group)[k]; });
+  const ck = cks[i];
+  if (!ck) return;
+  const labels = chapterLabels(d.exams);
+  state.entry.chapter = labels[ck] || ck;
+  renderScoreEntry(document.getElementById('mainBody'));
+}
+
+/* ติ๊ก / เอาออก "คนนี้ไม่ได้เรียนบทนี้" */
+function entryToggleSkip() {
+  const e = state.entry, d = state.examData;
+  if (!e.full) { toast('ยังไม่ได้เลือกนักเรียน', 'error'); return; }
+  const ck = chapterKey(e.chapter);
+  const o = loadIgnoreMissing();
+  const key = ignoreKeyOf(e.group, ck, e.full);
+  const st = (d.students || []).find(function (s) { return s.full === e.full; });
+  const name = st ? st.name : e.full;
+  if (o[key]) { delete o[key]; toast('เอาเครื่องหมาย "ไม่ได้เรียน" ของ ' + name + ' ออกแล้ว', 'success'); }
+  else { o[key] = { name: name, at: Date.now() }; toast(name + ' = ไม่ได้เรียนบท "' + e.chapter + '"', 'success'); }
+  saveIgnoreMissing(o);
+  try { renderMissingBanner(); checkMissingScoresBadge(); } catch (err) {}
+  renderScoreEntry(document.getElementById('mainBody'));
+}
+
+/* การ์ดสรุปใต้ช่องเลือก — ข้อ 6 (บทที่คนนี้ยังไม่กรอก) + ข้อ 7 (คนที่ยังไม่กรอกบทนี้) */
+function entryProgressCard(d, e, idx, skipMap, roster, labels) {
+  const ck = chapterKey(e.chapter);
+  const per = idx[ck] || null;
+  const chip = function (txt, color, bg, click, tip) {
+    return '<span class="att-tag" style="background:' + bg + '; color:' + color + '; border:1px solid ' + color +
+      '44; cursor:pointer;" title="' + (tip || '') + '" onclick="' + click + '">' + txt + '</span>';
+  };
+
+  /* ── ข้อ 7 · ใครในกลุ่มยังไม่กรอกบทนี้ ── */
+  const missWho = [], skipWho = [];
+  roster.forEach(function (s, i) {
+    if (entryIsSkip(skipMap, e.group, ck, s.full)) { skipWho.push({ s: s, i: i }); return; }
+    if (!per || !per[s.full]) missWho.push({ s: s, i: i });
+  });
+  const doneN = roster.length - missWho.length - skipWho.length;
+
+  const whoBlock = !per
+    ? '<div style="color:var(--gray-dark);">ยังไม่มีใครในกลุ่มนี้กรอกบท "' + _eh(e.chapter) + '" เลย — คนนี้จะเป็นคนแรก</div>'
+    : '<div><b>บท ' + _eh(e.chapter) + '</b> — กรอกแล้ว <b class="num">' + doneN + '/' + roster.length + '</b> คน' +
+      (skipWho.length ? ' <span style="color:var(--gray-dark);">· ไม่ได้เรียน ' + skipWho.length + ' คน</span>' : '') +
+      '<div style="margin-top:5px; line-height:2;">' +
+        (missWho.length
+          ? 'ยังไม่กรอก: ' + missWho.map(function (o) {
+              return chip(_eh(o.s.name), '#B42318', '#FFF1F0', 'entryGoIdx(' + o.i + ')', 'กดเพื่อกรอกของคนนี้');
+            }).join(' ')
+          : '<span style="color:var(--success); font-weight:600;">✓ กรอกครบทุกคนแล้ว</span>') +
+      '</div></div>';
+
+  /* ── ข้อ 6 · คนนี้ยังไม่กรอกบทไหนบ้าง (เฉพาะบทที่กลุ่มเคยสอบ) ── */
+  const cks = chapterOrder(d.exams).filter(function (k) { return idx[k]; });
+  const myMiss = [];
+  cks.forEach(function (k, i) {
+    if (entryIsSkip(skipMap, e.group, k, e.full)) return;
+    if (!idx[k][e.full]) myMiss.push({ ck: k, i: i });
+  });
+  const myName = (roster.find(function (s) { return s.full === e.full; }) || {}).name || e.full;
+  const chapBlock = '<div style="margin-top:8px;"><b>' + _eh(myName) + '</b> — ' +
+    (myMiss.length
+      ? 'ยังไม่กรอก <b class="num">' + myMiss.length + '</b> บท: <span style="line-height:2;">' +
+        myMiss.map(function (o) {
+          return chip(_eh(labels[o.ck] || o.ck), '#B45309', '#FFF6EC', 'entryGoCkIdx(' + o.i + ')', 'กดเพื่อเปลี่ยนไปบทนี้');
+        }).join(' ') + '</span>'
+      : '<span style="color:var(--success); font-weight:600;">✓ กรอกครบทุกบทที่กลุ่มนี้สอบแล้ว</span>') + '</div>';
+
+  const skipped = entryIsSkip(skipMap, e.group, ck, e.full);
+  return '<div class="card" style="padding:13px 18px; font-size:13px; border-left:3px solid var(--line-strong);">' +
+    whoBlock + chapBlock +
+    '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center;">' +
+      '<button class="btn btn--ghost btn--sm" onclick="entryToggleSkip()" style="' +
+        (skipped ? 'border-color:var(--gray-dark); color:var(--gray-dark);' : '') + '">' +
+        (skipped ? '↩︎ เอาเครื่องหมาย "ไม่ได้เรียน" ออก' : '🚫 คนนี้ไม่ได้เรียนบทนี้') + '</button>' +
+      (missWho.length ? '<button class="btn btn--ghost btn--sm" onclick="entryGoIdx(' + missWho[0].i + ')">→ คนถัดไปที่ยังไม่กรอก (' + _eh(missWho[0].s.name) + ')</button>' : '') +
+      '<span style="margin-left:auto; font-size:11px; color:var(--gray-dark);">เครื่องหมาย "ไม่ได้เรียน" เก็บในเครื่องนี้เท่านั้น · ซ่อนออกจากแถบเตือนค้างกรอกด้วย</span>' +
+    '</div></div>';
+}
+
 async function renderScoreEntry(body) {
   body.innerHTML = `<div class="empty"><h3>กำลังโหลดรายชื่อ...</h3></div>`;
   try { await fetchExamData(); } catch(err) {
@@ -5159,6 +5285,15 @@ async function renderScoreEntry(body) {
     const lastStd = usedRaw.filter(isStdChapter).pop();
     e.chapter = lastStd || CHAPTERS[0];
   }
+
+  /* ★ ชุด B — สถานะการกรอกของกลุ่มนี้ */
+  const _eIdx  = entryScoreIndex(d, e.group);
+  const _eSkip = loadIgnoreMissing();
+  const _eCk   = chapterKey(e.chapter);
+  const _eMissWho = _eIdx[_eCk]
+    ? roster.filter(s => !entryIsSkip(_eSkip, e.group, _eCk, s.full) && !_eIdx[_eCk][s.full]).length : 0;
+  const _eMyMiss = chapterOrder(d.exams)
+    .filter(k => _eIdx[k] && !_eIdx[k][e.full] && !entryIsSkip(_eSkip, e.group, k, e.full)).length;
 
   const brushBtns = ENTRY_STATES.map((s, i) => `
     <button onclick="state.entry.brush=${i}; renderScoreEntry(document.getElementById('mainBody'));"
@@ -5205,19 +5340,22 @@ async function renderScoreEntry(body) {
           </select>
         </div>
         <div class="form-field">
-          <label>นักเรียน (${roster.length} คน)</label>
-          <select id="entryStudent" onchange="state.entry.full=this.value;">
-            ${roster.map(s => `<option value="${s.full.replace(/"/g, '&quot;')}" ${s.full === e.full ? 'selected' : ''}>${s.name}</option>`).join('')}
+          <label>นักเรียน (${roster.length} คน${_eMissWho ? ` · <b style="color:var(--danger);">ยังไม่กรอก ${_eMissWho}</b>` : ''})</label>
+          <select id="entryStudent" onchange="entryPickStudent(this.value)">
+            ${roster.map(s => { const mk = entryMark(_eIdx, _eSkip, e.group, _eCk, s.full);
+              return `<option value="${s.full.replace(/"/g, '&quot;')}" ${s.full === e.full ? 'selected' : ''}>${s.name}${mk.t ? '  ' + mk.t : ''}</option>`; }).join('')}
           </select>
         </div>
         <div class="form-field">
-          <label>บท</label>
+          <label>บท${_eMyMiss ? ` · <b style="color:var(--orange);">คนนี้ยังไม่กรอก ${_eMyMiss} บท</b>` : ''}</label>
           <select id="entryChapter" onchange="entryPickChapter(this.value)">
             <optgroup label="บทมาตรฐาน — ตรงกับเว็บนักเรียน">
-              ${CHAPTERS.map(c => `<option value="${c.replace(/"/g, '&quot;')}" ${c === e.chapter ? 'selected' : ''}>${c}</option>`).join('')}
+              ${CHAPTERS.map(c => { const mk = entryMark(_eIdx, _eSkip, e.group, chapterKey(c), e.full);
+                return `<option value="${c.replace(/"/g, '&quot;')}" ${c === e.chapter ? 'selected' : ''}>${c}${mk.t ? '  ' + mk.t : ''}</option>`; }).join('')}
             </optgroup>
             ${legacyChapters.length ? `<optgroup label="⚠️ ชื่อเก่าในชีต — นักเรียนกรองไม่เจอ">
-              ${legacyChapters.map(c => `<option value="${c.replace(/"/g, '&quot;')}" ${c === e.chapter ? 'selected' : ''}>⚠️ ${c}</option>`).join('')}
+              ${legacyChapters.map(c => { const mk = entryMark(_eIdx, _eSkip, e.group, chapterKey(c), e.full);
+                return `<option value="${c.replace(/"/g, '&quot;')}" ${c === e.chapter ? 'selected' : ''}>⚠️ ${c}${mk.t ? '  ' + mk.t : ''}</option>`; }).join('')}
             </optgroup>` : ''}
             <option value="__new__">+ พิมพ์บทใหม่…</option>
           </select>
@@ -5229,6 +5367,8 @@ async function renderScoreEntry(body) {
         </div>
       </div>
     </div>
+
+    ${entryProgressCard(d, e, _eIdx, _eSkip, roster, labels)}
 
     ${e.mode === 'paste' ? pasteEntryHtml(d, e) : tapEntryHtml(e, brushBtns, cells, n)}
   `;
@@ -5268,6 +5408,22 @@ function tapEntryHtml(e, brushBtns, cells, n) {
 function entrySetMode(m) {
   state.entry.mode = m;
   renderScoreEntry(document.getElementById('mainBody'));
+}
+
+/* ★ 28 ส.ค. 69 — เปลี่ยนนักเรียนแล้ววาดใหม่ (ให้ป้าย "ยังไม่กรอก" ในช่องบทอัปเดตตามคน)
+   เก็บหมายเหตุที่พิมพ์ค้างไว้ให้ด้วย */
+function entryKeepNote(fn) {
+  const note = document.getElementById('entryNote');
+  const keep = note ? note.value : '';
+  Promise.resolve(fn()).then(function () {
+    const n2 = document.getElementById('entryNote');
+    if (n2 && keep) n2.value = keep;
+  });
+}
+
+function entryPickStudent(v) {
+  state.entry.full = v;
+  entryKeepNote(function () { return renderScoreEntry(document.getElementById('mainBody')); });
 }
 
 function entryPickChapter(v) {
@@ -5626,13 +5782,11 @@ function entryTap(i) {
   const cur = entryStateIdx(e.st[i]);
   // แตะครั้งแรก = ใส่สถานะที่เลือกไว้ · แตะซ้ำ = วนไปสถานะถัดไป
   e.st[i] = (cur === e.brush) ? ENTRY_STATES[(cur + 1) % ENTRY_STATES.length].v : ENTRY_STATES[e.brush].v;
-  const note = document.getElementById('entryNote');
-  const keepNote = note ? note.value : '';
   const stu = document.getElementById('entryStudent');
   if (stu) state.entry.full = stu.value;
-  renderScoreEntry(document.getElementById('mainBody'));
-  const n2 = document.getElementById('entryNote');
-  if (n2 && keepNote) n2.value = keepNote;
+  /* ★ 28 ส.ค. 69 — เดิมคืนค่าหมายเหตุทันทีทั้งที่ renderScoreEntry เป็น async
+     (ยังวาดไม่เสร็จ) หมายเหตุที่พิมพ์ค้างจึงหายทุกครั้งที่แตะข้อ */
+  entryKeepNote(function () { return renderScoreEntry(document.getElementById('mainBody')); });
 }
 
 function entryFillAll(v) {
