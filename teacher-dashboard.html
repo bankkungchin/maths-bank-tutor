@@ -1355,10 +1355,100 @@ function loadData() {
   }
 }
 
-function saveData() {
+/* ═══════════════════════════════════════════════════════════════
+   ★ 29 ส.ค. 69 — หลายเครื่องเห็นไม่ตรงกัน (กฎข้อ 30)
+   เดิม: หน้าครูอ่านจาก localStorage ของเครื่องตัวเองเสมอ → เครื่องที่ไม่ได้เปิด
+   ตอนแก้ จะถือของเก่าไว้ และ autoSync() ดันของเก่านั้นทับชีตได้ทุกเมื่อ
+   ใหม่: เปิดหน้าครูทีไร ดึงจากชีตก่อน — ยกเว้นเครื่องนี้มีของที่ยังไม่ได้อัป
+        (แก้ล่าสุด > อัปล่าสุด) จึงหยุดถามครูก่อน ไม่ตัดสินใจแทน
+   ═══════════════════════════════════════════════════════════════ */
+const LAST_EDIT_KEY = 'mathsBankLastEdit';
+
+/* ปั๊มเวลา "แก้ล่าสุดในเครื่องนี้" — saveData เรียกให้เองทุกครั้งที่ข้อมูลเปลี่ยน */
+function touchEdit() {
+  state.lastEdit = new Date().toISOString();
+  try { localStorage.setItem(LAST_EDIT_KEY, state.lastEdit); } catch (e) {}
+}
+
+function readEditStamp() {
+  try { return localStorage.getItem(LAST_EDIT_KEY) || null; } catch (e) { return null; }
+}
+
+/* เครื่องนี้มีของที่ยังไม่ได้ดันขึ้นชีตไหม */
+function deviceIsDirty() {
+  const ed = state.lastEdit || readEditStamp();
+  if (!ed) return false;                       /* ไม่เคยแก้อะไรเลย */
+  if (!state.lastSync) return true;            /* แก้แล้วแต่ไม่เคยอัปเลย */
+  return new Date(ed).getTime() > new Date(state.lastSync).getTime() + 1500;
+}
+
+/* เครื่องนี้ตรงกับชีตแล้ว — ล้างสถานะ "มีของค้าง" */
+function markInSyncWithSheet() {
+  state.lastSync = new Date().toISOString();
+  state.lastEdit = null;
+  try {
+    localStorage.setItem('mathsBankLastSync', state.lastSync);
+    localStorage.removeItem(LAST_EDIT_KEY);
+  } catch (e) {}
+  updateSyncIndicator();
+}
+
+function hhmm(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return (sameDay ? '' : thDate(dateToStr(d)) + ' ') +
+         d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+/* ── เรียกตอนเปิดหน้าครู ── */
+async function bootFreshnessCheck() {
+  if (!SCRIPT_URL) return;
+  if (state.isDemoData) return;            /* เครื่องใหม่ — showApp ดึงให้อยู่แล้ว */
+
+  if (!deviceIsDirty()) {
+    /* เครื่องนี้ไม่มีอะไรจะเสีย → เอาของจากชีตมาเลย กันถือของเก่าค้าง */
+    await loadFromSheet({ quiet: true });
+    return;
+  }
+
+  const ed = hhmm(state.lastEdit || readEditStamp());
+  const sy = hhmm(state.lastSync);
+  showModal({
+    title: '⚠️ เครื่องนี้มีการแก้ที่ยังไม่ได้อัปขึ้นชีต',
+    body:
+      '<div style="line-height:2;">' +
+        'แก้ล่าสุดในเครื่องนี้ · <b>' + (ed || 'ไม่ทราบเวลา') + '</b><br>' +
+        'อัปขึ้นชีตล่าสุด · <b>' + (sy || 'ยังไม่เคยอัปเลย') + '</b>' +
+      '</div>' +
+      '<div style="margin-top:10px; padding:9px 11px; border:1px solid var(--orange); border-radius:9px; font-size:13px; line-height:1.85;">' +
+        '<b>ถ้าเพิ่งแก้อะไรจากเครื่องอื่น</b> (เช่น ต่อคอร์ส เพิ่มนักเรียน) → เลือก <b>ใช้ของจากชีต</b><br>' +
+        '<b>ถ้าเพิ่งเช็คชื่อ/แก้จากเครื่องนี้ตอนเน็ตหลุด</b> → เลือก <b>ใช้ของเครื่องนี้</b><br>' +
+        '<span style="color:var(--gray-dark); font-size:12px;">ไม่แน่ใจ → กด "ไว้ก่อน" แล้วดูข้อมูลก่อน ยังไม่มีอะไรถูกเขียนทับ</span>' +
+      '</div>',
+    actions: [
+      { label: 'ไว้ก่อน', class: 'btn--ghost', onClick: closeModal },
+      { label: '⬆️ ใช้ของเครื่องนี้', class: 'btn--ghost', onClick: async function () {
+          closeModal();
+          await syncToSheet();
+          markInSyncWithSheet();
+        } },
+      { label: '⬇️ ใช้ของจากชีต', class: 'btn--primary', onClick: async function () {
+          closeModal();
+          await loadFromSheet();
+        } }
+    ]
+  });
+}
+
+function saveData(opts) {
   try {
     if (state.isDemoData) return false;   // ยังไม่ได้ดึงข้อมูลจริง — ห้ามบันทึกทับ
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
+    /* ★ 29 ส.ค. 69 — ปั๊มเวลาแก้ล่าสุด ใช้เทียบกับเวลาที่อัปขึ้นชีต
+       (saveData({touch:false}) = แค่เขียนลงเครื่องเฉย ๆ ไม่นับว่าเป็นการแก้) */
+    if (!(opts && opts.touch === false)) touchEdit();
     return true;
   } catch(e) {
     console.error('saveData error:', e);
@@ -1634,13 +1724,14 @@ function showApp() {
   document.getElementById('loginView').style.display = 'none';
   document.getElementById('appView').style.display = 'grid';
   state.data = loadData();
-  // สร้าง sessions ให้ครบทุกกลุ่ม
-  state.data.groups.forEach(g => ensureSessions(g));
-  saveData();
-  // โหลด last sync time
+  // โหลดเวลาซิงก์/เวลาแก้ล่าสุด ก่อนแตะข้อมูลใด ๆ (ไม่งั้นการเปิดหน้าเฉย ๆ จะกลายเป็น "มีของค้าง")
   try {
     state.lastSync = localStorage.getItem('mathsBankLastSync') || null;
   } catch(e) { state.lastSync = null; }
+  state.lastEdit = readEditStamp();
+  // สร้าง sessions ให้ครบทุกกลุ่ม
+  state.data.groups.forEach(g => ensureSessions(g));
+  saveData({ touch: false });
   updateSyncIndicator();
   // เลือกกลุ่มแรกอัตโนมัติ
   if (state.data.groups.length > 0) {
@@ -1654,6 +1745,8 @@ function showApp() {
   if (state.isDemoData && SCRIPT_URL) {
     toast('เครื่องนี้ยังไม่มีข้อมูล — กำลังดึงจาก Google Sheet...', 'success');
     loadFromSheet();
+  } else {
+    bootFreshnessCheck();   /* ★ 29 ส.ค. 69 — กันเครื่องที่เปิดทีหลังถือของเก่าค้าง */
   }
 }
 
@@ -8212,12 +8305,13 @@ function updateSyncIndicator() {
   }
 }
 
-async function loadFromSheet() {
+async function loadFromSheet(opts) {
+  const quiet = !!(opts && opts.quiet);
   if (!SCRIPT_URL) {
-    toast('ยังไม่ได้เชื่อม Google Sheet', 'error');
+    if (!quiet) toast('ยังไม่ได้เชื่อม Google Sheet', 'error');
     return;
   }
-  toast('กำลังดาวน์โหลด...', 'success');
+  if (!quiet) toast('กำลังดาวน์โหลด...', 'success');
   try {
     const url = `${SCRIPT_URL}?action=loadData&token=${encodeURIComponent(teacherToken())}&t=${Date.now()}`;
     const res = await fetch(url);
@@ -8226,18 +8320,20 @@ async function loadFromSheet() {
       state.data = result.data;
       state.isDemoData = false;              // ได้ข้อมูลจริงแล้ว
       state.data.groups.forEach(g => ensureSessions(g));
-      saveData();
+      saveData({ touch: false });
+      markInSyncWithSheet();                 /* ★ เครื่องนี้ตรงกับชีตแล้ว — ล้างสถานะมีของค้าง */
       if (state.data.groups.length > 0 && !state.selectedGroupId) {
         state.selectedGroupId = state.data.groups[0].id;
       }
       renderAll();
-      toast(`ดาวน์โหลดสำเร็จ · ${state.data.groups.length} กลุ่ม`, 'success');
+      toast(quiet ? `อัปเดตจากชีตแล้ว · ${state.data.groups.length} กลุ่ม`
+                  : `ดาวน์โหลดสำเร็จ · ${state.data.groups.length} กลุ่ม`, 'success');
       loadFacesFromSheet();
     } else {
-      toast('ดาวน์โหลดไม่สำเร็จ: ' + (result.error || 'unknown'), 'error');
+      if (!quiet) toast('ดาวน์โหลดไม่สำเร็จ: ' + (result.error || 'unknown'), 'error');
     }
   } catch(e) {
-    toast('เชื่อมต่อไม่ได้: ' + e.message, 'error');
+    if (!quiet) toast('เชื่อมต่อไม่ได้: ' + e.message, 'error');
   }
 }
 
