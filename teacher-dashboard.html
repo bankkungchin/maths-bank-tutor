@@ -4389,8 +4389,11 @@ function printAttStatus(r, sess, g) {
 }
 const PRINT_SYM = { ontime: '✓', late: 'ส', leave: 'ล', absent: '✗', pending: '-' };
 
-function printAttendanceReport(groupId) {
-  const g = state.data.groups.find(x => x.id === groupId);
+function printAttendanceReport(groupIdOrGroup) {
+  /* ★ 29 ส.ค. 69 — รับได้ทั้ง id ของกลุ่มที่ยังเรียนอยู่ และก้อนกลุ่มจากคลังคอร์สเก่า */
+  const g = (groupIdOrGroup && typeof groupIdOrGroup === 'object')
+    ? groupIdOrGroup
+    : state.data.groups.find(x => x.id === groupIdOrGroup);
   if (!g) return;
   ensureSessions(g);
 
@@ -7478,6 +7481,133 @@ async function undoRenewCourse(blockId) {
   toast(`ย้อนกลับเป็นคอร์สที่ ${r.courseNo} ของ "${r.groupName}" แล้ว`, 'success');
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   ★ 29 ส.ค. 69 — ชุด D · เปิดคอร์สเก่าจากคลังมาดูรายคาบ + ออกรายงาน
+   snapshot ของคอร์สเก่าถูกเก็บเป็น JSON ทั้งก้อนในชีต groups_archive
+   (คอลัมน์ json ตัดเป็นชิ้นละ 45,000 ตัวอักษร) — ดึงมาแล้วใช้ได้เหมือน
+   กลุ่มปกติทุกอย่าง จึงใช้ฟังก์ชันสรุป/ปริ้นตัวเดิมได้เลย ไม่ต้องเขียนใหม่
+   ═══════════════════════════════════════════════════════════════ */
+let _archCourse = null;      /* กลุ่มจากคลังที่กำลังเปิดดู */
+let _archMeta = null;
+
+async function showArchivedCourseDetail(groupId) {
+  toast('กำลังเปิดคอร์สเก่า...', 'success');
+  const r = await archiveCall({ action: 'getArchivedCourse', groupId: groupId });
+  if (!r) return;
+  _archCourse = r.group;
+  _archMeta = { archivedAt: r.archivedAt || '', tagName: r.tagName || (r.group && r.group.name) || '' };
+  renderArchivedCourseModal();
+}
+
+/* สรุปหนึ่งคาบของคอร์สเก่า → {ontime, late, leave, absent, pending} */
+function archSessionTally(g, sess) {
+  const t = { ontime: 0, late: 0, leave: 0, absent: 0, pending: 0 };
+  const recs = (sess.attendance && sess.attendance.records) || {};
+  rosterFor(g, true).forEach(function (s) {
+    if (!attInWindow(s, sess)) return;
+    const r = recs[s.id];
+    const st = r ? attScreenStatus(r, sess, g) : 'pending';
+    if (st === 'present') t.ontime++;
+    else if (st === 'late') t.late++;
+    else if (st === 'leave') t.leave++;
+    else if (st === 'absent') t.absent++;
+    else t.pending++;
+  });
+  return t;
+}
+
+function renderArchivedCourseModal() {
+  const g = _archCourse;
+  if (!g) return;
+  const tNo = teachingNoMap(g);
+  const sessions = g.sessions || [];
+  const taught = sessions.filter(function (s) { return s.status !== 'holiday'; });
+  const dates = taught.map(function (s) { return s.date; }).filter(Boolean).sort();
+
+  const rows = sessions.map(function (s) {
+    const holiday = s.status === 'holiday';
+    const t = holiday ? null : archSessionTally(g, s);
+    const sum = holiday
+      ? '<span style="color:var(--danger);">หยุด' + (s.note ? ' — ' + _eh(s.note) : '') + '</span>'
+      : '<span style="color:#2F855A;">มา ' + t.ontime + '</span> · ' +
+        '<span style="color:#B45309;">สาย ' + t.late + '</span> · ' +
+        '<span style="color:#2B6CB0;">ลา ' + t.leave + '</span> · ' +
+        '<span style="color:#B42318;">ขาด ' + t.absent + '</span>' +
+        (t.pending ? ' · <span style="color:var(--gray-dark);">ไม่ได้เช็ค ' + t.pending + '</span>' : '');
+    return '<div style="display:flex; gap:10px; align-items:center; padding:8px 11px; border:1px solid var(--line);' +
+      ' border-radius:9px; margin-bottom:6px; font-size:13px;' + (holiday ? ' opacity:.6;' : ' cursor:pointer;') + '"' +
+      (holiday ? '' : ' onclick="showArchivedSessionDetail(' + s.no + ')"') + '>' +
+      '<b style="min-width:52px;">' + (holiday ? '—' : 'คาบ ' + (tNo[s.no] || s.no)) + '</b>' +
+      '<span style="min-width:135px;">' + thDayName(s.date) + ' ' + thDate(s.date) + '</span>' +
+      '<span style="flex:1;">' + sum + '</span></div>';
+  }).join('');
+
+  showModal({
+    title: '🗄 ' + _eh(_archMeta.tagName || g.name),
+    body:
+      '<div style="font-size:12.5px; color:var(--gray-dark); margin-bottom:10px; line-height:1.8;">' +
+        _eh(g.level || '') + (g.dayOfWeek ? ' · วัน' + _eh(g.dayOfWeek) : '') +
+        ' · ' + _eh(g.startTime || '') + '–' + _eh(g.endTime || '') + ' น.' +
+        ' · นักเรียน ' + (g.students || []).length + ' คน' +
+        ((g.formerStudents || []).length ? ' (+ ออกกลางคอร์ส ' + g.formerStudents.length + ' คน)' : '') +
+        '<br>สอนจริง <b>' + taught.length + '</b> คาบ' +
+        (sessions.length - taught.length ? ' · หยุด ' + (sessions.length - taught.length) + ' คาบ' : '') +
+        (dates.length ? ' · ' + thDate(dates[0]) + ' → ' + thDate(dates[dates.length - 1]) : '') +
+        (_archMeta.archivedAt ? ' · เก็บเข้าคลังเมื่อ ' + _eh(_archMeta.archivedAt) : '') +
+      '</div>' +
+      '<div style="font-size:12px; color:var(--gray-dark); margin-bottom:6px;">กดที่คาบเพื่อดูรายชื่อรายคน</div>' +
+      '<div style="max-height:330px; overflow-y:auto;">' + (rows || 'ไม่มีคาบเรียนในคอร์สนี้') + '</div>',
+    actions: [
+      { label: '← กลับไปคลัง', class: 'btn--ghost', onClick: showArchiveListModal },
+      { label: '🖨 ปริ้นรายงาน', class: 'btn--primary', onClick: function () { printAttendanceReport(_archCourse); } }
+    ]
+  });
+}
+
+/* รายชื่อรายคนของหนึ่งคาบในคอร์สเก่า */
+function showArchivedSessionDetail(sessionNo) {
+  const g = _archCourse;
+  if (!g) return;
+  const sess = (g.sessions || []).find(function (s) { return s.no === Number(sessionNo); });
+  if (!sess) return;
+  const tNo = teachingNoMap(g);
+  const recs = (sess.attendance && sess.attendance.records) || {};
+  const B = { present: [], late: [], leave: [], absent: [], pending: [], outside: [] };
+  rosterFor(g, true).forEach(function (s) {
+    if (!attInWindow(s, sess)) { B.outside.push({ s: s }); return; }
+    const r = recs[s.id];
+    const st = r ? attScreenStatus(r, sess, g) : 'pending';
+    (B[st] || B.pending).push({ s: s, r: r });
+  });
+  const line = function (title, color, bg, arr, showTime) {
+    if (!arr.length) return '';
+    return '<div style="margin-bottom:9px;">' +
+      '<div style="font-weight:700; color:' + color + '; font-size:13px;">' + title + ' · ' + arr.length + ' คน</div>' +
+      '<div style="line-height:2; margin-top:3px;">' + arr.map(function (o) {
+        const note = o.r ? attCleanNote(o.r) : '';
+        const t = (showTime && o.r && o.r.checkInTime) ? ' <span class="num" style="opacity:.75;">' + o.r.checkInTime + '</span>' : '';
+        return '<span class="att-tag" style="background:' + bg + '; color:' + color + '; border:1px solid ' + color + '33;">' +
+          _eh(o.s.name) + t + (note ? ' · ' + _eh(note) : '') + '</span>';
+      }).join(' ') + '</div></div>';
+  };
+  showModal({
+    title: 'คาบที่ ' + (tNo[sess.no] || sess.no) + ' · ' + thDayName(sess.date) + ' ' + thDate(sess.date),
+    body:
+      '<div style="font-size:12px; color:var(--gray-dark); margin-bottom:10px;">' +
+        _eh(_archMeta.tagName || g.name) + ' · ' + getSessionTime(sess, g) +
+        (sess.note ? ' · ' + _eh(sess.note) : '') + '</div>' +
+      '<div style="max-height:320px; overflow-y:auto;">' +
+        line('✓ ตรงเวลา', '#2F855A', '#EFF7F1', B.present, true) +
+        line('⏰ สาย', '#B45309', '#FFF6EC', B.late, true) +
+        line('📝 ลา', '#2B6CB0', '#EDF4FB', B.leave, false) +
+        line('✗ ขาด', '#B42318', '#FFF1F0', B.absent, false) +
+        line('– ไม่ได้เช็คชื่อ', '#6B7280', '#F4F4F5', B.pending, false) +
+        line('· ยังไม่เข้า/ออกไปแล้ว', '#9CA3AF', '#FAFAFA', B.outside, false) +
+      '</div>',
+    actions: [{ label: '← กลับไปคอร์สนี้', class: 'btn--primary', onClick: renderArchivedCourseModal }]
+  });
+}
+
 async function showArchiveListModal() {
   toast('กำลังโหลดคลัง...', 'success');
   const r = await archiveCall({ action: 'listArchivedGroups' });
@@ -7490,6 +7620,7 @@ async function showArchiveListModal() {
           ${x.students} คน · ${x.sessions} คาบ${x.firstDate ? ' · ' + _eh(x.firstDate) + ' → ' + _eh(x.lastDate) : ''} · เก็บเมื่อ ${_eh(x.archivedAt)}
         </div>
       </div>
+      <button class="btn btn--ghost btn--xs" onclick="showArchivedCourseDetail('${_ea(x.groupId)}')" title="ดูว่าคอร์สนี้เรียนวันไหนบ้าง ใครมา/สาย/ลา/ขาด + ปริ้นรายงาน">📋 ดูรายคาบ</button>
       ${String(x.groupId).indexOf('#c') > -1
         ? `<button class="btn btn--ghost btn--xs" onclick="undoRenewCourse('${_ea(x.groupId)}')" title="เอาตารางคาบ+รายชื่อกลับไปเป็นตอนก่อนต่อคอร์ส">↩︎ ย้อนการต่อคอร์ส</button>`
         : `<button class="btn btn--ghost btn--xs" onclick="restoreArchivedGroup('${_ea(x.groupId)}')">↩︎ กู้กลับ</button>`}
@@ -7499,6 +7630,7 @@ async function showArchiveListModal() {
     body: `
       <div style="font-size:12px; color:var(--gray-dark); margin-bottom:12px; line-height:1.7;">
         ประวัติแบบอ่านง่ายอยู่ในชีต <code>attendance_archive</code> (1 แถว = 1 คน/คาบ) ค้นและทำรายงานต่อได้<br>
+        <b>📋 ดูรายคาบ</b> = เปิดดูว่าคอร์สนั้นเรียนวันไหนบ้าง ใครมา/สาย/ลา/ขาด และปริ้นรายงานได้ (ไม่ต้องกู้กลับ)<br>
         <b>กู้กลับ</b> = เอากลุ่มที่เลิกเรียนกลับเข้าระบบพร้อมประวัติครบเหมือนเดิม<br>
         <b>ย้อนการต่อคอร์ส</b> = รายการที่ชื่อลงท้าย "· คอร์ส N" คือบล็อกที่จบไปแล้วของกลุ่มที่ยังเรียนอยู่
       </div>
