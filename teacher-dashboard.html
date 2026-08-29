@@ -7360,6 +7360,14 @@ async function doRenewCourse(groupId) {
   if (!r) return;
   closeModal();
   await loadFromSheet();                          /* เอาของจากชีตมาทับเครื่อง */
+  /* ★ 29 ส.ค. 69 — renewCourse ฝั่งเซิร์ฟเวอร์ล้าง sessions ทิ้ง เก็บแค่ sessionsTotal + startDate
+     ตารางคาบถูกสร้างในเครื่องด้วย ensureSessions() ซึ่งไม่ save และไม่ sync กลับเอง
+     → ชีตค้างเป็น sessions:[] · นักเรียนแจ้งลาไม่ได้ · เปิดคาบเช็คชื่อไม่ได้ (เจอจริง 29 ส.ค.)
+     ต้องสร้างตารางแล้วดันขึ้นชีตทันทีในจังหวะนี้ */
+  const gNew = state.data.groups.find(x => x.id === groupId);
+  if (gNew) ensureSessions(gNew);
+  saveData();
+  await syncToSheet(true);
   renderAll();
   toast(`ขึ้นคอร์สที่ ${r.courseNew} แล้ว · เรียนต่อ ${r.kept} คน · ชำระแล้ว ${r.paid} · ` +
         `เก็บประวัติคอร์ส ${r.courseDone} ไว้ ${r.archivedRows} แถว`, 'success');
