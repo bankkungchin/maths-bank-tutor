@@ -4870,8 +4870,35 @@ function isActiveFull(d, full) {
 }
 state.showInactive = false;
 
-function scoreColor(sc) {
-  return sc >= 24 ? 'var(--success)' : sc >= 15 ? 'var(--orange)' : 'var(--danger)';
+/* ★ 29 ส.ค. 69 — สนามสอบให้คะแนนไม่เท่ากันทุกข้อ
+   ⚠️ ตารางนี้ต้องตรงกับ MOCK_SETS ใน questionbank.js (repo answer-sheet) เสมอ
+      เพิ่มชุดใหม่ต้องแก้ทั้งสองที่ · ชีตยังเก็บ "จำนวนข้อถูก" เหมือนเดิม
+      คะแนนถ่วงน้ำหนักคำนวณตอนแสดงผลทุกครั้ง ไม่ได้เขียนลงชีต */
+const MOCK_POINTS = {
+  'ชุดรวม 01': { full: 100, ranges: [ { from:1, to:25, pts:3 }, { from:26, to:30, pts:5 } ] }
+};
+function fullOfChapter(ch) {
+  const m = MOCK_POINTS[String(ch || '').trim()];
+  return m ? m.full : 30;
+}
+function ptsOfQ(ch, q) {
+  const m = MOCK_POINTS[String(ch || '').trim()];
+  if (!m) return 1;
+  for (const r of m.ranges) if (q >= r.from && q <= r.to) return r.pts;
+  return 1;
+}
+/* คะแนนถ่วงน้ำหนักจากสถานะรายข้อ (array 30 ช่อง) — บทปกติคืน null ให้ผู้เรียกใช้ค่าเดิม */
+function weightedScore(ch, statuses) {
+  if (fullOfChapter(ch) === 30) return null;
+  let s = 0;
+  (statuses || []).forEach((v, i) => { if (String(v || '').indexOf('ถูก') !== -1) s += ptsOfQ(ch, i + 1); });
+  return s;
+}
+
+function scoreColor(sc, full) {
+  const f = full || 30;
+  const pct = sc / f;
+  return pct >= 0.8 ? 'var(--success)' : pct >= 0.5 ? 'var(--orange)' : 'var(--danger)';
 }
 function exKey(e) { return e.chapter + '|' + e.date; }
 
@@ -5201,7 +5228,10 @@ function renderGroupScores(sb) {
       if (!e) return `<td style="text-align:center; color:var(--gray-soft);">–</td>`;
       const idx = window._examDetailCache.push(e) - 1;
       const retook = rawExams.filter(x => x.full === s.full && chapterKey(x.chapter) === ch).length > 1;
-      return `<td style="text-align:center;"><span onclick="showExamDetailByIdx(${idx})" title="${e.date} · ถูก ${e.score} · สะเพร่า ${e.careless}${retook ? ' · สอบซ้ำ ใช้ครั้งล่าสุด' : ''}" style="cursor:pointer; font-family:var(--font-num); font-weight:700; color:${scoreColor(e.score)}; border-bottom:1px dotted currentColor;">${e.score}<span style="font-weight:400; color:var(--gray-dark); font-size:11px;">/</span><span style="font-size:12px; color:var(--orange);">${e.careless}</span>${retook ? '<sup style=\"font-size:8px;\">↻</sup>' : ''}</span></td>`;
+      /* ★ สนามสอบแสดงคะแนนถ่วงน้ำหนัก (เต็ม 100) · บทปกติแสดงจำนวนข้อถูกเหมือนเดิม */
+      const _w = weightedScore(e.chapter, e.statuses), _f = fullOfChapter(e.chapter);
+      const _show = _w == null ? e.score : _w;
+      return `<td style="text-align:center;"><span onclick="showExamDetailByIdx(${idx})" title="${e.date} · ${_w == null ? 'ถูก ' + e.score + '/30 ข้อ' : _w + '/' + _f + ' คะแนน (ถูก ' + e.score + '/30 ข้อ)'} · สะเพร่า ${e.careless}${retook ? ' · สอบซ้ำ ใช้ครั้งล่าสุด' : ''}" style="cursor:pointer; font-family:var(--font-num); font-weight:700; color:${scoreColor(_show, _f)}; border-bottom:1px dotted currentColor;">${_show}<span style="font-weight:400; color:var(--gray-dark); font-size:11px;">/</span><span style="font-size:12px; color:var(--orange);">${e.careless}</span>${retook ? '<sup style=\"font-size:8px;\">↻</sup>' : ''}</span></td>`;
     }).join('');
     const own = chapters.map(ch => byStu[s.full] && byStu[s.full][ch]).filter(Boolean);
     const myAvg = own.length ? (own.reduce((a, e) => a + e.score, 0) / own.length).toFixed(1) : '–';
@@ -5287,7 +5317,12 @@ function showExamDetailByIdx(idx) {
     body: `
       <div style="margin-bottom:12px;">
         <b>${e.chapter}</b> · <span style="font-family:var(--font-num);">${e.date || 'ไม่ระบุวันที่'}</span> ·
-        คะแนน <b style="font-family:var(--font-num); font-size:20px; color:${scoreColor(e.score)};">${e.score}</b>/30
+        ${(() => { const w = weightedScore(e.chapter, e.statuses); const f = fullOfChapter(e.chapter);
+          return w == null
+            ? `คะแนน <b style="font-family:var(--font-num); font-size:20px; color:${scoreColor(e.score, 30)};">${e.score}</b>/30`
+            : `คะแนน <b style="font-family:var(--font-num); font-size:20px; color:${scoreColor(w, f)};">${w}</b>/${f}` +
+              ` <span style="font-size:12px; color:var(--gray-dark);">(ถูก ${e.score}/30 ข้อ)</span>`;
+        })()}
       </div>
       <div style="display:flex; gap:12px; flex-wrap:wrap; font-size:12px; margin-bottom:12px; color:var(--gray-dark);">
         <span>⚠️ สะเพร่า <b>${e.careless}</b></span><span style="color:#7C3AED;">C คอนเซปต์ <b>${e.concept}</b></span>
@@ -5646,7 +5681,12 @@ function tapEntryHtml(e, brushBtns, cells, n) {
         <button class="btn btn--ghost btn--sm" onclick="entryFillAll('✅ ถูก')">ให้ถูกทั้งหมด</button>
         <button class="btn btn--ghost btn--sm" onclick="entryFillAll('')">ล้างทั้งหมด</button>
         <span style="margin-left:auto; font-size:13px;">
-          คะแนน <b style="font-family:var(--font-num); font-size:20px; color:${scoreColor(n.ok)};">${n.ok}</b>/30
+          ${(() => { const w = weightedScore(state.entry.chapter, state.entry.st);
+            return w == null
+              ? `คะแนน <b style="font-family:var(--font-num); font-size:20px; color:${scoreColor(n.ok, 30)};">${n.ok}</b>/30`
+              : `คะแนน <b style="font-family:var(--font-num); font-size:20px; color:${scoreColor(w, fullOfChapter(state.entry.chapter))};">${w}</b>/${fullOfChapter(state.entry.chapter)}` +
+                ` <span style="font-size:12px; color:var(--gray-dark); font-weight:400;">(ถูก ${n.ok}/30 ข้อ · ข้อ 1–25 ละ 3 · ข้อ 26–30 ละ 5)</span>`;
+          })()}
           <span style="color:var(--gray-dark); font-size:12px;">
             · สะเพร่า ${n.careless} · คอนเซปต์ ${n.concept} · ทำไม่ได้ ${n.cannot} · ไม่ทัน ${n.timeout} · ยังไม่ระบุ ${n.blank}
           </span>
