@@ -4815,6 +4815,7 @@ function findMissingScoreSets(d, includeIgnored) {
   const out = [];
   Object.keys(sets).forEach(k => {
     const s = sets[k];
+    if (isMockChapter(labels[s.ck] || s.ck)) return;   /* ★ 29 ส.ค. 69 — สนามสอบมีทุกสัปดาห์ ไม่ใช่บทที่ต้องกรอกให้ครบทุกคน */
     if (s.lastMs && s.lastMs < cutoff) return;         // ชุดสอบเก่าเกินไป ไม่ต้องเตือน
     const roster = rosterOf(d, s.group);
     if (roster.length === 0) return;
@@ -5357,7 +5358,16 @@ const CHAPTERS = [
   'สถิติ ชุดที่ 1', 'สถิติ ชุดที่ 2',
   'ตรรกศาสตร์'
 ];
-const isStdChapter = c => CHAPTERS.indexOf(String(c || '').trim()) >= 0;
+/* ★ 29 ส.ค. 69 — ชุดข้อสอบรวมทุกบท (สนามสอบ)
+   แยกจาก CHAPTERS เพราะไม่ใช่ "บทเรียน" — ไม่ควรไปโผล่ในรายการบทที่ต้องกรอกให้ครบ
+   เพิ่มชุดใหม่ = เพิ่มชื่อที่นี่ + EMBEDDED_QB["ชุดรวม NN"] ใน questionbank.js */
+const MOCK_CHAPTERS = ['ชุดรวม 01'];
+function isMockChapter(name) { return /^ชุดรวม\s*\d*/.test(String(name || '').trim()); }
+
+const isStdChapter = c => {
+  const t = String(c || '').trim();
+  return CHAPTERS.indexOf(t) >= 0 || MOCK_CHAPTERS.indexOf(t) >= 0;
+};
 
 /* คีย์เทียบชื่อบท — ต้องเหมือน chapterKeyGS_() ใน Code.gs และ chapterKey() ใน topic-marker.js
    ตัดช่องว่าง · ตัดคำว่า "การ" · ตัดสระบน-ล่าง/วรรณยุกต์ · "ชุดที่" = "ชุด"
@@ -5476,7 +5486,9 @@ function entryProgressCard(d, e, idx, skipMap, roster, labels) {
       '</div></div>';
 
   /* ── ข้อ 6 · คนนี้ยังไม่กรอกบทไหนบ้าง (เฉพาะบทที่กลุ่มเคยสอบ) ── */
-  const cks = chapterOrder(d.exams).filter(function (k) { return idx[k]; });
+  const cks = chapterOrder(d.exams).filter(function (k) {
+    return idx[k] && !isMockChapter(labels[k] || k);   /* ★ ไม่นับสนามสอบเป็นบทค้างกรอก */
+  });
   const myMiss = [];
   cks.forEach(function (k, i) {
     if (entryIsSkip(skipMap, e.group, k, e.full)) return;
@@ -5520,7 +5532,7 @@ async function renderScoreEntry(body) {
   // ชื่อบทที่เคยใช้จริงในชีตแต่ไม่อยู่ในรายการมาตรฐาน (ของเก่า/สะกดผิด)
   const labels = chapterLabels(d.exams);
   const usedRaw = chapterOrder(d.exams).map(k => labels[k]).filter(Boolean);
-  const legacyChapters = usedRaw.filter(c => !isStdChapter(c));
+  const legacyChapters = usedRaw.filter(c => !isStdChapter(c) && !isMockChapter(c));
   if (!e.chapter) {
     const lastStd = usedRaw.filter(isStdChapter).pop();
     e.chapter = lastStd || CHAPTERS[0];
@@ -5533,7 +5545,8 @@ async function renderScoreEntry(body) {
   const _eMissWho = _eIdx[_eCk]
     ? roster.filter(s => !entryIsSkip(_eSkip, e.group, _eCk, s.full) && !_eIdx[_eCk][s.full]).length : 0;
   const _eMyMiss = chapterOrder(d.exams)
-    .filter(k => _eIdx[k] && !_eIdx[k][e.full] && !entryIsSkip(_eSkip, e.group, k, e.full)).length;
+    .filter(k => _eIdx[k] && !_eIdx[k][e.full] && !entryIsSkip(_eSkip, e.group, k, e.full)
+                 && !isMockChapter(labels[k] || k)).length;   /* ★ สนามสอบไม่ใช่บทที่ต้องกรอกให้ครบ */
 
   const brushBtns = ENTRY_STATES.map((s, i) => `
     <button onclick="state.entry.brush=${i}; renderScoreEntry(document.getElementById('mainBody'));"
@@ -5591,6 +5604,10 @@ async function renderScoreEntry(body) {
           <select id="entryChapter" onchange="entryPickChapter(this.value)">
             <optgroup label="บทมาตรฐาน — ตรงกับเว็บนักเรียน">
               ${CHAPTERS.map(c => { const mk = entryMark(_eIdx, _eSkip, e.group, chapterKey(c), e.full);
+                return `<option value="${c.replace(/"/g, '&quot;')}" ${c === e.chapter ? 'selected' : ''}>${c}${mk.t ? '  ' + mk.t : ''}</option>`; }).join('')}
+            </optgroup>
+            <optgroup label="สนามสอบ — ข้อสอบรวมทุกบท">
+              ${MOCK_CHAPTERS.map(c => { const mk = entryMark(_eIdx, _eSkip, e.group, chapterKey(c), e.full);
                 return `<option value="${c.replace(/"/g, '&quot;')}" ${c === e.chapter ? 'selected' : ''}>${c}${mk.t ? '  ' + mk.t : ''}</option>`; }).join('')}
             </optgroup>
             ${legacyChapters.length ? `<optgroup label="⚠️ ชื่อเก่าในชีต — นักเรียนกรองไม่เจอ">
