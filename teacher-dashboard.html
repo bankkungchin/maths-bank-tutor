@@ -1191,6 +1191,143 @@ const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 10;
 
 /* ===========================================================
+   ★ 14 ก.ย. 69 — GS FETCH · ยิงคำขอไป Apps Script แบบ "ทนสะดุด"
+
+   อาการที่ครูเจอ: จอขึ้น "โหลดไม่สำเร็จ" บ่อยมาก 3 แบบ
+     1) unknown GET action:               (ไม่มีชื่อ action ต่อท้าย)
+     2) เชื่อมต่อระบบไม่ได้ (HTTP 404)
+     3) Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+
+   ทั้ง 3 แบบคืออาการเดียวกัน — Apps Script สะดุดชั่วคราว ไม่ใช่โค้ดเราพัง:
+     · Apps Script ตอบ POST ด้วย 302 ชี้ไป URL ผลลัพธ์ชั่วคราว
+       ถ้า redirect นั้นหลุด เบราว์เซอร์ยิงกลับมาที่ /exec เป็น GET เปล่า
+       → doGet เห็น action = '' → ข้อความแบบ (1)
+     · ระหว่าง Google รีโหลด deployment /exec จะ 404 แวบหนึ่ง → (2)
+     · บางจังหวะ Google ตอบหน้า HTML (error/sign-in) แทน JSON → (3)
+
+   วัดจริง 14 ก.ย. 69 บนเครื่องครู: listGroups (คำขอที่เบาที่สุด)
+   ปกติ 2–3 วินาที แต่สุ่มพุ่งเกิน 9 วินาที/หลุด ราว 1 ใน 9 ครั้ง
+   ของเดิมยิง fetch ตรง ๆ 22 จุด "ไม่มี retry เลยสักจุด"
+   → Google สะดุดครั้งเดียว = จอ "โหลดไม่สำเร็จ" ทันที
+
+   ของใหม่: ห่อทุกจุดด้วย gsFetch()
+     · คืนค่าหน้าตาเหมือน Response เดิม (.ok .status .json() .text())
+       โค้ดข้างล่างจึงไม่ต้องแก้อะไร เปลี่ยนแค่ชื่อ fetch → gsFetch
+     · action ที่อ่านอย่างเดียว หรือเขียนแบบ "ตั้งค่าเป็น X"
+       → ลองใหม่อัตโนมัติสูงสุด 3 ครั้ง (หน่วง 0.8 วิ แล้ว 2.2 วิ)
+     · action ที่ "เพิ่ม/ลบข้อมูล" → ห้ามยิงซ้ำเด็ดขาด
+       เพราะตอน redirect หลุด Apps Script อาจรันไปเรียบร้อยแล้ว
+       ยิงซ้ำ = คะแนนซ้ำแถว / ลบซ้ำ / ต่อคอร์สซ้ำ ← เสียหายกว่าขึ้น error
+     · timeout 30 วิ/ครั้ง กันค้างยาวจนครูนึกว่าเครื่องแฮงก์
+   =========================================================== */
+const GS_TIMEOUT_MS  = 30000;
+const GS_RETRY_DELAYS = [800, 2200];      /* หน่วงก่อนลองครั้งที่ 2 และ 3 */
+
+/* ยิงซ้ำแล้วผลลัพธ์เหมือนเดิม = ปลอดภัยที่จะ retry
+   (อ่านอย่างเดียว หรือเขียนแบบ "ตั้งค่าเป็น X" ไม่ใช่ "เพิ่มอีกหนึ่งแถว") */
+const GS_SAFE_ACTIONS = [
+  /* ── อ่านอย่างเดียว ── */
+  'listNames', 'listGroups', 'loadData', 'lookupCheckin', 'getCheckinUpdates',
+  'listLeave', 'listFaces', 'students', 'marks', 'data',
+  'examBatch', 'listPending', 'listArchivedGroups', 'getArchivedCourse',
+  'scoreSkipList', 'scanNameVariants', 'myPendingList',
+  'webLogin', 'webData', 'leaveOptions', 'login',
+  /* ── เขียนทับค่าเดิม ยิงซ้ำได้ผลเท่าเดิม ── */
+  'syncData', 'scoreSkipSet', 'examSetActive', 'saveFace', 'deleteFace',
+  'endCheckin', 'teacherLogin', 'teacherLogout', 'updateCheckinNote'
+];
+
+/* หาชื่อ action จาก body (POST) ก่อน ถ้าไม่มีค่อยดูใน query string (GET) */
+function gsActionOf(url, init) {
+  try {
+    if (init && typeof init.body === 'string') {
+      const b = JSON.parse(init.body);
+      if (b && b.action) return String(b.action);
+    }
+  } catch (e) {}
+  const m = String(url || '').match(/[?&]action=([^&]*)/);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+
+/* ต่อ &_try=N ตอนลองใหม่ กันไปโดน cache ของรอบที่เพิ่งพลาด */
+function gsBust(url, n) {
+  if (!n) return url;
+  return url + (String(url).indexOf('?') === -1 ? '?' : '&') + '_try=' + n;
+}
+
+function gsSleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+function gsErrorText(kind, msg, canRetry, tries) {
+  const tail = canRetry
+    ? ' · ลองใหม่ให้แล้ว ' + tries + ' ครั้ง — กดโหลดอีกครั้งได้เลยครับ'
+    : ' · คำสั่งนี้เป็นการบันทึก/ลบข้อมูล ระบบจึงไม่ยิงซ้ำอัตโนมัติ' +
+      ' — กรุณาเช็คก่อนว่าเข้าไปแล้วหรือยัง แล้วค่อยกดใหม่';
+  if (kind === 'timeout') return 'Google ตอบช้าเกิน 30 วินาที' + tail;
+  if (kind === 'html')    return 'Google ส่งหน้าเว็บกลับมาแทนข้อมูล (ระบบกำลังสะดุด)' + tail;
+  if (kind === 'lost')    return 'คำตอบจาก Google หลุดกลางทาง' + tail;
+  if (kind === 'parse')   return 'อ่านคำตอบจาก Google ไม่ออก' + tail;
+  if (kind === 'http')    return 'เชื่อมต่อระบบไม่ได้ (HTTP ' + msg + ')' + tail;
+  try { if (navigator.onLine === false) return 'เครื่องนี้ไม่ได้ต่ออินเทอร์เน็ตอยู่ครับ'; } catch (e) {}
+  return 'ต่อ Google ไม่ได้: ' + msg + tail;
+}
+
+async function gsFetch(url, init) {
+  init = init || {};
+  const action   = gsActionOf(url, init);
+  const canRetry = GS_SAFE_ACTIONS.indexOf(action) !== -1;
+  const maxTries = canRetry ? 3 : 1;
+  let lastKind = 'net', lastMsg = '';
+
+  for (let n = 0; n < maxTries; n++) {
+    if (n) {
+      if (typeof toast === 'function')
+        toast('เชื่อมต่อสะดุด · กำลังลองใหม่ (' + (n + 1) + '/' + maxTries + ')…', 'success');
+      await gsSleep(GS_RETRY_DELAYS[n - 1] || 2200);
+    }
+    let timer = null;
+    try {
+      let opts = init;
+      if (typeof AbortController === 'function') {
+        const ctl = new AbortController();
+        timer = setTimeout(function () { try { ctl.abort(); } catch (e) {} }, GS_TIMEOUT_MS);
+        opts = Object.assign({}, init, { signal: ctl.signal });
+      }
+      const res = await fetch(gsBust(url, n), opts);
+      if (timer) { clearTimeout(timer); timer = null; }
+      const text = await res.text();
+
+      /* Google ตอบหน้า HTML แทน JSON */
+      if (/^\s*</.test(text)) { lastKind = 'html'; lastMsg = ''; continue; }
+
+      let data;
+      try { data = JSON.parse(text); }
+      catch (e) { lastKind = 'parse'; lastMsg = ''; continue; }
+
+      /* redirect หลุด → กลับมาที่ /exec เป็น GET เปล่า (action ว่าง) */
+      if (data && data.ok === false &&
+          /^unknown (GET|POST) action:\s*(undefined)?\s*$/.test(String(data.error || ''))) {
+        lastKind = 'lost'; lastMsg = ''; continue;
+      }
+
+      /* HTTP ไม่ผ่าน (404/500/…) แต่ body อ่านเป็น JSON ได้ → ยังถือว่าสะดุด */
+      if (!res.ok) { lastKind = 'http'; lastMsg = String(res.status); continue; }
+
+      return {
+        ok: res.ok, status: res.status, gsTries: n + 1,
+        json: async function () { return data; },
+        text: async function () { return text; }
+      };
+    } catch (e) {
+      if (timer) clearTimeout(timer);
+      lastKind = (e && e.name === 'AbortError') ? 'timeout' : 'net';
+      lastMsg  = String((e && e.message) || '');
+      continue;
+    }
+  }
+  throw new Error(gsErrorText(lastKind, lastMsg, canRetry, maxTries));
+}
+
+/* ===========================================================
    DEFAULT DATA — ใช้เมื่อ localStorage ไม่มีข้อมูล
    =========================================================== */
 const DEFAULT_DATA = {
@@ -1636,7 +1773,7 @@ async function tryLogin(pin) {
   showLoginWarn('กำลังตรวจสอบ...');
   let r;
   try {
-    const res = await fetch(SCRIPT_URL, {
+    const res = await gsFetch(SCRIPT_URL, {
       method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ action: 'teacherLogin', pin: pin })
     });
@@ -1754,8 +1891,8 @@ function logout() {
   const tok = teacherToken();
   if (tok && SCRIPT_URL) {          // บอกเซิร์ฟเวอร์ให้ยกเลิก session ด้วย (ไม่ต้องรอผล)
     try {
-      fetch(SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'teacherLogout', token: tok }) });
+      gsFetch(SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'teacherLogout', token: tok }) }).catch(function(){});
     } catch (e) {}
   }
   sessionStorage.removeItem(SESSION_KEY);
@@ -3032,7 +3169,7 @@ async function ensureLeaveCache(force) {
   _leaveCacheBusy = true;
   try {
     const url = SCRIPT_URL + '?action=listLeave&token=' + encodeURIComponent(teacherToken()) + '&t=' + Date.now();
-    const r = await (await fetch(url)).json();
+    const r = await (await gsFetch(url)).json();
     if (r && r.ok) {
       _leaveRequestsCache = r.requests || [];
       _leaveCacheAt = Date.now();
@@ -3473,7 +3610,7 @@ async function resumeOnlineCheckin() {
   if (!saved) { toast('ไม่มีคาบที่กำลังเช็คชื่ออยู่', 'error'); return; }
   toast('กำลังกลับเข้าคาบ...', 'success');
   try {
-    const res = await fetch(`${SCRIPT_URL}?action=lookupCheckin&code=${saved.code}&t=${Date.now()}`);
+    const res = await gsFetch(`${SCRIPT_URL}?action=lookupCheckin&code=${saved.code}&t=${Date.now()}`);
     const result = await res.json();
     if (!result.ok) {
       clearActiveCheckin();
@@ -3563,7 +3700,7 @@ function showStartOnlineCheckinModal() {
 async function startOnlineCheckin(groupId, sessionNo) {
   toast('กำลังสร้างรหัสเช็คชื่อ...', 'success');
   try {
-    const res = await fetch(SCRIPT_URL, {
+    const res = await gsFetch(SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ action: 'startCheckin', token: teacherToken(), groupId: groupId, sessionNo: sessionNo })
@@ -3602,7 +3739,7 @@ async function pollOnlineCheckin() {
   }
   try {
     const url = `${SCRIPT_URL}?action=getCheckinUpdates&code=${state.onlineCheckin.code}&t=${Date.now()}`;
-    const res = await fetch(url);
+    const res = await gsFetch(url);
     const result = await res.json();
     if (result.ok) {
       updateOnlineCheckinDisplay(result);
@@ -4002,7 +4139,7 @@ async function fetchLeaveMapForSession(groupId, sessionNo) {
   if (!SCRIPT_URL) return {};
   try {
     const url = `${SCRIPT_URL}?action=listLeave&token=${encodeURIComponent(teacherToken())}&t=${Date.now()}`;
-    const res = await fetch(url);
+    const res = await gsFetch(url);
     const r = await res.json();
     if (!r.ok) return {};
     const map = {};
@@ -4042,7 +4179,7 @@ async function endOnlineCheckin() {
       { label: 'จบคาบ', class: 'btn--danger', onClick: async () => {
         closeModal();
         try {
-          const res = await fetch(SCRIPT_URL, {
+          const res = await gsFetch(SCRIPT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({ action: 'endCheckin', token: teacherToken(), checkinCode: state.onlineCheckin.code })
@@ -4081,7 +4218,7 @@ function cancelOnlineCheckin() {
         clearActiveCheckin();
         // ลบ active_checkin ผ่าน endCheckin (แต่ไม่ mark absent)
         try {
-          await fetch(SCRIPT_URL, {
+          await gsFetch(SCRIPT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({ action: 'endCheckin', token: teacherToken(), checkinCode: state.onlineCheckin.code })
@@ -4565,7 +4702,7 @@ async function fetchExamData(force) {
   /* ★ 21 ส.ค. 69 — เดิมยิง Sheets API ตรง ๆ ด้วย API key ที่ฝังในไฟล์นี้
      ตอนนี้ผ่าน Apps Script แทน (ตรวจ token ฝั่งเซิร์ฟเวอร์)
      คำตอบมีรูปแบบ valueRanges[].values เหมือน batchGet เป๊ะ ๆ โค้ดข้างล่างเลยไม่ต้องแก้ */
-  const res = await fetch(SCRIPT_URL, {
+  const res = await gsFetch(SCRIPT_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ action: 'examBatch', token: teacherToken(), showInactive: !!state.showInactive })
@@ -5332,10 +5469,296 @@ function showExamDetailByIdx(idx) {
     `,
     actions: [
       { label: '🗑 ลบคะแนนนี้', class: 'btn--ghost', onClick: () => confirmDeleteExam(idx) },
+      /* ★ 14 ก.ย. 69 — แก้ได้เองหลังอนุมัติแล้ว (ไม่ต้องลบทิ้งแล้วกรอกใหม่) */
+      { label: '✎ แก้ไข', class: 'btn--ghost', onClick: () => openEditExam(idx) },
       { label: 'ปิด', class: 'btn--primary', onClick: closeModal }
     ]
   });
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   ★ 14 ก.ย. 69 — แก้คะแนนที่บันทึก/อนุมัติไปแล้ว (ข้อ 9)
+
+   เดิม: อนุมัติของนักเรียนไปแล้ว ถ้าบทผิด/วันที่ผิด ทำได้ทางเดียวคือลบทิ้ง
+   แล้วกรอกใหม่ทั้ง 30 ข้อ
+
+   ใหม่: กดเลขคะแนนในหน้าคะแนนรวม → ✎ แก้ไข → เปลี่ยนได้ทั้ง
+   ชื่อนักเรียน · กลุ่ม · บท · วันที่ · คำตอบรายข้อ แล้วคะแนนคิดใหม่ให้เอง
+
+   ⚠️ จุดที่ต้องระวังและกันไว้แล้ว
+     · เปลี่ยน "ชื่อ" = ย้ายคะแนนไปเป็นของอีกคน → เลือกจากทะเบียนเท่านั้น
+       (พิมพ์เองไม่ได้ ไม่งั้นชื่อเพี้ยนแล้วแถวลอยไม่มีเจ้าของ)
+       และต้องพิมพ์ยืนยันก่อน เพราะกดพลาดแล้วคะแนนไปโผล่ผิดคน
+     · กลุ่มเปลี่ยนตามชื่อที่เลือกอัตโนมัติ — ไม่ให้เลือกแยก เพราะ
+       ชื่อกับกลุ่มไม่ตรงกันคือต้นเหตุของ "แถวกำพร้า" ที่เคยตามแก้กันมาแล้ว
+     · แก้แล้วไปชนคีย์ (คนเดิม บทเดิม วันเดิม) ของแถวอื่น → เซิร์ฟเวอร์
+       ตอบ needConfirmDuplicate กลับมาถามก่อน ยังไม่เขียนอะไรทั้งสิ้น
+     · editExamScore เป็นคำสั่ง "เขียน" → gsFetch จะไม่ยิงซ้ำอัตโนมัติ
+   ═══════════════════════════════════════════════════════════════════════ */
+
+let _exEd = null;      /* สถานะกล่องแก้ไขที่เปิดอยู่ */
+
+/* 'M/D/YYYY' → 'yyyy-mm-dd' สำหรับ <input type="date"> */
+function exEdToYmd(s) {
+  const t = fixBuddhistYear(String(s || '').trim());
+  let m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return m[3] + '-' + ('0' + m[1]).slice(-2) + '-' + ('0' + m[2]).slice(-2);
+  m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) return m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2);
+  return '';
+}
+
+/* สถานะดิบในชีต → index ใน ENTRY_STATES */
+function exEdStIdx(v) {
+  const s = String(v || '');
+  for (let i = 1; i < ENTRY_STATES.length; i++) {
+    const label = ENTRY_STATES[i].label;
+    if (s.indexOf(label) !== -1) return i;
+  }
+  return 0;
+}
+
+function openEditExam(idx) {
+  const e = (window._examDetailCache || [])[idx];
+  if (!e) return;
+  const d = state.examData;
+  if (!d) { toast('ยังไม่มีข้อมูลคะแนน', 'error'); return; }
+
+  _exEd = {
+    idx: idx,
+    find: { full: e.fullRaw || e.full, chapter: e.chapter, date: e.date, ts: e.ts },
+    origFull: e.full, origGroup: e.group, origChapter: e.chapter,
+    origDate: e.date, origSt: (e.statuses || []).slice(0, 30),
+    st: (e.statuses || []).slice(0, 30)
+  };
+  while (_exEd.st.length < 30) _exEd.st.push('');
+  while (_exEd.origSt.length < 30) _exEd.origSt.push('');
+
+  /* ── ดรอปดาวน์ชื่อ: ทุกคนในทะเบียน จัดกลุ่มด้วย optgroup ── */
+  const byGroup = {};
+  (d.students || []).forEach(s => { (byGroup[s.group || '—'] = byGroup[s.group || '—'] || []).push(s); });
+  const nameOpts = Object.keys(byGroup).sort().map(g =>
+    `<optgroup label="${_eh(g)}">` +
+    byGroup[g].sort((a, b) => a.name.localeCompare(b.name, 'th')).map(s =>
+      `<option value="${_eh(s.full)}" data-group="${_eh(s.group)}"${s.full === e.full ? ' selected' : ''}>${_eh(s.name)}${s.active ? '' : ' (ไม่เรียนต่อ)'}</option>`
+    ).join('') + `</optgroup>`
+  ).join('');
+
+  /* ── ดรอปดาวน์บท: บทมาตรฐาน + สนามสอบ + บทเดิมถ้าไม่อยู่ในลิสต์ ── */
+  const chapList = CHAPTERS.concat(MOCK_CHAPTERS);
+  if (chapList.indexOf(e.chapter) === -1) chapList.push(e.chapter);
+  const chapOpts = chapList.map(c =>
+    `<option value="${_eh(c)}"${c === e.chapter ? ' selected' : ''}>${_eh(c)}</option>`).join('');
+
+  const fld = 'width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:9px; font-size:14px; font-family:inherit; background:var(--bg);';
+  const lab = 'font-size:11px; color:var(--gray-dark); font-weight:700; letter-spacing:.04em; display:block; margin-bottom:4px;';
+
+  showModal({
+    title: '✎ แก้คะแนนที่บันทึกไปแล้ว',
+    body: `
+      <div style="display:grid; gap:12px;">
+        <div>
+          <label style="${lab}">นักเรียน</label>
+          <select id="exEdName" style="${fld}" onchange="exEdMark()">${nameOpts}</select>
+          <div id="exEdMoveWarn" style="display:none; margin-top:6px; font-size:12px; color:var(--danger); font-weight:600;">
+            ⚠️ ย้ายคะแนนชุดนี้ไปเป็นของอีกคน — ตรวจให้แน่ใจก่อนบันทึก
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 150px; gap:10px;">
+          <div>
+            <label style="${lab}">บท</label>
+            <select id="exEdChap" style="${fld}" onchange="exEdMark()">${chapOpts}</select>
+          </div>
+          <div>
+            <label style="${lab}">วันที่สอบ</label>
+            <input type="date" id="exEdDate" style="${fld}" value="${exEdToYmd(e.date)}" onchange="exEdMark()">
+          </div>
+        </div>
+        <div>
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
+            <label style="${lab} margin:0;">คำตอบรายข้อ — กดที่ข้อเพื่อเปลี่ยน</label>
+            <div style="flex:1;"></div>
+            <button class="btn btn--ghost btn--sm" onclick="exEdFillAll('✅ ถูก')">ถูกหมด</button>
+            <button class="btn btn--ghost btn--sm" onclick="exEdReset()">คืนค่าเดิม</button>
+          </div>
+          <div id="exEdGrid" style="display:grid; grid-template-columns:repeat(10,1fr); gap:4px;"></div>
+          <div id="exEdScore" style="margin-top:10px; font-size:13px;"></div>
+        </div>
+      </div>
+    `,
+    actions: [
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: () => { _exEd = null; closeModal(); } },
+      { label: 'บันทึกการแก้ไข', class: 'btn--primary', onClick: exEdSubmit }
+    ]
+  });
+  exEdPaint();
+}
+
+/* วาดเฉพาะตาราง 30 ข้อ + บรรทัดคะแนน — ไม่แตะ select/input ที่ครูกำลังกรอก */
+function exEdPaint() {
+  if (!_exEd) return;
+  const grid = document.getElementById('exEdGrid');
+  if (!grid) return;
+  grid.innerHTML = _exEd.st.map((v, i) => {
+    const s = ENTRY_STATES[exEdStIdx(v)];
+    const dirty = String(v || '') !== String(_exEd.origSt[i] || '');
+    return `<button onclick="exEdTap(${i})" title="ข้อ ${i + 1} · ${s.label}"
+      style="aspect-ratio:1; min-height:36px; border-radius:8px; cursor:pointer; line-height:1.1;
+             border:${dirty ? '2px solid var(--orange)' : '1px solid var(--line)'};
+             background:${s.bg === 'transparent' ? 'var(--bg)' : s.bg}; color:${s.color};
+             font-family:var(--font-num); font-weight:700; font-size:12px;
+             display:flex; flex-direction:column; align-items:center; justify-content:center;">
+      <span style="font-size:8px; opacity:.7;">${i + 1}</span><span>${s.short}</span></button>`;
+  }).join('');
+
+  const n = { ok: 0, careless: 0, concept: 0, cannot: 0, timeout: 0, blank: 0 };
+  _exEd.st.forEach(v => {
+    const s = String(v || '');
+    if (s.indexOf('ถูก') !== -1) n.ok++;
+    else if (s.indexOf('สะเพร่า') !== -1) n.careless++;
+    else if (s.indexOf('คอนเซปต์') !== -1) n.concept++;
+    else if (s.indexOf('ทำไม่ได้') !== -1) n.cannot++;
+    else if (s.indexOf('ไม่ทัน') !== -1) n.timeout++;
+    else n.blank++;
+  });
+  const chSel = document.getElementById('exEdChap');
+  const ch = chSel ? chSel.value : _exEd.origChapter;
+  const w = weightedScore(ch, _exEd.st), f = fullOfChapter(ch);
+  const shown = w == null ? n.ok : w;
+  const oldOk = _exEd.origSt.filter(v => String(v || '').indexOf('ถูก') !== -1).length;
+  const el = document.getElementById('exEdScore');
+  if (el) el.innerHTML =
+    `คะแนนใหม่ <b style="font-family:var(--font-num); font-size:20px; color:${scoreColor(shown, f)};">${shown}</b>/${f}` +
+    (w == null ? '' : ` <span style="color:var(--gray-dark); font-size:12px;">(ถูก ${n.ok}/30 ข้อ)</span>`) +
+    (n.ok !== oldOk ? ` <span style="color:var(--orange); font-size:12px;">· เดิมถูก ${oldOk} ข้อ</span>` : '') +
+    `<div style="margin-top:5px; font-size:12px; color:var(--gray-dark);">
+       ⚠️ สะเพร่า ${n.careless} · C คอนเซปต์ ${n.concept} · X ทำไม่ได้ ${n.cannot} · ⏰ ไม่ทัน ${n.timeout} · – ว่าง ${n.blank}</div>`;
+}
+
+function exEdTap(i) {
+  if (!_exEd) return;
+  _exEd.st[i] = ENTRY_STATES[(exEdStIdx(_exEd.st[i]) + 1) % ENTRY_STATES.length].v;
+  exEdPaint();
+}
+function exEdFillAll(v) { if (_exEd) { _exEd.st = new Array(30).fill(v); exEdPaint(); } }
+function exEdReset()    { if (_exEd) { _exEd.st = _exEd.origSt.slice(); exEdPaint(); } }
+
+/* เตือนตอนเปลี่ยนคน + คิดคะแนนใหม่เมื่อเปลี่ยนบท (สนามสอบคิดคนละเต็ม) */
+function exEdMark() {
+  if (!_exEd) return;
+  const sel = document.getElementById('exEdName');
+  const warn = document.getElementById('exEdMoveWarn');
+  if (sel && warn) warn.style.display = (sel.value !== _exEd.origFull) ? 'block' : 'none';
+  exEdPaint();
+}
+
+/* ยิงคำสั่งแบบได้ผลดิบกลับมา — ต้องอ่าน needConfirmDuplicate เอง
+   (examWrite ตัวเดิมกลืน error แล้วคืน null จึงใช้ไม่ได้ตรงนี้) */
+async function examWriteRaw(payload) {
+  if (!SCRIPT_URL) { toast('ยังไม่ได้เชื่อม Apps Script', 'error'); return null; }
+  try {
+    const res = await gsFetch(SCRIPT_URL, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(Object.assign({ token: teacherToken() }, payload))
+    });
+    const r = await res.json();
+    if (authFailed(r)) return null;
+    return r;
+  } catch (e) { toast('เชื่อมต่อไม่ได้: ' + e.message, 'error'); return null; }
+}
+
+function exEdSubmit() {
+  if (!_exEd) return;
+  const sel  = document.getElementById('exEdName');
+  const chap = document.getElementById('exEdChap').value;
+  const date = document.getElementById('exEdDate').value;
+  if (!date) { toast('ยังไม่ได้เลือกวันที่', 'error'); return; }
+
+  const full  = sel.value;
+  const opt   = sel.options[sel.selectedIndex];
+  const group = opt ? (opt.getAttribute('data-group') || '') : _exEd.origGroup;
+
+  const diff = [];
+  if (full !== _exEd.origFull)       diff.push(`<b>ชื่อ</b> ${_eh(_exEd.origFull)} → <b style="color:var(--danger);">${_eh(full)}</b>`);
+  if (group !== _exEd.origGroup)     diff.push(`<b>กลุ่ม</b> ${_eh(_exEd.origGroup || '—')} → ${_eh(group || '—')}`);
+  if (chap !== _exEd.origChapter)    diff.push(`<b>บท</b> ${_eh(_exEd.origChapter)} → ${_eh(chap)}`);
+  if (date !== exEdToYmd(_exEd.origDate)) diff.push(`<b>วันที่</b> ${_eh(_exEd.origDate || '—')} → ${_eh(date)}`);
+  let nSt = 0;
+  for (let i = 0; i < 30; i++) if (String(_exEd.st[i] || '') !== String(_exEd.origSt[i] || '')) nSt++;
+  if (nSt) diff.push(`<b>คำตอบ</b> ${nSt} ข้อ`);
+
+  if (!diff.length) { toast('ไม่มีอะไรเปลี่ยน', 'error'); return; }
+
+  const moving = full !== _exEd.origFull;
+  showModal({
+    title: 'ยืนยันการแก้ไข',
+    body:
+      `<div style="line-height:2;">${diff.join('<br>')}</div>` +
+      `<div style="margin-top:10px; padding:9px 11px; border:1px solid var(--line); border-radius:9px; font-size:12px; line-height:1.8; color:var(--gray-dark);">
+         ของเดิมจะถูกสำรองไว้ที่ชีต <b>results_edited</b> ก่อนเขียนทับ (กู้คืนได้)<br>
+         ระบบจะอัปเดต <b>results_long</b> ให้ด้วย เว็บนักเรียนจะเห็นตรงกันทันที
+       </div>` +
+      (moving ? `<div style="margin-top:10px; padding:9px 11px; border:1px solid var(--danger); border-radius:9px; font-size:13px; color:var(--danger); font-weight:600;">
+         ⚠️ นี่คือการย้ายคะแนนไปเป็นของ "${_eh(full)}" — ถ้ากดผิด คะแนนจะไปโผล่ผิดคน
+       </div>` : ''),
+    actions: [
+      { label: 'ย้อนกลับ', class: 'btn--ghost', onClick: () => openEditExam(_exEd.idx) },
+      { label: moving ? 'ยืนยันย้าย' : 'บันทึก',
+        class: moving ? 'btn--danger' : 'btn--primary',
+        onClick: () => doEditExam({ full, group, chapter: chap, date, statuses: _exEd.st.slice() }, false) }
+    ]
+  });
+}
+
+async function doEditExam(to, allowDuplicate) {
+  if (!_exEd) return;
+  closeModal();
+  const r = await examWriteRaw({
+    action: 'editExamScore',
+    find: _exEd.find, to: to,
+    allowDuplicate: !!allowDuplicate,
+    note: 'แก้จากหน้าคะแนนรวม'
+  });
+  if (!r) return;
+
+  /* คีย์ชนกับแถวอื่น — เซิร์ฟเวอร์ยังไม่เขียนอะไร ถามก่อน */
+  if (r.needConfirmDuplicate) {
+    showModal({
+      title: '⚠️ ซ้ำกับคะแนนที่มีอยู่',
+      body: `<div style="line-height:1.9;">${_eh(r.error || '')}<br><br>
+        ถ้าบันทึกต่อ จะมีสองแถวที่เป็น <b>คนเดิม บทเดิม วันเดิม</b><br>
+        หน้าครูจะแสดงแค่ครั้งล่าสุด และ <b>results_long</b> (ที่เว็บนักเรียนใช้)
+        เก็บได้แถวเดียว — อีกแถวจะหายไปจากฝั่งนักเรียน<br><br>
+        ถ้าไม่ได้ตั้งใจให้ซ้ำ ให้กดย้อนกลับแล้วเปลี่ยนวันที่หรือบทให้ต่างกันครับ</div>`,
+      actions: [
+        { label: 'ย้อนกลับ', class: 'btn--ghost', onClick: () => openEditExam(_exEd.idx) },
+        { label: 'บันทึกทับซ้อนเลย', class: 'btn--danger', onClick: () => doEditExam(to, true) }
+      ]
+    });
+    return;
+  }
+  if (!r.ok) { toast('แก้ไม่สำเร็จ: ' + (r.error || ''), 'error'); return; }
+  if (r.noChange) { toast('ไม่มีอะไรเปลี่ยน', 'success'); _exEd = null; return; }
+
+  toast('แก้แล้ว · ' + (r.changed || []).length + ' อย่าง · results_long อัปเดต ' +
+        (r.longAdded || 0) + ' แถว', 'success');
+
+  if (r.needRebuild) {
+    showModal({
+      title: '⚠️ ต้องรัน rebuildResultsLong()',
+      body: 'เหตุผล: ' + _eh(r.rebuildWhy || '') + '<br><br>' +
+            'ชีต <b>results_long</b> (ที่เว็บนักเรียนใช้) แยก "สอบซ้ำวันเดียวกัน" ไม่ได้ ' +
+            'เพราะไม่มีคอลัมน์เวลาบันทึก ตอนนี้ข้อมูลฝั่งนักเรียนจึงยังไม่ตรง<br><br>' +
+            '<b>เปิด Apps Script → เลือก rebuildResultsLong() → Run</b> แล้วเว็บนักเรียนจะกลับมาครบ',
+      actions: [{ label: 'เข้าใจแล้ว', class: 'btn--primary', onClick: closeModal }]
+    });
+  }
+  _exEd = null;
+  await fetchExamData(true);
+  try { checkMissingScoresBadge(); } catch (err) {}
+  renderMain();
+}
+
 
 /* ---------- จัดการรายชื่อ/กลุ่ม (เขียนกลับ sheet ผ่าน Apps Script) ---------- */
 /* เซิร์ฟเวอร์ตอบว่าหมดเวลาใช้งาน → เด้งกลับหน้า login ทันที */
@@ -5350,7 +5773,7 @@ async function examWrite(payload) {
   if (!SCRIPT_URL) { toast('ยังไม่ได้เชื่อม Apps Script', 'error'); return null; }
   toast('กำลังบันทึกลง Google Sheet...', 'success');
   try {
-    const res = await fetch(SCRIPT_URL, {
+    const res = await gsFetch(SCRIPT_URL, {
       method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(Object.assign({ token: teacherToken() }, payload))
     });
@@ -6041,7 +6464,7 @@ async function pasteSaveAll() {
     const r = rows[i];
     if (prog) prog.innerHTML = 'กำลังบันทึก ' + (i + 1) + '/' + rows.length + ' — ' + r.rawName + ' …';
     try {
-      const res = await fetch(SCRIPT_URL, {
+      const res = await gsFetch(SCRIPT_URL, {
         method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           token: teacherToken(), action: 'saveExamScore',
@@ -6135,7 +6558,7 @@ state.pending = { items: null, loading: false, open: {}, edit: {}, busy: {} };
 async function pendCall(payload) {
   if (!SCRIPT_URL) { toast('ยังไม่ได้เชื่อม Apps Script', 'error'); return null; }
   try {
-    const res = await fetch(SCRIPT_URL, {
+    const res = await gsFetch(SCRIPT_URL, {
       method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(Object.assign({ token: teacherToken() }, payload))
     });
@@ -6911,7 +7334,7 @@ function deleteFaceData(studentId, name) {
   toast(`ลบข้อมูลใบหน้า "${name}" แล้ว`, 'success');
   renderMain();
   if (SCRIPT_URL) {
-    fetch(SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    gsFetch(SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ action: 'deleteFace', token: teacherToken(), studentId: studentId }) }).catch(() => {});
   }
 }
@@ -6920,7 +7343,7 @@ async function syncFaceToSheet(studentId, name) {
   if (!SCRIPT_URL) return;
   const store = loadFaceStore();
   try {
-    await fetch(SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    await gsFetch(SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ action: 'saveFace', token: teacherToken(), studentId: studentId, name: name, descriptors: store[studentId] || [] }) });
   } catch(e) { console.error('syncFace error:', e); }
 }
@@ -6928,7 +7351,7 @@ async function syncFaceToSheet(studentId, name) {
 async function loadFacesFromSheet() {
   if (!SCRIPT_URL) return;
   try {
-    const res = await fetch(`${SCRIPT_URL}?action=listFaces&token=${encodeURIComponent(teacherToken())}&t=${Date.now()}`);
+    const res = await gsFetch(`${SCRIPT_URL}?action=listFaces&token=${encodeURIComponent(teacherToken())}&t=${Date.now()}`);
     const result = await res.json();
     if (result.ok && result.faces) {
       const store = loadFaceStore();
@@ -7162,7 +7585,7 @@ async function showLeaveRequestsModal() {
   toast('กำลังโหลดรายการแจ้งลา...', 'success');
   try {
     const url = `${SCRIPT_URL}?action=listLeave&token=${encodeURIComponent(teacherToken())}&t=${Date.now()}`;
-    const res = await fetch(url);
+    const res = await gsFetch(url);
     const result = await res.json();
     if (!result.ok) { toast('โหลดไม่สำเร็จ: ' + (result.error || ''), 'error'); return; }
     _leaveRequestsCache = result.requests || [];
@@ -7222,7 +7645,7 @@ async function cancelLeaveByTeacher(idx) {
   if (!confirm(`ลบรายการ "${r.studentName} · ${r.type}" คาบ ${r.sessionNo} ทิ้ง?\n\nระบบจะไม่นำไปใช้ตอนจบคาบอีก`)) return;
   toast('กำลังลบ...', 'success');
   try {
-    const res = await fetch(SCRIPT_URL, {
+    const res = await gsFetch(SCRIPT_URL, {
       method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ action: 'cancelLeave', token: teacherToken(),
         groupId: r.groupId, studentId: r.studentId, sessionNo: r.sessionNo, type: r.type })
@@ -7345,7 +7768,7 @@ function regenerateSessions(id) {
 async function archiveCall(payload) {
   if (!SCRIPT_URL) { toast('ยังไม่ได้เชื่อม Apps Script', 'error'); return null; }
   try {
-    const res = await fetch(SCRIPT_URL, {
+    const res = await gsFetch(SCRIPT_URL, {
       method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(Object.assign({ token: teacherToken() }, payload))
     });
@@ -8436,7 +8859,7 @@ async function syncToSheet(silent) {
   }
   if (!silent) toast('กำลังอัปโหลดข้อมูล...', 'success');
   try {
-    const res = await fetch(SCRIPT_URL, {
+    const res = await gsFetch(SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ action: 'syncData', token: teacherToken(), data: state.data })
@@ -8503,7 +8926,7 @@ async function loadFromSheet(opts) {
   if (!quiet) toast('กำลังดาวน์โหลด...', 'success');
   try {
     const url = `${SCRIPT_URL}?action=loadData&token=${encodeURIComponent(teacherToken())}&t=${Date.now()}`;
-    const res = await fetch(url);
+    const res = await gsFetch(url);
     const result = await res.json();
     if (result.ok && result.data) {
       state.data = result.data;
@@ -8545,7 +8968,7 @@ async function pullAttendanceFromSheet(silent, force) {
   if (!SCRIPT_URL || state.isDemoData) return 0;
   _attPullAt = Date.now();
   try {
-    const res = await fetch(`${SCRIPT_URL}?action=loadData&token=${encodeURIComponent(teacherToken())}&t=${Date.now()}`);
+    const res = await gsFetch(`${SCRIPT_URL}?action=loadData&token=${encodeURIComponent(teacherToken())}&t=${Date.now()}`);
     const result = await res.json();
     if (!result.ok || !result.data || !result.data.groups) {
       if (!silent) toast('ดึงข้อมูลไม่สำเร็จ: ' + (result.error || ''), 'error');
