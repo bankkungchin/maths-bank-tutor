@@ -1318,6 +1318,7 @@ function gsCacheKey(action, url, init) {
       const o = JSON.parse(init.body);
       if (o && typeof o === 'object') {
         delete o.pin; delete o.token; delete o.t;
+        delete o.have;          /* ★ 16 ก.ย. 69 — have เปลี่ยนทุกครั้ง ห้ามให้มีผลกับคีย์ */
         b = JSON.stringify(o);
       }
     }
@@ -1353,6 +1354,15 @@ function gsCacheLoad(key) {
    (โรคเดิมของ topic-marker.js: cache ที่ไม่มีวันหมดอายุ ทำให้เห็นข้อมูลคนก่อน) */
 function gsCacheClear() {
   try {
+    /* ★ 16 ก.ย. 69 — ทิ้งเวอร์ชันที่จำไว้ด้วย ไม่งั้นจะอ้างเวอร์ชันของชุดข้อมูลที่ถูกลบไปแล้ว */
+    try {
+      const st = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.indexOf('exd1:') === 0) st.push(k);
+      }
+      for (let i = 0; i < st.length; i++) localStorage.removeItem(st[i]);
+    } catch (e) {}
     const del = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
@@ -1439,7 +1449,9 @@ async function gsFetch(url, init) {
 
       /* สำเร็จ → เก็บไว้เผื่อรอบหน้า Google ล่ม
          ไม่เก็บ error ทางธุรกิจ (ok:false) เพราะไม่ใช่ข้อมูล — กฎข้อ 51 */
-      if (cacheKey && !(data && data.ok === false)) gsCacheSave(cacheKey, text);
+      /* ★ 16 ก.ย. 69 — คำตอบ unchanged ไม่มีข้อมูล ห้ามเก็บทับชุดจริงที่เก็บไว้ */
+      if (cacheKey && !(data && data.ok === false) && !(data && data.unchanged))
+        gsCacheSave(cacheKey, text);
       gsStaleOff();
       return {
         ok: res.ok, status: res.status, gsTries: n + 1, fromCache: false,
@@ -4850,16 +4862,45 @@ async function fetchExamData(force) {
   /* ★ 21 ส.ค. 69 — เดิมยิง Sheets API ตรง ๆ ด้วย API key ที่ฝังในไฟล์นี้
      ตอนนี้ผ่าน Apps Script แทน (ตรวจ token ฝั่งเซิร์ฟเวอร์)
      คำตอบมีรูปแบบ valueRanges[].values เหมือน batchGet เป๊ะ ๆ โค้ดข้างล่างเลยไม่ต้องแก้ */
-  const res = await gsFetch(SCRIPT_URL, {
+  /* ★ 16 ก.ย. 69 — ส่งเวอร์ชันที่ถืออยู่ไปด้วย ถ้าชีตไม่เปลี่ยนเซิร์ฟเวอร์จะตอบสั้น ๆ
+     force = true (หลังบันทึก/ลบ/แก้) ไม่ส่ง have เด็ดขาด → ดึงเต็มเสมอ
+     เผื่อกรณีเวลาแก้ไฟล์ฝั่ง Google ยังไม่ทันขยับตอนเพิ่งเขียนเสร็จ */
+  const exStampKey = 'exd1:stamp:' + (state.showInactive ? 'all' : 'act');
+  let exHave = '';
+  if (!force) { try { exHave = localStorage.getItem(exStampKey) || ''; } catch (e) {} }
+
+  const exPayload = { action: 'examBatch', token: teacherToken(), showInactive: !!state.showInactive };
+  if (exHave) exPayload.have = exHave;
+  const exInit = {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action: 'examBatch', token: teacherToken(), showInactive: !!state.showInactive })
-  });
+    body: JSON.stringify(exPayload)
+  };
+
+  const res = await gsFetch(SCRIPT_URL, exInit);
   if (!res.ok) throw new Error('เชื่อมต่อระบบไม่ได้ (HTTP ' + res.status + ')');
-  const json = await res.json();
+  let json = await res.json();
   if (!json.ok) {
     if (json.needLogin) { authFailed(json); }
     throw new Error(json.error || 'อ่านข้อมูลไม่ได้');
+  }
+
+  if (json.unchanged) {
+    /* ชีตไม่เปลี่ยน → ใช้ชุดเดิมที่ gsFetch เก็บไว้ในเครื่อง (ถือว่าสด ไม่ใช่ของค้าง) */
+    let prev = null;
+    try {
+      const hit = gsCacheLoad(gsCacheKey('examBatch', SCRIPT_URL, exInit));
+      prev = hit ? JSON.parse(hit.text) : null;
+    } catch (e) { prev = null; }
+    if (prev && prev.valueRanges) {
+      json = prev;
+    } else {
+      /* ชุดในเครื่องหายไป (เพิ่งล้าง cache / คนละเครื่อง) → ขอเต็มใหม่รอบเดียว */
+      try { localStorage.removeItem(exStampKey); } catch (e) {}
+      return fetchExamData(true);
+    }
+  } else if (json.stamp) {
+    try { localStorage.setItem(exStampKey, json.stamp); } catch (e) {}
   }
   const stuRows = (json.valueRanges[0].values || []);
   let resRows = (json.valueRanges[1].values || []);
