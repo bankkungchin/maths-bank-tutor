@@ -4853,6 +4853,10 @@ function printStatusLabel(st) {
    =========================================================== */
 state.examData = null;
 state.scoresTab = 'group';
+/* ★ 17 ก.ย. 69 — ดูคะแนนทีละประเภท: 'chapter' = ข้อสอบแยกบท (เต็ม 30) · 'mock' = สนามสอบ (เต็ม 100)
+   สอบสัปดาห์ละชุด = 52 คอลัมน์/ปี ถ้าปนกับบทในตารางเดียวจะอ่านไม่ได้เลย
+   และคะแนนคนละสเกล เอามาเฉลี่ยรวมกันก็ไม่มีความหมาย (กฎ 62) */
+state.scoresKind = 'chapter';
 state.scoresGroup = null;
 let _rosterCache = [];
 
@@ -5190,6 +5194,21 @@ function dataHealth(d) {
 }
 
 /* นักเรียนที่ยังเรียนอยู่ (ตัดคนที่แจ้ง "ไม่เรียนต่อ" ออก เว้นแต่ครูกดให้แสดง) */
+/* ★ 17 ก.ย. 69 — กรองผลสอบตามประเภทที่กำลังดูอยู่ */
+function examsOfKind(list) {
+  const wantMock = state.scoresKind === 'mock';
+  return (list || []).filter(e => isMockChapter(e.chapter) === wantMock);
+}
+
+/* คะแนนที่ใช้แสดง/คิดเฉลี่ย — สนามสอบใช้คะแนนถ่วงน้ำหนัก บทปกติใช้จำนวนข้อถูก */
+function dispScoreOf(e) {
+  const w = weightedScore(e.chapter, e.statuses);
+  return w == null ? e.score : w;
+}
+
+/* คะแนนเต็มของประเภทที่กำลังดู — ใช้กับหัวตารางและแถบสรุป */
+function kindFull() { return state.scoresKind === 'mock' ? 100 : 30; }
+
 function rosterOf(d, group) {
   return d.students.filter(s => s.group === group && (s.active || state.showInactive));
 }
@@ -5414,6 +5433,9 @@ async function renderScores(body) {
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <button class="btn btn--sm ${state.scoresTab==='group'?'btn--primary':'btn--ghost'}" onclick="state.scoresTab='group'; renderMain();">รายกลุ่ม</button>
         <button class="btn btn--sm ${state.scoresTab==='all'?'btn--primary':'btn--ghost'}" onclick="state.scoresTab='all'; renderMain();">เทียบทุกกลุ่ม</button>
+        <span style="width:1px; height:22px; background:var(--line-strong); margin:0 4px;"></span>
+        <button class="btn btn--sm ${state.scoresKind==='chapter'?'btn--primary':'btn--ghost'}" onclick="state.scoresKind='chapter'; renderMain();" title="ข้อสอบแยกบท เต็ม 30 ข้อ">📘 แยกบท</button>
+        <button class="btn btn--sm ${state.scoresKind==='mock'?'btn--primary':'btn--ghost'}" onclick="state.scoresKind='mock'; renderMain();" title="สนามสอบรวมทุกบท เต็ม 100 คะแนน">🎯 สนามสอบ</button>
         ${state.scoresTab==='group' ? `
         <select onchange="state.scoresGroup=this.value; renderMain();" style="padding:8px 14px; border:1px solid var(--line-strong); border-radius:999px; outline:none; font-size:13px; background:var(--bg);">
           ${d.groups.map(g => `<option value="${g}" ${g===state.scoresGroup?'selected':''}>${g}</option>`).join('')}
@@ -5438,6 +5460,16 @@ async function renderScores(body) {
   renderMissingBanner();
   const sb = document.getElementById('scoresBody');
   if (state.scoresTab === 'group') renderGroupScores(sb); else renderAllGroupScores(sb);
+}
+
+/* ★ 17 ก.ย. 69 — ยังไม่มีผลสอบของประเภทที่เลือก */
+function kindEmptyHTML() {
+  return state.scoresKind === 'mock'
+    ? `<div class="empty"><h3>ยังไม่มีผลสนามสอบ</h3>
+         <p>สนามสอบคือชุดรวมทุกบท (ชื่อบทขึ้นต้นด้วย "ชุดรวม") คะแนนเต็ม 100<br>
+         เมื่อกรอกผลชุดแรกแล้ว ตารางนี้จะแยกให้เอง ไม่ปนกับตารางบท</p></div>`
+    : `<div class="empty"><h3>ยังไม่มีผลข้อสอบแยกบท</h3>
+         <p>กลุ่มนี้ยังไม่มีผลสอบรายบท (เต็ม 30 ข้อ)</p></div>`;
 }
 
 function renderDataHealth() {
@@ -5533,14 +5565,16 @@ function renderGroupScores(sb) {
   const g = state.scoresGroup;
   if (!g) { sb.innerHTML = `<div class="empty"><h3>ยังไม่มีกลุ่มในระบบข้อสอบ</h3></div>`; return; }
   const students = rosterOf(d, g);
-  const rawExams = d.exams.filter(e => e.group === g && isActiveFull(d, e.full));
+  const rawExams = examsOfKind(d.exams.filter(e => e.group === g && isActiveFull(d, e.full)));
+  if (!rawExams.length) { sb.innerHTML = kindEmptyHTML(); return; }
   const exams = latestPerChapter(rawExams);          // ซ้ำบทเดิม → ใช้ครั้งใหม่สุด
   const chapters = chapterOrder(rawExams);           // 1 บท = 1 คอลัมน์ (คีย์บท)
   const labels = chapterLabels(rawExams);
   const byStu = {};
   exams.forEach(e => { (byStu[e.full] = byStu[e.full] || {})[chapterKey(e.chapter)] = e; });
 
-  const scores = exams.map(e => e.score);
+  /* ★ สนามสอบคิดจากคะแนนถ่วงน้ำหนัก (เต็ม 100) · บทปกติจากจำนวนข้อถูก (เต็ม 30) */
+  const scores = exams.map(dispScoreOf);
   const avg = scores.length ? (scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(1) : '–';
   const mx = scores.length ? Math.max.apply(null, scores) : '–';
   const mn = scores.length ? Math.min.apply(null, scores) : '–';
@@ -5563,21 +5597,21 @@ function renderGroupScores(sb) {
       return `<td style="text-align:center;"><span onclick="showExamDetailByIdx(${idx})" title="${e.date} · ${_w == null ? 'ถูก ' + e.score + '/30 ข้อ' : _w + '/' + _f + ' คะแนน (ถูก ' + e.score + '/30 ข้อ)'} · สะเพร่า ${e.careless}${retook ? ' · สอบซ้ำ ใช้ครั้งล่าสุด' : ''}" style="cursor:pointer; font-family:var(--font-num); font-weight:700; color:${scoreColor(_show, _f)}; border-bottom:1px dotted currentColor;">${_show}<span style="font-weight:400; color:var(--gray-dark); font-size:11px;">/</span><span style="font-size:12px; color:var(--orange);">${e.careless}</span>${retook ? '<sup style=\"font-size:8px;\">↻</sup>' : ''}</span></td>`;
     }).join('');
     const own = chapters.map(ch => byStu[s.full] && byStu[s.full][ch]).filter(Boolean);
-    const myAvg = own.length ? (own.reduce((a, e) => a + e.score, 0) / own.length).toFixed(1) : '–';
+    const myAvg = own.length ? (own.reduce((a, e) => a + dispScoreOf(e), 0) / own.length).toFixed(1) : '–';
     return `<tr${s.active ? '' : ' style="opacity:.55;"'}><td><div class="att-student-name">${i+1}. ${s.name}${s.active ? '' : ' <span style="font-size:10px; color:var(--danger);">(ไม่เรียนต่อ)</span>'}</div></td>${cells}<td style="text-align:center; font-family:var(--font-num); font-weight:700;">${myAvg}</td></tr>`;
   }).join('');
 
   sb.innerHTML = `
     <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:0; margin-bottom:18px; background:var(--black); color:var(--bg); border-radius:var(--radius-card); overflow:hidden;">
-      <div class="att-summary-cell"><div class="att-summary-label">บทที่สอบแล้ว</div><div class="att-summary-value num">${chapters.length}</div></div>
-      <div class="att-summary-cell"><div class="att-summary-label">เฉลี่ยกลุ่ม /30</div><div class="att-summary-value num">${avg}</div></div>
+      <div class="att-summary-cell"><div class="att-summary-label">${state.scoresKind==='mock'?'ชุดที่สอบแล้ว':'บทที่สอบแล้ว'}</div><div class="att-summary-value num">${chapters.length}</div></div>
+      <div class="att-summary-cell"><div class="att-summary-label">เฉลี่ยกลุ่ม /${kindFull()}</div><div class="att-summary-value num">${avg}</div></div>
       <div class="att-summary-cell"><div class="att-summary-label">สูงสุด</div><div class="att-summary-value num">${mx}</div></div>
       <div class="att-summary-cell"><div class="att-summary-label">ต่ำสุด</div><div class="att-summary-value num">${mn}</div></div>
     </div>
     <div class="card">
       <div class="card__head">
-        <span class="card__title">คะแนนสอบ · <b>${g}</b> · นักเรียน ${students.length} คน</span>
-        <span style="font-size:11px; color:var(--gray-dark);">ตัวเลข = <b>ถูก</b>/<span style="color:var(--orange);">สะเพร่า</span> · กดเพื่อดู 30 ข้อ · ↻ = สอบซ้ำ · เรียงบทตามวันสอบ · <b>เลื่อนตารางซ้าย-ขวาได้</b> (ชื่อจะค้างไว้)</span>
+        <span class="card__title">${state.scoresKind==='mock'?'🎯 คะแนนสนามสอบ (รวมทุกบท · เต็ม 100)':'📘 คะแนนข้อสอบแยกบท (เต็ม 30)'} · <b>${g}</b> · นักเรียน ${students.length} คน</span>
+        <span style="font-size:11px; color:var(--gray-dark);">ตัวเลข = <b>${state.scoresKind==='mock'?'คะแนน':'ถูก'}</b>/<span style="color:var(--orange);">สะเพร่า</span> · กดเพื่อดู 30 ข้อ · ↻ = สอบซ้ำ · เรียง${state.scoresKind==='mock'?'ชุด':'บท'}ตามวันสอบ · <b>เลื่อนตารางซ้าย-ขวาได้</b> (ชื่อจะค้างไว้)${state.scoresKind==='mock'?' · ข้อ 1–25 ข้อละ 3 · ข้อ 26–30 ข้อละ 5':''}</span>
       </div>
       <div class="att-table-wrap">
         <table class="att-table">
@@ -5591,26 +5625,28 @@ function renderGroupScores(sb) {
 
 function renderAllGroupScores(sb) {
   const d = state.examData;
-  const chapters = chapterOrder(d.exams);
-  const labels = chapterLabels(d.exams);
-  const deduped = latestPerChapter(d.exams);   // ซ้ำบทเดิม → ใช้ครั้งใหม่สุด
+  const kindExams = examsOfKind(d.exams);
+  if (!kindExams.length) { sb.innerHTML = kindEmptyHTML(); return; }
+  const chapters = chapterOrder(kindExams);
+  const labels = chapterLabels(kindExams);
+  const deduped = latestPerChapter(kindExams);   // ซ้ำบทเดิม → ใช้ครั้งใหม่สุด
   const rows = d.groups.map(g => {
     const stuCount = rosterOf(d, g).length;
     const gEx = deduped.filter(e => e.group === g && isActiveFull(d, e.full));
     const cells = chapters.map(ch => {
       const ex = gEx.filter(e => chapterKey(e.chapter) === ch);
       if (!ex.length) return `<td style="text-align:center; color:var(--gray-soft);">–</td>`;
-      const a = ex.reduce((x, e) => x + e.score, 0) / ex.length;
-      return `<td style="text-align:center;"><span style="font-family:var(--font-num); font-weight:700; color:${scoreColor(a)};">${a.toFixed(1)}</span><br><span style="font-size:10px; color:var(--gray-dark);">${ex.length} คน</span></td>`;
+      const a = ex.reduce((x, e) => x + dispScoreOf(e), 0) / ex.length;
+      return `<td style="text-align:center;"><span style="font-family:var(--font-num); font-weight:700; color:${scoreColor(a, kindFull())};">${a.toFixed(1)}</span><br><span style="font-size:10px; color:var(--gray-dark);">${ex.length} คน</span></td>`;
     }).join('');
-    const ga = gEx.length ? (gEx.reduce((x, e) => x + e.score, 0) / gEx.length).toFixed(1) : '–';
+    const ga = gEx.length ? (gEx.reduce((x, e) => x + dispScoreOf(e), 0) / gEx.length).toFixed(1) : '–';
     return `<tr><td><div class="att-student-name">${g}</div><div class="att-student-meta">${stuCount} คน · ${gEx.length} ผลสอบ</div></td>${cells}<td style="text-align:center; font-family:var(--font-num); font-weight:700;">${ga}</td></tr>`;
   }).join('');
 
   sb.innerHTML = `
     <div class="card">
       <div class="card__head">
-        <span class="card__title">เปรียบเทียบคะแนนเฉลี่ยทุกกลุ่ม (เต็ม 30 · นับผลสอบล่าสุดของแต่ละคน)</span>
+        <span class="card__title">${state.scoresKind==='mock'?'🎯 เปรียบเทียบคะแนนสนามสอบทุกกลุ่ม':'📘 เปรียบเทียบคะแนนข้อสอบแยกบททุกกลุ่ม'} (เต็ม ${kindFull()} · นับผลสอบล่าสุดของแต่ละคน)</span>
       </div>
       <div class="att-table-wrap">
         <table class="att-table">
