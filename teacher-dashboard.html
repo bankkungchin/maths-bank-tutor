@@ -5223,7 +5223,9 @@ state.showInactive = false;
       เพิ่มชุดใหม่ต้องแก้ทั้งสองที่ · ชีตยังเก็บ "จำนวนข้อถูก" เหมือนเดิม
       คะแนนถ่วงน้ำหนักคำนวณตอนแสดงผลทุกครั้ง ไม่ได้เขียนลงชีต */
 const MOCK_POINTS = {
-  'ชุดรวม 01': { full: 100, ranges: [ { from:1, to:25, pts:3 }, { from:26, to:30, pts:5 } ] }
+  'ชุดรวม 01': { full: 100, ranges: [ { from:1, to:25, pts:3 }, { from:26, to:30, pts:5 } ] },
+  'ชุดรวม 02': { full: 100, ranges: [ { from:1, to:25, pts:3 }, { from:26, to:30, pts:5 } ] },
+  'ชุดรวม 04': { full: 100, ranges: [ { from:1, to:25, pts:3 }, { from:26, to:30, pts:5 } ] }
 };
 function fullOfChapter(ch) {
   const m = MOCK_POINTS[String(ch || '').trim()];
@@ -6047,7 +6049,7 @@ const CHAPTERS = [
 /* ★ 29 ส.ค. 69 — ชุดข้อสอบรวมทุกบท (สนามสอบ)
    แยกจาก CHAPTERS เพราะไม่ใช่ "บทเรียน" — ไม่ควรไปโผล่ในรายการบทที่ต้องกรอกให้ครบ
    เพิ่มชุดใหม่ = เพิ่มชื่อที่นี่ + EMBEDDED_QB["ชุดรวม NN"] ใน questionbank.js */
-const MOCK_CHAPTERS = ['ชุดรวม 01'];
+const MOCK_CHAPTERS = ['ชุดรวม 01', 'ชุดรวม 02', 'ชุดรวม 04'];
 function isMockChapter(name) { return /^ชุดรวม\s*\d*/.test(String(name || '').trim()); }
 
 const isStdChapter = c => {
