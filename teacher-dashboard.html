@@ -1234,7 +1234,9 @@ const GS_SAFE_ACTIONS = [
   'webLogin', 'webData', 'leaveOptions', 'login',
   /* ── เขียนทับค่าเดิม ยิงซ้ำได้ผลเท่าเดิม ── */
   'syncData', 'scoreSkipSet', 'examSetActive', 'saveFace', 'deleteFace',
-  'endCheckin', 'teacherLogin', 'teacherLogout', 'updateCheckinNote'
+  'endCheckin', 'teacherLogin', 'teacherLogout', 'updateCheckinNote',
+  /* ★ 18 ก.ย. 69 — เป้าหมายคะแนน: อ่าน + เขียนทับค่าเดิม ยิงซ้ำปลอดภัยทั้งคู่ */
+  'listGoals', 'setGoal', 'clearGoal'
 ];
 
 /* หาชื่อ action จาก body (POST) ก่อน ถ้าไม่มีค่อยดูใน query string (GET) */
@@ -5430,6 +5432,10 @@ async function renderScores(body) {
   const d = state.examData;
   if (!state.scoresGroup || d.groups.indexOf(state.scoresGroup) === -1) state.scoresGroup = d.groups[0] || null;
 
+  /* ★ 18 ก.ย. 69 — โหลดเป้าเฉพาะตอนเข้าโหมดสนามสอบ (โหมดแยกบทไม่ใช้เป้ารายคน)
+     โหลดครั้งเดียวแล้วจำไว้ · goalsLoad(true) ตอนตั้งค่าเสร็จเพื่อดึงของใหม่ */
+  if (state.scoresKind === 'mock') { try { await goalsLoad(); } catch (e) { GOALS = GOALS || {}; } }
+
   body.innerHTML = `
     <div class="card" style="padding:14px 18px;">
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
@@ -5600,7 +5606,11 @@ function renderGroupScores(sb) {
     }).join('');
     const own = chapters.map(ch => byStu[s.full] && byStu[s.full][ch]).filter(Boolean);
     const myAvg = own.length ? (own.reduce((a, e) => a + dispScoreOf(e), 0) / own.length).toFixed(1) : '–';
-    return `<tr${s.active ? '' : ' style="opacity:.55;"'}><td><div class="att-student-name">${i+1}. ${s.name}${s.active ? '' : ' <span style="font-size:10px; color:var(--danger);">(ไม่เรียนต่อ)</span>'}</div></td>${cells}<td style="text-align:center; font-family:var(--font-num); font-weight:700;">${myAvg}</td></tr>`;
+    /* ★ 18 ก.ย. 69 — ช่องเป้า: กดที่ตัวเลขเพื่อตั้ง · กดค้างไม่ได้บนมือถือ จึงใช้คลิกขวา/ปุ่มล้างในโมดัลแทน */
+    const goalTd = state.scoresKind === 'mock'
+      ? `<td style="text-align:center; cursor:pointer;" onclick="goalSetFor(['${String(s.full).replace(/'/g, "\\'")}'], '${String(s.name).replace(/'/g, "\\'")}')" title="กดเพื่อตั้งเป้าของ ${s.name}">${goalCellHTML(s.full).replace(/^<td[^>]*>|<\/td>$/g, '')}</td>`
+      : '';
+    return `<tr${s.active ? '' : ' style="opacity:.55;"'}><td><div class="att-student-name">${i+1}. ${s.name}${s.active ? '' : ' <span style="font-size:10px; color:var(--danger);">(ไม่เรียนต่อ)</span>'}</div></td>${cells}<td style="text-align:center; font-family:var(--font-num); font-weight:700;">${myAvg}</td>${goalTd}</tr>`;
   }).join('');
 
   sb.innerHTML = `
@@ -5613,11 +5623,12 @@ function renderGroupScores(sb) {
     <div class="card">
       <div class="card__head">
         <span class="card__title">${state.scoresKind==='mock'?'🎯 คะแนนสนามสอบ (รวมทุกบท · เต็ม 100)':'📘 คะแนนข้อสอบแยกบท (เต็ม 30)'} · <b>${g}</b> · นักเรียน ${students.length} คน</span>
-        <span style="font-size:11px; color:var(--gray-dark);">ตัวเลข = <b>${state.scoresKind==='mock'?'คะแนน':'ถูก'}</b>/<span style="color:var(--orange);">สะเพร่า</span> · กดเพื่อดู 30 ข้อ · ↻ = สอบซ้ำ · เรียง${state.scoresKind==='mock'?'ชุด':'บท'}ตามวันสอบ · <b>เลื่อนตารางซ้าย-ขวาได้</b> (ชื่อจะค้างไว้)${state.scoresKind==='mock'?' · ข้อ 1–25 ข้อละ 3 · ข้อ 26–30 ข้อละ 5':''}</span>
+        <span style="font-size:11px; color:var(--gray-dark);">ตัวเลข = <b>${state.scoresKind==='mock'?'คะแนน':'ถูก'}</b>/<span style="color:var(--orange);">สะเพร่า</span> · กดเพื่อดู 30 ข้อ · ↻ = สอบซ้ำ · เรียง${state.scoresKind==='mock'?'ชุด':'บท'}ตามวันสอบ · <b>เลื่อนตารางซ้าย-ขวาได้</b> (ชื่อจะค้างไว้)${state.scoresKind==='mock'?' · ข้อ 1–25 ข้อละ 3 · ข้อ 26–30 ข้อละ 5 · <b>กดตัวเลขในคอลัมน์ 🎯 เป้า เพื่อตั้งรายคน</b>':''}</span>
+        ${state.scoresKind==='mock' ? `<button class="btn btn--sm btn--ghost" style="margin-left:auto" onclick="goalSetFor(${JSON.stringify(students.map(s=>s.full)).replace(/"/g,'&quot;')}, 'ทั้งกลุ่ม ${g} (${students.length} คน)')">🎯 ตั้งเป้าทั้งกลุ่ม</button>` : ''}
       </div>
       <div class="att-table-wrap">
         <table class="att-table">
-          <thead><tr><th>ชื่อ</th>${head}<th style="text-align:center;">เฉลี่ย</th></tr></thead>
+          <thead><tr><th>ชื่อ</th>${head}<th style="text-align:center;">เฉลี่ย</th>${state.scoresKind==='mock'?'<th style="text-align:center;">🎯 เป้า</th>':''}</tr></thead>
           <tbody>${rows.length ? rows : '<tr><td colspan="99" style="text-align:center; color:var(--gray-dark); padding:20px;">ยังไม่มีนักเรียนในกลุ่มนี้</td></tr>'}</tbody>
         </table>
       </div>
@@ -7995,6 +8006,86 @@ function regenerateSessions(id) {
 /* ───────────────────────────────────────────────────────────
    📦 คลังคอร์สเก่า — เก็บ/ดู/กู้กลุ่มที่จบคอร์ส
    ─────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════
+   ★ 18 ก.ย. 69 — เป้าหมายคะแนนสนามสอบรายคน (ฝั่งครู)
+   เก็บในชีต exam_goals · นักเรียนตั้งเองก็ได้ ครูตั้งให้ก็ได้ ค่าล่าสุดชนะ
+   หน้าครูแสดงคอลัมน์ "เป้า" ในตารางสนามสอบ + ตั้งได้รายคนหรือทั้งกลุ่มทีเดียว
+   ═══════════════════════════════════════════════════════════════════════ */
+const GOAL_MIN = 10, GOAL_MAX = 100, GOAL_FALLBACK = 65;
+let GOALS = null;          /* { 'ชื่อ (กลุ่ม)': {goal, by, at} } — null = ยังไม่โหลด */
+
+async function goalCall(payload) {
+  if (!SCRIPT_URL) { toast('ยังไม่ได้เชื่อม Apps Script', 'error'); return null; }
+  try {
+    const res = await gsFetch(SCRIPT_URL, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(Object.assign({ token: teacherToken() }, payload))
+    });
+    const r = await res.json();
+    if (authFailed(r)) return null;
+    if (!r.ok) { toast('ไม่สำเร็จ: ' + (r.error || ''), 'error'); return null; }
+    return r;
+  } catch (e) { toast('เชื่อมต่อไม่ได้: ' + e.message, 'error'); return null; }
+}
+
+/* โหลดเป้าทุกคน — ล้มเหลวก็ปล่อยเป็น {} ตารางยังแสดงได้ แค่ขึ้นค่าตั้งต้น */
+async function goalsLoad(force) {
+  if (GOALS && !force) return GOALS;
+  const r = await goalCall({ action: 'listGoals' });
+  GOALS = {};
+  if (r && Array.isArray(r.rows)) {
+    r.rows.forEach(row => { GOALS[String(row[0] || '').trim()] = { goal: parseInt(row[1]) || 0, by: row[2] || '', at: row[3] || '' }; });
+  }
+  return GOALS;
+}
+
+function goalOf(fullName) {
+  const g = GOALS && GOALS[String(fullName || '').trim()];
+  return (g && g.goal > 0) ? g.goal : 0;
+}
+function goalByOf(fullName) {
+  const g = GOALS && GOALS[String(fullName || '').trim()];
+  return g ? (g.by === 'teacher' ? 'ครู' : 'นักเรียน') : '';
+}
+
+/* ช่องเป้าในตาราง — ว่าง = ยังไม่มีใครตั้ง แสดงค่าตั้งต้นจาง ๆ */
+function goalCellHTML(fullName) {
+  const g = goalOf(fullName), by = goalByOf(fullName);
+  const shown = g || GOAL_FALLBACK;
+  const color = g ? 'var(--text1)' : 'var(--gray-dark)';
+  const title = g ? ('ตั้งโดย' + by) : ('ยังไม่มีใครตั้ง — ใช้ค่าตั้งต้น ' + GOAL_FALLBACK);
+  return '<td style="text-align:center;" title="' + title + '">'
+    + '<span style="font-family:var(--font-num); font-weight:' + (g ? 700 : 400) + '; color:' + color + ';">' + shown + '</span>'
+    + (g ? '<br><span style="font-size:9.5px; color:var(--gray-dark);">' + by + '</span>' : '')
+    + '</td>';
+}
+
+/* ตั้งเป้า — ไม่ส่ง names ว่างไปให้เซิร์ฟเวอร์ และถามยืนยันเมื่อตั้งทั้งกลุ่ม */
+async function goalSetFor(names, label) {
+  const list = (names || []).filter(Boolean);
+  if (!list.length) { toast('ไม่มีนักเรียนให้ตั้งเป้า', 'error'); return; }
+  const cur = list.length === 1 ? (goalOf(list[0]) || GOAL_FALLBACK) : GOAL_FALLBACK;
+  const raw = prompt('ตั้งเป้าหมายคะแนนสนามสอบ (' + GOAL_MIN + '–' + GOAL_MAX + ') สำหรับ ' + label, String(cur));
+  if (raw === null) return;
+  const v = parseInt(String(raw).trim(), 10);
+  if (!(v >= GOAL_MIN && v <= GOAL_MAX)) { toast('ต้องเป็นตัวเลข ' + GOAL_MIN + '–' + GOAL_MAX, 'error'); return; }
+  if (list.length > 1 && !confirm('ตั้งเป้า ' + v + ' คะแนน ให้นักเรียน ' + list.length + ' คน?\n(ทับเป้าที่นักเรียนตั้งเองไว้ด้วย)')) return;
+  const r = await goalCall({ action: 'setGoal', names: list, goal: v });
+  if (!r) return;
+  await goalsLoad(true);
+  toast('ตั้งเป้า ' + v + ' คะแนน ให้ ' + (r.n || list.length) + ' คนแล้ว', 'success');
+  renderMain();
+}
+
+async function goalClearFor(fullName) {
+  if (!confirm('ล้างเป้าของ ' + fullName + ' กลับไปใช้ค่าตั้งต้น ' + GOAL_FALLBACK + '?')) return;
+  const r = await goalCall({ action: 'clearGoal', name: fullName });
+  if (!r) return;
+  await goalsLoad(true);
+  toast('ล้างเป้าแล้ว', 'success');
+  renderMain();
+}
+
 async function archiveCall(payload) {
   if (!SCRIPT_URL) { toast('ยังไม่ได้เชื่อม Apps Script', 'error'); return null; }
   try {
