@@ -5462,10 +5462,13 @@ async function renderScores(body) {
     </div>
     <div id="dataHealth"></div>
     <div id="missingBanner"></div>
+    <div id="mockBlueprint"></div>
     <div id="scoresBody"></div>
   `;
   renderDataHealth();
   renderMissingBanner();
+  /* ★ 19 ก.ย. 69 — การ์ดผังข้อสอบ & ความยาก (เฉพาะโหมดสนามสอบ) · ไม่รอ ไม่บล็อกตาราง */
+  if (state.scoresKind === 'mock') { renderMockBlueprint().catch(e => console.error('blueprint card', e)); }
   const sb = document.getElementById('scoresBody');
   if (state.scoresTab === 'group') renderGroupScores(sb); else renderAllGroupScores(sb);
 }
@@ -5478,6 +5481,108 @@ function kindEmptyHTML() {
          เมื่อกรอกผลชุดแรกแล้ว ตารางนี้จะแยกให้เอง ไม่ปนกับตารางบท</p></div>`
     : `<div class="empty"><h3>ยังไม่มีผลข้อสอบแยกบท</h3>
          <p>กลุ่มนี้ยังไม่มีผลสอบรายบท (เต็ม 30 ข้อ)</p></div>`;
+}
+
+/* ═══ 📐 ผังข้อสอบ & ความยาก (19 ก.ย. 69) ═══
+   หน้าครูไม่ได้โหลด questionbank.js (คนละ repo) จึง fetch จาก production แล้วรันใน
+   ขอบเขตปิดด้วย new Function — ตัวแปรของคลัง (EMBEDDED_QB, MOCK_SETS, CHAPTERS…)
+   จึงไม่รั่วมาชนกับตัวแปรของหน้าครู · เพิ่มชุดใหม่ในคลังแล้วตารางนี้ขึ้นเองทันที */
+const QB_SRC_URL = 'https://bankkungchin.github.io/answer-sheet/questionbank.js';
+let MOCK_STATS = null, MOCK_STATS_ERR = null;
+
+async function loadMockStats(force) {
+  if (MOCK_STATS && !force) return MOCK_STATS;
+  const res = await fetch(QB_SRC_URL + '?t=' + Date.now(), { cache: 'reload' });
+  if (!res.ok) throw new Error('โหลดคลังข้อสอบไม่ได้ (' + res.status + ')');
+  const src = await res.text();
+  const run = new Function('PLAYLISTS', src + '\n; return (typeof allMockStats === "function") ? allMockStats() : null;');
+  const stats = run({});
+  if (!stats) throw new Error('คลังข้อสอบบน production ยังไม่มี allMockStats() — อัป questionbank.js ตัวใหม่ก่อนครับ');
+  MOCK_STATS = stats;
+  return stats;
+}
+
+/* คะแนนเฉลี่ยจริงของชุดนั้นจากผลสอบทั้งหมดที่มีในชีต */
+function mockActualAvg(setName) {
+  const d = state.examData; if (!d) return null;
+  const list = (d.exams || []).filter(e => chapterKey(e.chapter) === chapterKey(setName) && isActiveFull(d, e.full));
+  if (!list.length) return null;
+  const sum = list.reduce((s, e) => s + dispScoreOf(e), 0);
+  return { avg: Math.round(sum / list.length), n: list.length };
+}
+
+async function renderMockBlueprint() {
+  const el = document.getElementById('mockBlueprint');
+  if (!el || state.scoresKind !== 'mock') return;
+  el.innerHTML = `<div class="card" style="padding:12px 16px; font-size:12px; color:var(--gray-dark);">📐 กำลังอ่านผังข้อสอบจากคลัง…</div>`;
+
+  let stats;
+  try { stats = await loadMockStats(); }
+  catch (err) {
+    MOCK_STATS_ERR = err.message;
+    el.innerHTML = `<div class="card" style="padding:12px 16px; font-size:12px; color:var(--danger);">📐 ผังข้อสอบ: ${err.message}</div>`;
+    return;
+  }
+
+  const AREA_SHORT = ['พีชคณิต', 'เรขา', 'สถิติฯ', 'แคลคูลัส'];
+  const cell = a => `<td style="text-align:center; font-family:var(--font-num);">
+      <b style="color:${a.ok ? 'var(--success)' : 'var(--danger)'};">${a.count}</b>
+      <div style="font-size:10px; color:var(--gray-dark); font-weight:400;">${a.ok ? `${a.min}–${a.max}` : (a.diff < 0 ? 'ขาด ' + (-a.diff) : 'เกิน ' + a.diff)}</div></td>`;
+
+  const rows = stats.map(s => {
+    const act = mockActualAvg(s.set);
+    const dlt = act ? act.avg - s.expect : null;
+    return `<tr>
+      <td style="white-space:nowrap;"><b>${s.set}</b>${s.blueprintOk ? '' : ' <span title="ผังไม่ตรงข้อสอบจริง">⚠️</span>'}</td>
+      ${s.areas.map(cell).join('')}
+      <td style="text-align:center; font-family:var(--font-num);">
+        <span style="color:var(--success);">${s.grades.easy.n}</span> /
+        <span style="color:var(--orange);">${s.grades.mid.n}</span> /
+        <span style="color:var(--danger);">${s.grades.hard.n}</span>
+        <div style="font-size:10px; color:var(--gray-dark);">${s.grades.easy.pts}/${s.grades.mid.pts}/${s.grades.hard.pts} คะแนน</div></td>
+      <td style="text-align:center; font-family:var(--font-num); font-weight:700;">${s.expect}</td>
+      <td style="text-align:center; font-family:var(--font-num);">
+        ${act ? `<b style="color:${scoreColor(act.avg, 100)};">${act.avg}</b>
+          <div style="font-size:10px; color:var(--gray-dark); font-weight:400;">${act.n} คน · ${dlt >= 0 ? '+' : ''}${dlt}</div>`
+        : '<span style="color:var(--gray-dark);">—</span>'}</td>
+    </tr>`;
+  }).join('');
+
+  const warn = stats.filter(s => !s.blueprintOk);
+  const warnBox = warn.length ? `
+    <div style="margin-top:10px; padding:10px 12px; background:#FFF1E8; border-left:4px solid var(--danger); border-radius:8px; font-size:12px; line-height:1.8;">
+      <b style="color:var(--danger);">⚠️ ${warn.length} ชุดยังไม่ตรงผังข้อสอบจริง</b><br>
+      ${warn.map(s => '• <b>' + s.set + '</b> — ' + s.areas.filter(a => !a.ok)
+          .map(a => a.name + ' ' + a.count + ' ข้อ (ต้อง ' + a.min + '–' + a.max + ')').join(' · ')
+          + (s.unknown.length ? ' · บทที่ยังไม่อยู่ในผัง: ' + s.unknown.map(u => 'ข้อ ' + u.q + ' ' + u.ch).join(', ') : '')).join('<br>')}
+    </div>` : '';
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="card__head" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <b>📐 ผังข้อสอบ &amp; ระดับความยาก</b>
+        <span style="font-size:11.5px; color:var(--gray-dark);">เทียบกับ ${stats[0] ? stats[0].source : 'blueprint A-Level'}</span>
+        <button class="btn btn--ghost btn--xs" style="margin-left:auto;" onclick="MOCK_STATS=null; renderMockBlueprint();">↻ อ่านคลังใหม่</button>
+      </div>
+      <div style="overflow-x:auto; padding:0 4px 4px;">
+        <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
+          <thead><tr style="color:var(--gray-dark); font-size:11.5px;">
+            <th style="text-align:left; padding:6px 8px;">ชุด</th>
+            ${AREA_SHORT.map(n => `<th style="padding:6px 8px;">${n}</th>`).join('')}
+            <th style="padding:6px 8px;">ง่าย / กลาง / ยาก</th>
+            <th style="padding:6px 8px;">คาดหวัง</th>
+            <th style="padding:6px 8px;">เฉลี่ยจริง</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div style="font-size:11px; color:var(--gray-dark); padding:0 12px 10px; line-height:1.8;">
+        ตัวเลขทุกช่องคำนวณสดจากผังข้อสอบในคลัง (ระดับความยากรายข้อ) ไม่ได้พิมพ์ไว้ที่ไหน — แก้ผังในคลังแล้วตารางนี้เปลี่ยนตามทันที<br>
+        <b>คาดหวัง</b> = คะแนนที่ควรได้ของชุดนั้น คิดจาก %ทำถูกจริงของนักเรียนในข้อแต่ละระดับ (calibrate จากบทปกติ 420 ข้อ) ·
+        <b>เฉลี่ยจริง</b> = ค่าเฉลี่ยจากผลสอบในชีต · ตัวเลขใต้ค่าเฉลี่ยคือส่วนต่างจากคาดหวัง
+      </div>
+      ${warnBox}
+    </div>`;
 }
 
 function renderDataHealth() {
