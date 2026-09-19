@@ -5486,20 +5486,35 @@ function kindEmptyHTML() {
 /* ═══ 📐 ผังข้อสอบ & ความยาก (19 ก.ย. 69) ═══
    หน้าครูไม่ได้โหลด questionbank.js (คนละ repo) จึง fetch จาก production แล้วรันใน
    ขอบเขตปิดด้วย new Function — ตัวแปรของคลัง (EMBEDDED_QB, MOCK_SETS, CHAPTERS…)
-   จึงไม่รั่วมาชนกับตัวแปรของหน้าครู · เพิ่มชุดใหม่ในคลังแล้วตารางนี้ขึ้นเองทันที */
+   จึงไม่รั่วมาชนกับตัวแปรของหน้าครู · เพิ่มชุดใหม่ในคลังแล้วตารางนี้ขึ้นเองทันที
+   ★ รอบ 2: ครูกดชื่อชุดเพื่อกางผังรายข้อ และแก้ บท/หมวด/ระดับ ได้เอง
+     ค่าที่แก้เก็บในชีต qb_map → หน้านักเรียนอ่านชุดเดียวกัน (ไฟล์คลังไม่ถูกแตะ) */
 const QB_SRC_URL = 'https://bankkungchin.github.io/answer-sheet/questionbank.js';
-let MOCK_STATS = null, MOCK_STATS_ERR = null;
+let QBMOD = null, MOCK_STATS = null, QBMAP_ROWS = null;
+let _planOpen = null, _planEdits = {};
 
-async function loadMockStats(force) {
-  if (MOCK_STATS && !force) return MOCK_STATS;
+const qbCall = p => goalCall(p);          /* POST + token + toast ชุดเดียวกับเป้าหมายคะแนน */
+
+/* โหลดคลัง + ผังที่ครูแก้ไว้ แล้วคืนโมดูลที่ใช้ทั้งการ์ดและตารางรายข้อ */
+async function loadQBModule(force) {
+  if (QBMOD && !force) return QBMOD;
   const res = await fetch(QB_SRC_URL + '?t=' + Date.now(), { cache: 'reload' });
   if (!res.ok) throw new Error('โหลดคลังข้อสอบไม่ได้ (' + res.status + ')');
   const src = await res.text();
-  const run = new Function('PLAYLISTS', src + '\n; return (typeof allMockStats === "function") ? allMockStats() : null;');
-  const stats = run({});
-  if (!stats) throw new Error('คลังข้อสอบบน production ยังไม่มี allMockStats() — อัป questionbank.js ตัวใหม่ก่อนครับ');
-  MOCK_STATS = stats;
-  return stats;
+  const run = new Function('PLAYLISTS', src + `
+    ; return (typeof allMockStats === "function" && typeof mockPlan === "function")
+      ? { allMockStats, mockPlan, applyQBMap, bankChapters, bankSubs, bankCount } : null;`);
+  const mod = run({});
+  if (!mod) throw new Error('คลังข้อสอบบน production ยังเป็นตัวเก่า — อัป questionbank.js ตัวใหม่ก่อนครับ');
+  /* ผังที่ครูแก้ไว้ (ชีต qb_map) — ล้มเหลวก็ยังใช้ค่าจากไฟล์คลังได้ */
+  try {
+    const r = await qbCall({ action: 'listQBMap' });
+    QBMAP_ROWS = (r && Array.isArray(r.rows)) ? r.rows : [];
+    if (QBMAP_ROWS.length) mod.applyQBMap(QBMAP_ROWS);
+  } catch (e) { QBMAP_ROWS = []; }
+  QBMOD = mod;
+  MOCK_STATS = mod.allMockStats();
+  return mod;
 }
 
 /* คะแนนเฉลี่ยจริงของชุดนั้นจากผลสอบทั้งหมดที่มีในชีต */
@@ -5516,13 +5531,12 @@ async function renderMockBlueprint() {
   if (!el || state.scoresKind !== 'mock') return;
   el.innerHTML = `<div class="card" style="padding:12px 16px; font-size:12px; color:var(--gray-dark);">📐 กำลังอ่านผังข้อสอบจากคลัง…</div>`;
 
-  let stats;
-  try { stats = await loadMockStats(); }
+  try { await loadQBModule(); }
   catch (err) {
-    MOCK_STATS_ERR = err.message;
     el.innerHTML = `<div class="card" style="padding:12px 16px; font-size:12px; color:var(--danger);">📐 ผังข้อสอบ: ${err.message}</div>`;
     return;
   }
+  const stats = MOCK_STATS || [];
 
   const AREA_SHORT = ['พีชคณิต', 'เรขา', 'สถิติฯ', 'แคลคูลัส'];
   const cell = a => `<td style="text-align:center; font-family:var(--font-num);">
@@ -5532,8 +5546,15 @@ async function renderMockBlueprint() {
   const rows = stats.map(s => {
     const act = mockActualAvg(s.set);
     const dlt = act ? act.avg - s.expect : null;
+    const nEdited = (QBMAP_ROWS || []).filter(r => String(r[0]).trim() === s.set).length;
+    const open = _planOpen === s.set;
     return `<tr>
-      <td style="white-space:nowrap;"><b>${s.set}</b>${s.blueprintOk ? '' : ' <span title="ผังไม่ตรงข้อสอบจริง">⚠️</span>'}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn--ghost btn--xs" style="font-weight:700;" onclick="toggleMockPlan('${s.set}')">
+          ${open ? '▾' : '▸'} ${s.set}</button>
+        ${s.blueprintOk ? '' : '<span title="ผังไม่ตรงข้อสอบจริง">⚠️</span>'}
+        ${nEdited ? `<span title="ครูแก้ผังไว้ ${nEdited} ข้อ" style="font-size:10px; color:var(--orange);">✎${nEdited}</span>` : ''}
+      </td>
       ${s.areas.map(cell).join('')}
       <td style="text-align:center; font-family:var(--font-num);">
         <span style="color:var(--success);">${s.grades.easy.n}</span> /
@@ -5545,7 +5566,7 @@ async function renderMockBlueprint() {
         ${act ? `<b style="color:${scoreColor(act.avg, 100)};">${act.avg}</b>
           <div style="font-size:10px; color:var(--gray-dark); font-weight:400;">${act.n} คน · ${dlt >= 0 ? '+' : ''}${dlt}</div>`
         : '<span style="color:var(--gray-dark);">—</span>'}</td>
-    </tr>`;
+    </tr>` + (open ? `<tr><td colspan="8" style="padding:0 6px 10px;">${mockPlanHTML(s.set)}</td></tr>` : '');
   }).join('');
 
   const warn = stats.filter(s => !s.blueprintOk);
@@ -5562,12 +5583,12 @@ async function renderMockBlueprint() {
       <div class="card__head" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
         <b>📐 ผังข้อสอบ &amp; ระดับความยาก</b>
         <span style="font-size:11.5px; color:var(--gray-dark);">เทียบกับ ${stats[0] ? stats[0].source : 'blueprint A-Level'}</span>
-        <button class="btn btn--ghost btn--xs" style="margin-left:auto;" onclick="MOCK_STATS=null; renderMockBlueprint();">↻ อ่านคลังใหม่</button>
+        <button class="btn btn--ghost btn--xs" style="margin-left:auto;" onclick="QBMOD=null; MOCK_STATS=null; _planOpen=null; renderMockBlueprint();">↻ อ่านคลังใหม่</button>
       </div>
       <div style="overflow-x:auto; padding:0 4px 4px;">
         <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
           <thead><tr style="color:var(--gray-dark); font-size:11.5px;">
-            <th style="text-align:left; padding:6px 8px;">ชุด</th>
+            <th style="text-align:left; padding:6px 8px;">ชุด (กดเพื่อดูรายข้อ)</th>
             ${AREA_SHORT.map(n => `<th style="padding:6px 8px;">${n}</th>`).join('')}
             <th style="padding:6px 8px;">ง่าย / กลาง / ยาก</th>
             <th style="padding:6px 8px;">คาดหวัง</th>
@@ -5577,12 +5598,122 @@ async function renderMockBlueprint() {
         </table>
       </div>
       <div style="font-size:11px; color:var(--gray-dark); padding:0 12px 10px; line-height:1.8;">
-        ตัวเลขทุกช่องคำนวณสดจากผังข้อสอบในคลัง (ระดับความยากรายข้อ) ไม่ได้พิมพ์ไว้ที่ไหน — แก้ผังในคลังแล้วตารางนี้เปลี่ยนตามทันที<br>
-        <b>คาดหวัง</b> = คะแนนที่ควรได้ของชุดนั้น คิดจาก %ทำถูกจริงของนักเรียนในข้อแต่ละระดับ (calibrate จากบทปกติ 420 ข้อ) ·
+        ตัวเลขทุกช่องคำนวณสดจากผังข้อสอบในคลัง (ระดับความยากรายข้อ) ไม่ได้พิมพ์ไว้ที่ไหน — แก้ผังแล้วตารางนี้เปลี่ยนตามทันที<br>
+        <b>คาดหวัง</b> = คะแนนที่ควรได้ของชุดนั้น คิดจาก %ทำถูกจริงของนักเรียนในข้อแต่ละระดับ ·
         <b>เฉลี่ยจริง</b> = ค่าเฉลี่ยจากผลสอบในชีต · ตัวเลขใต้ค่าเฉลี่ยคือส่วนต่างจากคาดหวัง
       </div>
       ${warnBox}
     </div>`;
+}
+
+function toggleMockPlan(set) {
+  _planOpen = (_planOpen === set) ? null : set;
+  _planEdits = {};
+  renderMockBlueprint();
+}
+
+/* ตารางผังรายข้อ — แก้ บท/หมวด/ระดับ ได้ แล้วกดบันทึกทีเดียว */
+function mockPlanHTML(set) {
+  if (!QBMOD) return '';
+  const plan = QBMOD.mockPlan(set);
+  if (!plan.length) return '';
+  const GRADE = { easy: ['ง่าย', 'var(--success)'], mid: ['กลาง', 'var(--orange)'], hard: ['ยาก', 'var(--danger)'] };
+  const chapters = QBMOD.bankChapters();
+
+  const rows = plan.map(it => {
+    const g = GRADE[it.grade] || ['—', 'var(--gray-dark)'];
+    const subs = QBMOD.bankSubs(it.ch);
+    const subOpts = subs.map(s => `<option value="${s.sub}" ${s.sub === it.sub ? 'selected' : ''}>${s.sub} (${s.n})</option>`).join('');
+    const unknownSub = it.sub && !subs.some(s => s.sub === it.sub)
+      ? `<option value="${it.sub}" selected>${it.sub} (ไม่มีในคลัง)</option>` : '';
+    return `<tr data-q="${it.q}">
+      <td style="text-align:center; font-family:var(--font-num); color:var(--gray-dark);">${it.q}
+        <div style="font-size:10px;">${it.pts} คะแนน</div></td>
+      <td><select onchange="planEdit(${it.q},'ch',this.value)" style="width:100%; max-width:190px; font-size:11.5px; padding:3px;">
+        ${chapters.map(c => `<option value="${c}" ${c === it.ch ? 'selected' : ''}>${c}</option>`).join('')}
+        ${chapters.indexOf(it.ch) < 0 ? `<option value="${it.ch}" selected>${it.ch} (ไม่มีในคลัง)</option>` : ''}
+      </select></td>
+      <td><select onchange="planEdit(${it.q},'sub',this.value)" style="width:100%; max-width:230px; font-size:11.5px; padding:3px;">
+        ${subOpts}${unknownSub}
+      </select></td>
+      <td style="text-align:center;"><select onchange="planEdit(${it.q},'level',this.value)" style="font-size:11.5px; padding:3px;">
+        ${[1,2,3,4,5].map(l => `<option value="${l}" ${l === it.level ? 'selected' : ''}>L${l}</option>`).join('')}
+      </select></td>
+      <td style="text-align:center; color:${g[1]}; font-size:11.5px;">${g[0]}</td>
+      <td style="font-size:11px; color:var(--gray-dark);">${it.areaName}${it.area === '??' ? ' ⚠️' : ''}</td>
+      <td style="text-align:center; font-size:11px; color:${it.practiceN ? 'var(--gray-dark)' : 'var(--danger)'};">
+        ${it.practiceN ? it.practiceN + ' ข้อ' : 'ไม่มีข้อฝึก'}</td>
+      <td style="text-align:center; font-size:11px;">${it.edited
+        ? `<button class="btn btn--ghost btn--xs" onclick="planRevert('${set}',${it.q})" title="กลับไปใช้ค่าในไฟล์คลัง">↺ คืนค่า</button>`
+        : ''}</td>
+    </tr>`;
+  }).join('');
+
+  return `<div style="border:1px solid var(--line-strong); border-radius:10px; padding:10px 12px; background:var(--bg-soft);">
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+      <b style="font-size:12.5px;">📋 ผังรายข้อ — ${set}</b>
+      <span style="font-size:11px; color:var(--gray-dark);">แก้บท/หมวด/ระดับได้เลย แล้วกดบันทึก · ค่าที่แก้จะไปถึงหน้านักเรียนด้วย</span>
+      <span id="planMsg" style="font-size:11.5px; color:var(--gray-dark); margin-left:auto;"></span>
+      <button class="btn btn--primary btn--xs" onclick="planSave('${set}')">💾 บันทึกการแก้</button>
+      <button class="btn btn--ghost btn--xs" onclick="planRevert('${set}')" title="ลบทุกข้อที่ครูแก้ไว้ในชุดนี้">↺ คืนค่าทั้งชุด</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%; border-collapse:collapse; font-size:12px;">
+        <thead><tr style="color:var(--gray-dark); font-size:11px;">
+          <th style="padding:4px 6px;">ข้อ</th><th style="text-align:left; padding:4px 6px;">บท</th>
+          <th style="text-align:left; padding:4px 6px;">หมวดย่อย (จำนวนข้อฝึกในคลัง)</th>
+          <th style="padding:4px 6px;">ระดับ</th><th style="padding:4px 6px;">ความยาก</th>
+          <th style="text-align:left; padding:4px 6px;">สาระตาม blueprint</th>
+          <th style="padding:4px 6px;">ข้อฝึกซ้ำ</th><th style="padding:4px 6px;"></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <div style="font-size:11px; color:var(--gray-dark); margin-top:8px; line-height:1.8;">
+      เปลี่ยน<b>บท</b>แล้วรายการหมวดจะเปลี่ยนตามหลังกดบันทึก · หมวดที่ขึ้นว่า <b>ไม่มีข้อฝึก</b> แปลว่านักเรียนที่พลาดข้อนั้นจะไม่มีอะไรให้ฝึกซ้ำ ควรเลือกหมวดที่มีของในคลัง
+    </div>
+  </div>`;
+}
+
+function planEdit(q, field, value) {
+  _planEdits[q] = _planEdits[q] || {};
+  _planEdits[q][field] = value;
+  const m = document.getElementById('planMsg');
+  if (m) { m.textContent = 'แก้ไว้ ' + Object.keys(_planEdits).length + ' ข้อ — ยังไม่ได้บันทึก'; m.style.color = 'var(--orange)'; }
+}
+
+async function planSave(set) {
+  const qs = Object.keys(_planEdits);
+  const m = document.getElementById('planMsg');
+  if (!qs.length) { if (m) { m.textContent = 'ยังไม่ได้แก้อะไร'; m.style.color = 'var(--gray-dark)'; } return; }
+  const plan = QBMOD.mockPlan(set);
+  const items = qs.map(q => {
+    const cur = plan.find(p => p.q === parseInt(q, 10)) || {};
+    const e = _planEdits[q];
+    return { set: set, q: parseInt(q, 10),
+             ch: e.ch != null ? e.ch : cur.ch,
+             sub: e.sub != null ? e.sub : cur.sub,
+             level: parseInt(e.level != null ? e.level : cur.level, 10) };
+  });
+  if (m) { m.textContent = 'กำลังบันทึก…'; m.style.color = 'var(--gray-dark)'; }
+  const r = await qbCall({ action: 'setQBMap', items: items });
+  if (!r) { if (m) { m.textContent = 'บันทึกไม่สำเร็จ'; m.style.color = 'var(--danger)'; } return; }
+  _planEdits = {};
+  QBMOD = null; MOCK_STATS = null;                 /* โหลดคลัง + ผังใหม่ ให้ทุกตัวเลขตรงกัน */
+  await renderMockBlueprint();
+  toast('บันทึกผังแล้ว ' + (r.saved || items.length) + ' ข้อ — หน้านักเรียนจะเห็นค่าใหม่เมื่อเปิดหน้าใหม่', 'success');
+}
+
+/* คืนค่าจากไฟล์คลัง — ระบุ q = ข้อเดียว · ไม่ระบุ = ทั้งชุด */
+async function planRevert(set, q) {
+  const payload = { action: 'clearQBMap', set: set };
+  if (q) payload.q = q;
+  const r = await qbCall(payload);
+  if (!r) return;
+  _planEdits = {};
+  QBMOD = null; MOCK_STATS = null;
+  await renderMockBlueprint();
+  toast(q ? ('คืนค่าข้อ ' + q + ' แล้ว') : ('คืนค่าทั้งชุดแล้ว (' + (r.cleared || 0) + ' ข้อ)'), 'success');
 }
 
 function renderDataHealth() {
