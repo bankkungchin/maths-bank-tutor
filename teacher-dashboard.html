@@ -5248,6 +5248,20 @@ function weightedScore(ch, statuses) {
   return s;
 }
 
+/* ★ 19 ก.ย. 69 — คะแนนที่หายไปเพราะสะเพร่า (ไม่ใช่จำนวนข้อ)
+   สนามสอบข้อละ 3/5 คะแนน สะเพร่า 2 ข้อท้ายจึงเสีย 10 ไม่ใช่ 2 — ครูต้องเห็นเป็นคะแนน
+   บทปกติข้อละ 1 คะแนน ตัวเลขจึงเท่าจำนวนข้อเหมือนเดิม
+   ไม่มีสถานะรายข้อ (ข้อมูลเก่า) → คืน null ให้ผู้เรียกใช้จำนวนข้อแทน */
+function carelessPoints(ch, statuses) {
+  if (!statuses || !statuses.length) return null;
+  const perQ = fullOfChapter(ch) === 30;
+  let s = 0;
+  statuses.forEach((v, i) => {
+    if (String(v || '').indexOf('สะเพร่า') !== -1) s += perQ ? 1 : ptsOfQ(ch, i + 1);
+  });
+  return s;
+}
+
 function scoreColor(sc, full) {
   const f = full || 30;
   const pct = sc / f;
@@ -5827,7 +5841,16 @@ function renderGroupScores(sb) {
   window._examDetailCache = [];
 
   const head = chapters.map(ch =>
-    `<th style="min-width:92px; text-align:center;">${labels[ch] || ch}</th>`
+    /* ★ 20 ก.ย. 69 — โหมดแยกบท: กด 🎯 ที่หัวคอลัมน์เพื่อตั้งเป้าของบทนั้นให้ทั้งกลุ่ม
+       (สนามสอบใช้คอลัมน์ 🎯 เป้า รายคนเหมือนเดิม) */
+    `<th style="min-width:92px; text-align:center;">${labels[ch] || ch}${
+      state.scoresKind === 'mock' ? '' :
+      `<div style="font-weight:400; font-size:10px; margin-top:2px;">
+        <span style="cursor:pointer; color:var(--orange);"
+          onclick="goalSetFor(${JSON.stringify(students.map(x => x.full)).replace(/"/g, '&quot;')}, 'ทั้งกลุ่ม ${g}', '${String(labels[ch] || ch).replace(/'/g, "\\'")}')"
+          title="ตั้งเป้าของบทนี้ให้ทั้งกลุ่ม">🎯 เป้า ${goalOf(students[0] && students[0].full, labels[ch] || ch) || goalFallbackOf(labels[ch] || ch)}</span>
+      </div>`
+    }</th>`
   ).join('');
 
   const rows = students.map((s, i) => {
@@ -5839,13 +5862,18 @@ function renderGroupScores(sb) {
       /* ★ สนามสอบแสดงคะแนนถ่วงน้ำหนัก (เต็ม 100) · บทปกติแสดงจำนวนข้อถูกเหมือนเดิม */
       const _w = weightedScore(e.chapter, e.statuses), _f = fullOfChapter(e.chapter);
       const _show = _w == null ? e.score : _w;
-      return `<td style="text-align:center;"><span onclick="showExamDetailByIdx(${idx})" title="${e.date} · ${_w == null ? 'ถูก ' + e.score + '/30 ข้อ' : _w + '/' + _f + ' คะแนน (ถูก ' + e.score + '/30 ข้อ)'} · สะเพร่า ${e.careless}${retook ? ' · สอบซ้ำ ใช้ครั้งล่าสุด' : ''}" style="cursor:pointer; font-family:var(--font-num); font-weight:700; color:${scoreColor(_show, _f)}; border-bottom:1px dotted currentColor;">${_show}<span style="font-weight:400; color:var(--gray-dark); font-size:11px;">/</span><span style="font-size:12px; color:var(--orange);">${e.careless}</span>${retook ? '<sup style=\"font-size:8px;\">↻</sup>' : ''}</span></td>`;
+      /* ★ ตัวเลขหลัง / = คะแนนที่เสียจากสะเพร่า (เดิมเป็นจำนวนข้อ ซึ่งต่ำกว่าความจริงในสนามสอบ) */
+      const _cp = carelessPoints(e.chapter, e.statuses);
+      const _cShow = _cp == null ? e.careless : _cp;
+      const _cTitle = _cp == null ? 'สะเพร่า ' + e.careless + ' ข้อ'
+        : 'สะเพร่า ' + e.careless + ' ข้อ = เสีย ' + _cp + ' คะแนน' + (_cp ? ' (ถ้าเก็บได้หมด ' + (_show + _cp) + '/' + _f + ')' : '');
+      return `<td style="text-align:center;"><span onclick="showExamDetailByIdx(${idx})" title="${e.date} · ${_w == null ? 'ถูก ' + e.score + '/30 ข้อ' : _w + '/' + _f + ' คะแนน (ถูก ' + e.score + '/30 ข้อ)'} · ${_cTitle}${retook ? ' · สอบซ้ำ ใช้ครั้งล่าสุด' : ''}" style="cursor:pointer; font-family:var(--font-num); font-weight:700; color:${scoreColor(_show, _f)}; border-bottom:1px dotted currentColor;">${_show}<span style="font-weight:400; color:var(--gray-dark); font-size:11px;">/</span><span style="font-size:12px; color:var(--orange);">${_cShow}</span>${retook ? '<sup style=\"font-size:8px;\">↻</sup>' : ''}</span></td>`;
     }).join('');
     const own = chapters.map(ch => byStu[s.full] && byStu[s.full][ch]).filter(Boolean);
     const myAvg = own.length ? (own.reduce((a, e) => a + dispScoreOf(e), 0) / own.length).toFixed(1) : '–';
     /* ★ 18 ก.ย. 69 — ช่องเป้า: กดที่ตัวเลขเพื่อตั้ง · กดค้างไม่ได้บนมือถือ จึงใช้คลิกขวา/ปุ่มล้างในโมดัลแทน */
     const goalTd = state.scoresKind === 'mock'
-      ? `<td style="text-align:center; cursor:pointer;" onclick="goalSetFor(['${String(s.full).replace(/'/g, "\\'")}'], '${String(s.name).replace(/'/g, "\\'")}')" title="กดเพื่อตั้งเป้าของ ${s.name}">${goalCellHTML(s.full).replace(/^<td[^>]*>|<\/td>$/g, '')}</td>`
+      ? `<td style="text-align:center; cursor:pointer;" onclick="goalSetFor(['${String(s.full).replace(/'/g, "\\'")}'], '${String(s.name).replace(/'/g, "\\'")}', '')" title="กดเพื่อตั้งเป้าสนามสอบของ ${s.name}">${goalCellHTML(s.full, '').replace(/^<td[^>]*>|<\/td>$/g, '')}</td>`
       : '';
     return `<tr${s.active ? '' : ' style="opacity:.55;"'}><td><div class="att-student-name">${i+1}. ${s.name}${s.active ? '' : ' <span style="font-size:10px; color:var(--danger);">(ไม่เรียนต่อ)</span>'}</div></td>${cells}<td style="text-align:center; font-family:var(--font-num); font-weight:700;">${myAvg}</td>${goalTd}</tr>`;
   }).join('');
@@ -5860,7 +5888,7 @@ function renderGroupScores(sb) {
     <div class="card">
       <div class="card__head">
         <span class="card__title">${state.scoresKind==='mock'?'🎯 คะแนนสนามสอบ (รวมทุกบท · เต็ม 100)':'📘 คะแนนข้อสอบแยกบท (เต็ม 30)'} · <b>${g}</b> · นักเรียน ${students.length} คน</span>
-        <span style="font-size:11px; color:var(--gray-dark);">ตัวเลข = <b>${state.scoresKind==='mock'?'คะแนน':'ถูก'}</b>/<span style="color:var(--orange);">สะเพร่า</span> · กดเพื่อดู 30 ข้อ · ↻ = สอบซ้ำ · เรียง${state.scoresKind==='mock'?'ชุด':'บท'}ตามวันสอบ · <b>เลื่อนตารางซ้าย-ขวาได้</b> (ชื่อจะค้างไว้)${state.scoresKind==='mock'?' · ข้อ 1–25 ข้อละ 3 · ข้อ 26–30 ข้อละ 5 · <b>กดตัวเลขในคอลัมน์ 🎯 เป้า เพื่อตั้งรายคน</b>':''}</span>
+        <span style="font-size:11px; color:var(--gray-dark);">ตัวเลข = <b>${state.scoresKind==='mock'?'คะแนน':'ถูก'}</b>/<span style="color:var(--orange);">${state.scoresKind==='mock'?'คะแนนที่เสียจากสะเพร่า':'สะเพร่า'}</span> · กดเพื่อดู 30 ข้อ · ↻ = สอบซ้ำ · เรียง${state.scoresKind==='mock'?'ชุด':'บท'}ตามวันสอบ · <b>เลื่อนตารางซ้าย-ขวาได้</b> (ชื่อจะค้างไว้)${state.scoresKind==='mock'?' · ข้อ 1–25 ข้อละ 3 · ข้อ 26–30 ข้อละ 5 · <b>กดตัวเลขในคอลัมน์ 🎯 เป้า เพื่อตั้งรายคน</b>':''}</span>
         ${state.scoresKind==='mock' ? `<button class="btn btn--sm btn--ghost" style="margin-left:auto" onclick="goalSetFor(${JSON.stringify(students.map(s=>s.full)).replace(/"/g,'&quot;')}, 'ทั้งกลุ่ม ${g} (${students.length} คน)')">🎯 ตั้งเป้าทั้งกลุ่ม</button>` : ''}
       </div>
       <div class="att-table-wrap">
@@ -8271,26 +8299,40 @@ async function goalsLoad(force) {
   const r = await goalCall({ action: 'listGoals' });
   GOALS = {};
   if (r && Array.isArray(r.rows)) {
-    r.rows.forEach(row => { GOALS[String(row[0] || '').trim()] = { goal: parseInt(row[1]) || 0, by: row[2] || '', at: row[3] || '' }; });
+    /* ★ 20 ก.ย. 69 — เป้าแยกรายบท: คีย์ = "ชื่อ|บท" (บทว่าง = เป้าสนามสอบ ความหมายเดิม) */
+    r.rows.forEach(row => {
+      const key = String(row[0] || '').trim() + '|' + goalChapKey(row[4]);
+      GOALS[key] = { goal: parseInt(row[1]) || 0, by: row[2] || '', at: row[3] || '' };
+    });
   }
   return GOALS;
 }
 
-function goalOf(fullName) {
-  const g = GOALS && GOALS[String(fullName || '').trim()];
+/* ชื่อบทที่ใช้เป็นคีย์เป้า — ชุดรวมทุกชุดใช้เป้าเดียวกัน (คีย์ '') */
+function goalChapKey(ch) {
+  const c = String(ch || '').trim();
+  if (!c || /^ชุดรวม\s*\d*/.test(c)) return '';
+  return c.replace(/^Exponential logarithm/i, 'Expo Logarithm');
+}
+function goalFullOf(ch) { return goalChapKey(ch) ? 30 : 100; }
+function goalFallbackOf(ch) { return goalChapKey(ch) ? 25 : GOAL_FALLBACK; }
+
+function goalOf(fullName, chapter) {
+  const g = GOALS && GOALS[String(fullName || '').trim() + '|' + goalChapKey(chapter)];
   return (g && g.goal > 0) ? g.goal : 0;
 }
-function goalByOf(fullName) {
-  const g = GOALS && GOALS[String(fullName || '').trim()];
+function goalByOf(fullName, chapter) {
+  const g = GOALS && GOALS[String(fullName || '').trim() + '|' + goalChapKey(chapter)];
   return g ? (g.by === 'teacher' ? 'ครู' : 'นักเรียน') : '';
 }
 
 /* ช่องเป้าในตาราง — ว่าง = ยังไม่มีใครตั้ง แสดงค่าตั้งต้นจาง ๆ */
-function goalCellHTML(fullName) {
-  const g = goalOf(fullName), by = goalByOf(fullName);
-  const shown = g || GOAL_FALLBACK;
+function goalCellHTML(fullName, chapter) {
+  const g = goalOf(fullName, chapter), by = goalByOf(fullName, chapter);
+  const fb = goalFallbackOf(chapter);
+  const shown = g || fb;
   const color = g ? 'var(--text1)' : 'var(--gray-dark)';
-  const title = g ? ('ตั้งโดย' + by) : ('ยังไม่มีใครตั้ง — ใช้ค่าตั้งต้น ' + GOAL_FALLBACK);
+  const title = g ? ('ตั้งโดย' + by) : ('ยังไม่มีใครตั้ง — ใช้ค่าตั้งต้น ' + fb);
   return '<td style="text-align:center;" title="' + title + '">'
     + '<span style="font-family:var(--font-num); font-weight:' + (g ? 700 : 400) + '; color:' + color + ';">' + shown + '</span>'
     + (g ? '<br><span style="font-size:9.5px; color:var(--gray-dark);">' + by + '</span>' : '')
@@ -8298,25 +8340,33 @@ function goalCellHTML(fullName) {
 }
 
 /* ตั้งเป้า — ไม่ส่ง names ว่างไปให้เซิร์ฟเวอร์ และถามยืนยันเมื่อตั้งทั้งกลุ่ม */
-async function goalSetFor(names, label) {
+async function goalSetFor(names, label, chapter) {
   const list = (names || []).filter(Boolean);
   if (!list.length) { toast('ไม่มีนักเรียนให้ตั้งเป้า', 'error'); return; }
-  const cur = list.length === 1 ? (goalOf(list[0]) || GOAL_FALLBACK) : GOAL_FALLBACK;
-  const raw = prompt('ตั้งเป้าหมายคะแนนสนามสอบ (' + GOAL_MIN + '–' + GOAL_MAX + ') สำหรับ ' + label, String(cur));
+  const ck = goalChapKey(chapter), max = goalFullOf(chapter), fb = goalFallbackOf(chapter);
+  const what = ck ? ('บท ' + ck + ' (เต็ม 30)') : 'สนามสอบ (เต็ม 100)';
+  const cur = list.length === 1 ? (goalOf(list[0], chapter) || fb) : fb;
+  const raw = prompt('ตั้งเป้าหมายคะแนน' + what + ' (' + GOAL_MIN + '–' + max + ') สำหรับ ' + label, String(cur));
   if (raw === null) return;
   const v = parseInt(String(raw).trim(), 10);
-  if (!(v >= GOAL_MIN && v <= GOAL_MAX)) { toast('ต้องเป็นตัวเลข ' + GOAL_MIN + '–' + GOAL_MAX, 'error'); return; }
-  if (list.length > 1 && !confirm('ตั้งเป้า ' + v + ' คะแนน ให้นักเรียน ' + list.length + ' คน?\n(ทับเป้าที่นักเรียนตั้งเองไว้ด้วย)')) return;
-  const r = await goalCall({ action: 'setGoal', names: list, goal: v });
+  if (!(v >= GOAL_MIN && v <= max)) { toast('ต้องเป็นตัวเลข ' + GOAL_MIN + '–' + max, 'error'); return; }
+  if (list.length > 1 && !confirm('ตั้งเป้า ' + v + ' คะแนน (' + what + ') ให้นักเรียน ' + list.length + ' คน?\n(ทับเป้าที่นักเรียนตั้งเองไว้ด้วย)')) return;
+  const payload = { action: 'setGoal', names: list, goal: v };
+  if (ck) payload.chapter = ck;
+  const r = await goalCall(payload);
   if (!r) return;
   await goalsLoad(true);
   toast('ตั้งเป้า ' + v + ' คะแนน ให้ ' + (r.n || list.length) + ' คนแล้ว', 'success');
   renderMain();
 }
 
-async function goalClearFor(fullName) {
-  if (!confirm('ล้างเป้าของ ' + fullName + ' กลับไปใช้ค่าตั้งต้น ' + GOAL_FALLBACK + '?')) return;
-  const r = await goalCall({ action: 'clearGoal', name: fullName });
+async function goalClearFor(fullName, chapter) {
+  const ck = goalChapKey(chapter);
+  if (!confirm('ล้างเป้า' + (ck ? 'บท ' + ck + ' ' : 'สนามสอบ') + 'ของ ' + fullName + ' กลับไปใช้ค่าตั้งต้น ' + goalFallbackOf(chapter) + '?')) return;
+  const payload = { action: 'clearQBMapPlaceholder' };
+  payload.action = 'clearGoal'; payload.name = fullName;
+  if (ck) payload.chapter = ck;
+  const r = await goalCall(payload);
   if (!r) return;
   await goalsLoad(true);
   toast('ล้างเป้าแล้ว', 'success');
