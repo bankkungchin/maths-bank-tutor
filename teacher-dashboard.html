@@ -1104,7 +1104,7 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
     <div class="sidebar__actions" style="padding-top:0; border-bottom:0; flex-wrap:wrap;">
       <button class="btn btn--ghost btn--sm" id="btnAttendance" style="flex:1; background: var(--orange); color: var(--bg); border-color: var(--orange);">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-        เช็คชื่อ
+        เช็คชื่อ<span id="attendanceBadge"></span>
       </button>
       <button class="btn btn--ghost btn--sm" id="btnEntry" style="flex:1;">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
@@ -2139,6 +2139,7 @@ function renderMain() {
   }
 
   refreshPendingBadge();       /* ★ ตัวเลขรอตรวจอัปเดตทุกครั้งที่เปลี่ยนหน้า (throttle 60 วิ) */
+  refreshLeaveBadge();         /* ★ 21 ก.ย. 69 — ตัวเลขแจ้งลา/แจ้งสายบนปุ่มเช็คชื่อ (cache 2 นาที) */
 
   if (state.view === 'attendance') {
     eyebrow.textContent = 'Attendance';
@@ -5044,7 +5045,55 @@ async function refreshPendingBadge(force) {
 function startPendingWatch() {
   if (_pendTimer) return;
   refreshPendingBadge(true);
-  _pendTimer = setInterval(function () { refreshPendingBadge(true); }, 120000);
+  refreshLeaveBadge(true);
+  _pendTimer = setInterval(function () { refreshPendingBadge(true); refreshLeaveBadge(true); }, 120000);
+}
+
+/* ── ★ 21 ก.ย. 69 · ตัวเลขแจ้งลา/แจ้งสายบนปุ่ม "เช็คชื่อ" ──
+   นับเฉพาะใบของ "คาบถัดไป (รวมคาบวันนี้)" ของทุกกลุ่ม ที่ยังไม่ได้บันทึกลงตาราง
+   — คือสิ่งที่ครูต้องลงมือทำ เหมือนตัวเลขรอตรวจ ไม่ใช่ยอดสะสมทั้งคอร์ส
+   ใบที่บันทึกลงตารางแล้ว (isLeaveApplied) ไม่นับ → ตัวเลขลดลงเองเมื่อกดจบคาบ */
+function leaveBadgeStat() {
+  const groups = (state.data && state.data.groups) || [];
+  let leave = 0, late = 0;
+  groups.forEach(function (g) {
+    const s = nextSessionOf(g);
+    if (!s) return;
+    leaveOfSession(g.id, s.no).forEach(function (r) {
+      if (isLeaveApplied(r)) return;
+      if (r.type === 'แจ้งสาย') late++; else leave++;
+    });
+  });
+  return { leave: leave, late: late, total: leave + late };
+}
+
+function attPaintBadge(st) {
+  const el = document.getElementById('attendanceBadge');
+  if (!el) return;
+  if (!st || !st.total) { el.innerHTML = ''; return; }
+  const bits = [];
+  if (st.leave) bits.push('แจ้งลา ' + st.leave + ' คน');
+  if (st.late)  bits.push('แจ้งสาย ' + st.late + ' คน');
+  el.innerHTML = ' <span title="' + bits.join(' · ') + ' — ยังไม่ได้บันทึกลงตาราง" ' +
+    'style="display:inline-block; min-width:18px; padding:0 5px; background:#2B6CB0; color:var(--bg); ' +
+    'border-radius:999px; font-size:11px; font-family:var(--font-num); line-height:18px; text-align:center;">' +
+    st.total + '</span>';
+}
+
+let _leaveBadgeLastN = -1;
+async function refreshLeaveBadge(force) {
+  if (!SCRIPT_URL) return;
+  try {
+    await ensureLeaveCache(force);
+    const st = leaveBadgeStat();
+    attPaintBadge(st);
+    /* มีใบใหม่เข้ามาระหว่างที่ครูอยู่หน้าอื่น → บอกครั้งเดียว (แบบเดียวกับรอตรวจ) */
+    if (_leaveBadgeLastN >= 0 && st.total > _leaveBadgeLastN && state.view !== 'attendance') {
+      toast('🔔 มีใบแจ้งลา/แจ้งสายใหม่ ' + (st.total - _leaveBadgeLastN) +
+            ' ใบ — รอบันทึกทั้งหมด ' + st.total, 'success');
+    }
+    _leaveBadgeLastN = st.total;
+  } catch (e) { /* เงียบไว้ */ }
 }
 
 /* ── (3) ข้อ 5 · ลบคะแนนที่กรอกบทผิด ── */
@@ -5228,7 +5277,8 @@ const MOCK_POINTS = {
   'ชุดรวม 01': { full: 100, ranges: [ { from:1, to:25, pts:3 }, { from:26, to:30, pts:5 } ] },
   'ชุดรวม 02': { full: 100, ranges: [ { from:1, to:25, pts:3 }, { from:26, to:30, pts:5 } ] },
   'ชุดรวม 03': { full: 100, ranges: [ { from:1, to:25, pts:3 }, { from:26, to:30, pts:5 } ] },
-  'ชุดรวม 04': { full: 100, ranges: [ { from:1, to:25, pts:3 }, { from:26, to:30, pts:5 } ] }
+  'ชุดรวม 04': { full: 100, ranges: [ { from:1, to:25, pts:3 }, { from:26, to:30, pts:5 } ] },
+  'ชุดรวม 05': { full: 100, ranges: [ { from:1, to:25, pts:3 }, { from:26, to:30, pts:5 } ] }
 };
 function fullOfChapter(ch) {
   const m = MOCK_POINTS[String(ch || '').trim()];
@@ -6325,7 +6375,7 @@ const CHAPTERS = [
 /* ★ 29 ส.ค. 69 — ชุดข้อสอบรวมทุกบท (สนามสอบ)
    แยกจาก CHAPTERS เพราะไม่ใช่ "บทเรียน" — ไม่ควรไปโผล่ในรายการบทที่ต้องกรอกให้ครบ
    เพิ่มชุดใหม่ = เพิ่มชื่อที่นี่ + EMBEDDED_QB["ชุดรวม NN"] ใน questionbank.js */
-const MOCK_CHAPTERS = ['ชุดรวม 01', 'ชุดรวม 02', 'ชุดรวม 03', 'ชุดรวม 04'];
+const MOCK_CHAPTERS = ['ชุดรวม 01', 'ชุดรวม 02', 'ชุดรวม 03', 'ชุดรวม 04', 'ชุดรวม 05'];
 function isMockChapter(name) { return /^ชุดรวม\s*\d*/.test(String(name || '').trim()); }
 
 const isStdChapter = c => {
