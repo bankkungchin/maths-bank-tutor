@@ -3905,6 +3905,7 @@ async function pollOnlineCheckin() {
     const result = await res.json();
     if (result.ok) {
       updateOnlineCheckinDisplay(result);
+      paintOnlineLeaveCard();   /* ★ 22 ก.ย. 69 — ให้สถานะ "ลงตารางแล้ว" ตามทันระหว่างคาบ */
     } else if (result.error && result.error.includes('หมดอายุ')) {
       clearInterval(state.onlineCheckin.pollTimer);
       toast('รหัสเช็คชื่อหมดอายุแล้ว', 'error');
@@ -3914,6 +3915,47 @@ async function pollOnlineCheckin() {
   } catch(e) {
     console.error('Poll error:', e);
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ★ 22 ก.ย. 69 — ใบแจ้งลา/แจ้งสายของคาบที่กำลังเช็คชื่ออยู่
+   ตัวเลขบนปุ่มบอกว่า "มีกี่ใบ" แต่ตอนยืนเช็คชื่อหน้าห้องครูต้องรู้ว่า "ใครบ้าง"
+   จึงโชว์รายชื่อตรงนี้ เพื่อไม่ต้องกดออกไปดูหน้าอื่นระหว่างคาบ
+   ═══════════════════════════════════════════════════════════════ */
+function onlineLeaveListHTML(session) {
+  if (!session) return '';
+  const list = leaveOfSession(session.groupId, session.sessionNo);
+  if (!list.length) {
+    return '<div style="font-size:13px; color:var(--gray-dark);">ไม่มีใครแจ้งลาหรือแจ้งสายสำหรับคาบนี้</div>';
+  }
+  const late  = list.filter(r => r.type === 'แจ้งสาย');
+  const leave = list.filter(r => r.type !== 'แจ้งสาย');
+  const chips = (arr, icon, bg, fg, bd) => arr.map(r => {
+    const done = isLeaveApplied(r);
+    return '<span class="att-tag" style="background:' + bg + '; color:' + fg + '; border:1px solid ' + bd +
+      '; font-size:12px; padding:3px 9px;">' + icon + ' <b>' + _eh(r.studentName) + '</b>' +
+      (r.reason ? ' · ' + _eh(r.reason) : '') +
+      (done ? ' <span style="opacity:.7;">(ลงตารางแล้ว)</span>' : '') + '</span>';
+  }).join(' ');
+  const row = (title, arr, icon, bg, fg, bd) => arr.length
+    ? '<div style="margin-top:6px;"><span style="font-size:12px; color:var(--gray-dark);">' + title +
+      ' ' + arr.length + ' คน</span><div style="line-height:2.1; margin-top:2px;">' +
+      chips(arr, icon, bg, fg, bd) + '</div></div>'
+    : '';
+  return row('⏰ แจ้งสาย', late,  '⏰', '#FFF3E6', '#B45309', '#F5C88F') +
+         row('📝 แจ้งลา',  leave, '📝', '#EBF3FB', '#2B6CB0', '#B8D4EE');
+}
+
+function paintOnlineLeaveCard() {
+  const el = document.getElementById('onlineLeaveList');
+  if (!el) return;
+  el.innerHTML = onlineLeaveListHTML(state.onlineCheckin.session);
+}
+
+/* ดึงใบล่าสุดจากชีตแล้ววาดใหม่ (ปุ่ม ⟳ และตอนเปิดหน้า) */
+async function refreshOnlineLeaveCard(force) {
+  try { await ensureLeaveCache(force); } catch (e) { /* ออฟไลน์ก็ยังโชว์ของเดิม */ }
+  paintOnlineLeaveCard();
 }
 
 /* Render online check-in monitor (teacher screen) */
@@ -4013,6 +4055,17 @@ function renderOnlineCheckin(body) {
         </div>
       </div>
 
+      <!-- ★ 22 ก.ย. 69 — ใครแจ้งลา/แจ้งสายไว้สำหรับคาบนี้ -->
+      <div class="card" style="padding:12px 16px; border-left:3px solid #2B6CB0; margin-top:14px;">
+        <div style="display:flex; gap:8px; align-items:center; justify-content:space-between; flex-wrap:wrap;">
+          <div style="font-weight:700; font-size:14px;">🔔 แจ้งลา / แจ้งสาย ของคาบนี้</div>
+          <button class="btn btn--ghost btn--sm" onclick="refreshOnlineLeaveCard(true)" title="ดึงรายการล่าสุดจากชีต">⟳</button>
+        </div>
+        <div id="onlineLeaveList" style="margin-top:4px;">
+          <div style="font-size:13px; color:var(--gray-dark);">กำลังโหลด...</div>
+        </div>
+      </div>
+
       <!-- Stats -->
       <div class="kiosk__progress">
         <div class="kiosk__stat">
@@ -4057,6 +4110,8 @@ function renderOnlineCheckin(body) {
   `;
 
   generateQRCode(qrUrl);
+  paintOnlineLeaveCard();          /* วาดจากแคชก่อน เห็นทันที */
+  refreshOnlineLeaveCard(false);   /* แล้วค่อยดึงของล่าสุดมาทับ */
 }
 
 function switchCheckinMethod(method) {
