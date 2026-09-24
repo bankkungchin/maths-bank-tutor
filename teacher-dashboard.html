@@ -7266,15 +7266,52 @@ function sheetNoteBlobs(px, W, H, L) {
   return out;
 }
 
-/* ข้อหลักของโน้ต — โน้ตที่คร่อมหลายแถวมักเป็นของข้อที่ "ผิด" (ข้อที่ครูต้องอธิบาย)
-   ลำดับที่เลือก: ข้อที่มีสัญลักษณ์และไม่ใช่ ✅ → ข้อที่ไม่ใช่ ✅ → แถวที่ทับมากที่สุด */
-function sheetNoteMainQ(blob, codes, pageIdx) {
-  const qs = blob.rows.map(i => pageIdx * 15 + i + 1);
-  const pick = qs.filter(q => codes[q - 1] && codes[q - 1] !== 'O');
-  if (pick.length) return pick[0];
-  const notOk = qs.filter(q => codes[q - 1] !== 'O');
-  if (notOk.length === 1) return notOk[0];
-  return pageIdx * 15 + blob.main + 1;
+/* ★ 25 ก.ย. 69 — วางโน้ตให้ถูกข้อ
+   rawImgs = กรอบรูปที่ครูแปะ (อ่านจากคำสั่งวาดใน PDF — แม่นทุกพิกเซล แยกรูปที่ชิดกันได้)
+   inkBlobs = ก้อนลายมือในช่อง Notes (sheetNoteBlobs)
+   · ลายมือที่ทับ/ติดกับรูป → รวมเป็นโน้ตเดียวกับรูปนั้น (เช่น วงแดงบนรูปโจทย์)
+   · ข้อของโน้ต = แถวที่ "จุดกึ่งกลางแนวตั้ง" ของโน้ตตกอยู่
+   · ห้ามเดาเงียบ: โน้ตคร่อมหลายแถวและกึ่งกลางอยู่ใกล้เส้นแบ่งแถว หรือกึ่งกลางอยู่ข้อที่ ✅
+     แต่คร่อมข้อที่ผิด → unsure ให้ครูเลือกเองก่อนบันทึก */
+function sheetRowBands(rows, s) {
+  return rows.map(function (r, i) {
+    const prev = i ? (rows[i - 1][1] + r[0]) / 2 : r[0] - 18 * s;
+    const next = i < rows.length - 1 ? (r[1] + rows[i + 1][0]) / 2 : r[1] + 18 * s;
+    return [prev, next];
+  });
+}
+
+function sheetPlaceNotes(rawImgs, inkBlobs, rows, codes, pageIdx, s) {
+  const bands = sheetRowBands(rows, s);
+  const hit = (a, b, pad) => a.x0 - pad < b.x1 && b.x0 - pad < a.x1 && a.y0 - pad < b.y1 && b.y0 - pad < a.y1;
+  const notes = (rawImgs || []).map(b => ({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, kind: 'img' }));
+  (inkBlobs || []).forEach(function (b) {
+    const host = notes.find(n => n.kind === 'img' && hit(n, b, 6 * s));
+    if (host) {                      /* ลายมือบนรูป → ขยายกรอบรูปให้ครอบด้วย */
+      host.x0 = Math.min(host.x0, b.x0); host.y0 = Math.min(host.y0, b.y0);
+      host.x1 = Math.max(host.x1, b.x1); host.y1 = Math.max(host.y1, b.y1);
+    } else notes.push({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, kind: 'ink' });
+  });
+  notes.sort((a, b) => a.y0 - b.y0);
+  return notes.map(function (n) {
+    const h = n.y1 - n.y0, cy = (n.y0 + n.y1) / 2;
+    let ci = bands.findIndex(bd => cy >= bd[0] && cy < bd[1]);
+    if (ci < 0) ci = cy < bands[0][0] ? 0 : bands.length - 1;
+    const touch = [];
+    bands.forEach(function (bd, i) {
+      const ov = Math.min(n.y1, bd[1]) - Math.max(n.y0, bd[0]);
+      if (ov > 0 && (i === ci || ov >= h * 0.15 || ov >= (bd[1] - bd[0]) * 0.3)) touch.push(i);
+    });
+    const q = pageIdx * 15 + ci + 1;
+    const pitch = bands[ci][1] - bands[ci][0];
+    const edge = Math.min(cy - bands[ci][0], bands[ci][1] - cy);
+    let why = '';
+    if (touch.length > 1 && edge < pitch * 0.2) why = 'คร่อมเส้นแบ่งข้อ';
+    else if (codes[q - 1] === 'O' && touch.some(i => i !== ci && codes[pageIdx * 15 + i] && codes[pageIdx * 15 + i] !== 'O'))
+      why = 'กึ่งกลางอยู่ข้อที่ถูก แต่คร่อมข้อที่ผิด';
+    return { x0: n.x0, y0: n.y0, x1: n.x1, y1: n.y1, kind: n.kind, q: q,
+             touch: touch.map(i => pageIdx * 15 + i + 1), unsure: why };
+  });
 }
 
 /* ชื่อไฟล์ "เมฆ วันพุธ.pdf" → { name:'เมฆ', group:'วันพุธ' } ถ้าหาชื่อกลุ่มท้ายชื่อไฟล์เจอ */
@@ -7347,6 +7384,38 @@ function pdfState() {
   return e.pdf;
 }
 
+/* กรอบของรูปที่ครูแปะในหน้า PDF — อ่านจากคำสั่งวาดของ PDF ตรง ๆ (ไม่ต้องเดาจากพิกเซล)
+   รูปพื้นหลังเต็มหน้า (ตัวแม่แบบ+ลายมือ) ข้ามไป · เอาเฉพาะที่อยู่ฝั่งช่อง Notes */
+async function sheetImageBoxes(lib, page, vp, W, H) {
+  const out = [];
+  try {
+    const ol = await page.getOperatorList();
+    const O = lib.OPS;
+    let ctm = [1, 0, 0, 1, 0, 0];
+    const stack = [];
+    const mul = (a, b) => [a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1], a[0] * b[2] + a[2] * b[3],
+                           a[1] * b[2] + a[3] * b[3], a[0] * b[4] + a[2] * b[5] + a[4], a[1] * b[4] + a[3] * b[5] + a[5]];
+    for (let i = 0; i < ol.fnArray.length; i++) {
+      const fn = ol.fnArray[i], a = ol.argsArray[i];
+      if (fn === O.save) stack.push(ctm.slice());
+      else if (fn === O.restore) ctm = stack.pop() || ctm;
+      else if (fn === O.transform) ctm = mul(ctm, a);
+      else if (fn === O.paintImageXObject || fn === O.paintInlineImageXObject || fn === O.paintJpegXObject || fn === O.paintImageXObjectRepeat) {
+        const pts = [[0, 0], [1, 0], [0, 1], [1, 1]].map(p => [ctm[0] * p[0] + ctm[2] * p[1] + ctm[4], ctm[1] * p[0] + ctm[3] * p[1] + ctm[5]]);
+        const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+        const r = vp.convertToViewportRectangle([Math.min.apply(null, xs), Math.min.apply(null, ys), Math.max.apply(null, xs), Math.max.apply(null, ys)]);
+        const b = { x0: Math.max(0, Math.min(r[0], r[2])), x1: Math.min(W, Math.max(r[0], r[2])),
+                    y0: Math.max(0, Math.min(r[1], r[3])), y1: Math.min(H, Math.max(r[1], r[3])) };
+        const area = (b.x1 - b.x0) * (b.y1 - b.y0);
+        if (area > W * H * 0.5 || b.x1 - b.x0 < 12 || b.y1 - b.y0 < 12) continue;
+        if ((b.x0 + b.x1) / 2 < W * 0.45) continue;
+        out.push(b);
+      }
+    }
+  } catch (e) { /* อ่านคำสั่งวาดไม่ได้ → ใช้การหาก้อนจากพิกเซลอย่างเดียว */ }
+  return out;
+}
+
 /* อ่าน PDF 1 ไฟล์ → { codes[30], unsure[30], notes[], pages, guess } */
 async function sheetReadPdf(file) {
   const lib = await pdfjsReady();
@@ -7374,25 +7443,22 @@ async function sheetReadPdf(file) {
       unsure[q] = row.unsure ? row.why : '';
       counts[q] = row.counts;
     });
-    r.notes.forEach(function (b) {
+    const imgs = await sheetImageBoxes(lib, page, vp, cv.width, cv.height);
+    sheetPlaceNotes(imgs, r.notes, r.bands, codes, p, cv.width / SHEET_REF_W).forEach(function (b) {
       const pad = 8;
-      const x0 = Math.max(0, b.x0 - pad), y0 = Math.max(0, b.y0 - pad);
-      const w = Math.min(cv.width, b.x1 + pad) - x0, h = Math.min(cv.height, b.y1 + pad) - y0;
+      const x0 = Math.max(0, Math.floor(b.x0 - pad)), y0 = Math.max(0, Math.floor(b.y0 - pad));
+      const w = Math.min(cv.width, Math.ceil(b.x1 + pad)) - x0, h = Math.min(cv.height, Math.ceil(b.y1 + pad)) - y0;
+      if (w < 4 || h < 4) return;
       const k = Math.min(1, 900 / w);
       const c2 = document.createElement('canvas');
       c2.width = Math.round(w * k); c2.height = Math.round(h * k);
       const g2 = c2.getContext('2d');
       g2.fillStyle = '#fff'; g2.fillRect(0, 0, c2.width, c2.height);
       g2.drawImage(cv, x0, y0, w, h, 0, 0, c2.width, c2.height);
-      notes.push({ page: p, blob: b, dataUrl: c2.toDataURL('image/jpeg', 0.72),
-                   touch: b.rows.map(i => p * 15 + i + 1) });
+      notes.push({ page: p, q: b.q, touch: b.touch, unsure: b.unsure, kind: b.kind,
+                   dataUrl: c2.toDataURL('image/jpeg', 0.72), noteId: pdfUid('N') });
     });
   }
-  notes.forEach(function (n) {
-    n.q = sheetNoteMainQ(n.blob, codes, n.page);
-    n.noteId = pdfUid('N');
-    delete n.blob;
-  });
   return { codes: codes, unsure: unsure, counts: counts, notes: notes, pages: doc.numPages, guess: guess };
 }
 
@@ -7472,7 +7538,8 @@ function pdfSetStudent(id, full) {
 function pdfNoteQ(id, noteId, q) {
   const it = pdfItem(id);
   const n = it && it.notes.find(x => x.noteId === noteId);
-  if (n) n.q = parseInt(q, 10);
+  if (n && n.saved) return;                    /* ส่งภาพขึ้นไปแล้ว — เปลี่ยนข้อไม่ได้ */
+  if (n) { n.q = parseInt(q, 10); n.unsure = ''; }
   pdfPaint();
 }
 
@@ -7502,6 +7569,10 @@ function pdfProblems(it) {
   const u = it.unsure.filter(Boolean).length;
   if (u) p.push('มี ' + u + ' ข้อที่อ่านไม่แน่ใจ — แตะแก้หรือกด "ยืนยันตามที่อ่านได้"');
   if (it.codes.every(c => !c)) p.push('ไม่พบช่องที่ติ๊กเลย');
+  const nu = (it.notes || []).filter(n => n.unsure).length;
+  if (nu) p.push('มีโน้ต ' + nu + ' ภาพที่ระบบไม่แน่ใจว่าเป็นข้อไหน — เลือกข้อใต้ภาพ');
+  /* ★ 25 ก.ย. 69 — เคยบันทึกใบตรรกศาสตร์ไปลงชุดรวม เพราะบทค้างจากรอบก่อน → ต้องกดยืนยันบท+วันที่ทุกชุด */
+  if (pdfState().confirmed !== pdfKey()) p.push('ยังไม่ได้กดยืนยันบทและวันที่ด้านบน');
   return p;
 }
 
@@ -7620,8 +7691,10 @@ function pdfItemHtml(d, it) {
     </div>
     ${it.notes.length ? `<div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
       ${it.notes.map(nt => `
-        <div class="pdf-note" data-note="${nt.noteId}" style="border:1px solid var(--line); border-radius:10px; padding:6px; max-width:320px;">
-          <img src="${nt.dataUrl}" style="max-width:100%; max-height:110px; display:block; border-radius:6px;">
+        <div class="pdf-note" data-note="${nt.noteId}" data-unsure="${nt.unsure ? 1 : 0}" style="border:${nt.unsure ? '3px dashed var(--orange)' : '1px solid var(--line)'}; border-radius:10px; padding:6px; max-width:360px;">
+          <img src="${nt.dataUrl}" style="max-width:100%; max-height:130px; display:block; border-radius:6px;">
+          ${nt.unsure ? `<div style="font-size:12px; color:var(--orange); font-weight:700; margin-top:6px;">ไม่แน่ใจ: ${pdfEsc(nt.unsure)} (ข้อ ${nt.touch.join('–')}) — เป็นโน้ตของข้อ</div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">${nt.touch.map(q => `<button class="btn btn--ghost btn--sm pdf-note-pick" data-q="${q}" onclick="pdfNoteQ('${it.id}', '${nt.noteId}', ${q})">ข้อ ${q}</button>`).join('')}</div>` : ''}
           <div style="display:flex; gap:6px; align-items:center; margin-top:6px; font-size:12px;">
             📝 โน้ตข้อ
             <select ${it.status === 'saved' ? 'disabled' : ''} onchange="pdfNoteQ('${it.id}', '${nt.noteId}', this.value)" style="padding:3px 6px; border-radius:6px;">
@@ -7661,14 +7734,42 @@ function pdfPaint() {
   el.innerHTML = pdfListHtml(d);
 }
 
+function pdfKey() { return state.entry.chapter + '|' + state.entry.date; }
+
+function pdfConfirmKey() {
+  pdfState().confirmed = pdfKey();
+  renderScoreEntry(document.getElementById('mainBody'));
+}
+
+function pdfThaiDate(v) {
+  const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return String(v || '');
+  const th = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+  return (+m[3]) + ' ' + th[+m[2] - 1] + ' ' + (+m[1] + 543);
+}
+
 function pdfEntryHtml(d, e) {
   pdfState().d = d;
   const stdOk = isStdChapter(e.chapter) || isMockChapter(e.chapter);
+  const ok = pdfState().confirmed === pdfKey();
+  const mock = isMockChapter(e.chapter);
   return `
+    <div class="card pdf-confirm" style="border:2px solid ${ok ? 'var(--success)' : 'var(--orange)'};">
+      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <div style="flex:1; min-width:220px;">
+          <div style="font-size:12px; color:var(--gray-dark);">ใบตรวจชุดนี้จะบันทึกเป็น</div>
+          <div style="font-size:20px; font-weight:800; margin-top:2px;">${pdfEsc(e.chapter)}</div>
+          <div style="font-size:14px; margin-top:2px;">วันที่สอบ <b>${pdfEsc(pdfThaiDate(e.date))}</b></div>
+          ${mock ? '<div style="color:var(--orange); font-size:12px; margin-top:4px; font-weight:700;">⚠️ นี่คือชุดสนามสอบ (เต็ม 100) — ถ้าเป็นแบบทดสอบรายบท ให้เปลี่ยนบทที่ช่องด้านบน</div>' : ''}
+          <div style="font-size:11px; color:var(--gray-dark); margin-top:4px;">ดูหัวกระดาษ (TOPIC / DATE) ให้ตรงกันก่อน · เปลี่ยนได้ที่ช่อง "บท" และ "วันที่สอบ" ด้านบน</div>
+        </div>
+        ${ok ? '<div style="color:var(--success); font-weight:700;">✓ ยืนยันแล้ว</div>'
+             : `<button class="btn btn--primary" onclick="pdfConfirmKey()">✓ ถูกต้อง ใช้บทและวันที่นี้</button>`}
+      </div>
+    </div>
     <div class="card">
       <div class="card__head">
         <span class="card__title">📄 ลากไฟล์ใบตรวจ PDF มาวาง</span>
-        <span style="font-size:11px; color:var(--gray-dark);">บท <b>${pdfEsc(e.chapter)}</b> · วันที่ ${pdfEsc(e.date)} (เปลี่ยนได้ที่ช่องด้านบน)</span>
       </div>
       ${stdOk ? '' : '<div style="color:var(--danger); font-size:13px; margin-bottom:8px;">⚠️ บทที่เลือกไม่ใช่ชื่อมาตรฐาน — ใบตรวจบันทึกได้เฉพาะบทมาตรฐาน</div>'}
       <label id="pdfDrop" ondragover="event.preventDefault(); this.style.background='var(--bg-soft)';"
@@ -7687,7 +7788,7 @@ function pdfEntryHtml(d, e) {
 }
 
 /* ─────────── ใบตรวจที่นักเรียนแก้/ขอแก้ (แสดงบนหน้ารอตรวจ) ─────────── */
-let _gradeList = null, _gradeBadgeAt = 0, _gradeLoading = false;
+let _gradeList = null, _gradeBadgeAt = 0, _gradeLoading = false, _gradeShowAll = false, _gradeEditGid = '';
 const GRADE_CODE_TXT = { O: '✅', W: '⚠️', C: 'C', X: 'X', T: '⏰', '': 'ว่าง' };
 
 async function gradeLoad() {
@@ -7723,10 +7824,13 @@ async function refreshGradeBadge(force) {
 
 function gradeReviewInner() {
   if (!_gradeList) return '<div style="color:var(--gray-dark); font-size:13px;">กำลังโหลดใบตรวจ…</div>';
-  const items = (_gradeList.items || []).filter(x => x.reqCount || x.changed || x.needFill);
-  if (!items.length) return '<div style="color:var(--gray-dark); font-size:13px;">ยังไม่มีใบตรวจที่นักเรียนต้องเติมหรือขอแก้</div>';
+  const all = _gradeList.items || [];
+  const items = _gradeShowAll ? all.slice(0, 40) : all.filter(x => x.reqCount || x.changed || x.needFill);
+  const toggle = `<div style="margin-bottom:6px;"><a href="#" onclick="_gradeShowAll=!_gradeShowAll; document.getElementById('gradeReview').innerHTML=gradeReviewInner(); return false;" style="font-size:12px;">
+      ${_gradeShowAll ? 'ดูเฉพาะใบที่ต้องจัดการ' : 'ดูใบตรวจทั้งหมด ' + all.length + ' ใบ (แก้บท/วันที่ได้)'}</a></div>`;
+  if (!items.length) return toggle + '<div style="color:var(--gray-dark); font-size:13px;">ยังไม่มีใบตรวจที่นักเรียนต้องเติมหรือขอแก้</div>';
   const reqFirst = items.slice().sort((a, b) => (b.reqCount - a.reqCount) || (a.updatedAt < b.updatedAt ? 1 : -1));
-  return reqFirst.slice(0, 60).map(function (x) {
+  return toggle + reqFirst.slice(0, 60).map(function (x) {
     const reqs = Object.keys(x.requests || {}).map(Number).sort((a, b) => a - b).map(function (q) {
       const r = x.requests[q];
       return `<div class="grade-req" data-q="${q}" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:6px 0; border-top:1px dashed var(--line);">
@@ -7749,8 +7853,10 @@ function gradeReviewInner() {
         <b>${pdfEsc(x.full)}</b><span style="color:var(--gray-dark); font-size:12px;">${pdfEsc(x.chapter)} · ${pendFmtDate(x.date)}</span>
         ${x.reqCount ? `<span style="color:#7C3AED; font-weight:700; font-size:12px;">ขอแก้ ${x.reqCount} ข้อ</span>` : ''}
         ${x.needFill ? `<span style="color:var(--orange); font-size:12px;">นักเรียนยังไม่เติม ${x.needFill} ข้อ</span>` : ''}
-        <button class="btn btn--ghost btn--sm" style="margin-left:auto;" onclick="gradeLockUI('${x.gid}', ${x.state !== 'locked'})">${x.state === 'locked' ? '🔓 ปลดล็อก' : '🔒 ล็อกใบนี้'}</button>
+        <button class="btn btn--ghost btn--sm" style="margin-left:auto;" onclick="_gradeEditGid=_gradeEditGid==='${x.gid}'?'':'${x.gid}'; document.getElementById('gradeReview').innerHTML=gradeReviewInner();">✏️ แก้บท/วันที่</button>
+        <button class="btn btn--ghost btn--sm" onclick="gradeLockUI('${x.gid}', ${x.state !== 'locked'})">${x.state === 'locked' ? '🔓 ปลดล็อก' : '🔒 ล็อกใบนี้'}</button>
       </div>
+      ${_gradeEditGid === x.gid ? gradeEditForm(x) : ''}
       ${reqs}
       ${changes ? `<div style="margin-top:6px;">${changes}</div>` : ''}
     </div>`;
@@ -7769,6 +7875,41 @@ function gradeReviewCard() {
     </div>
     <div id="gradeReview">${gradeReviewInner()}</div>
   </div>`;
+}
+
+function gradeIsoDate(v) {
+  const m = String(v || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  return m ? m[3] + '-' + ('0' + m[1]).slice(-2) + '-' + ('0' + m[2]).slice(-2) : '';
+}
+
+function gradeEditForm(x) {
+  const opts = CHAPTERS.concat(MOCK_CHAPTERS);
+  return `<div class="grade-edit" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px; padding:8px; border-radius:10px; background:var(--bg-soft);">
+    <select id="gradeEditChap" style="flex:1; min-width:200px; padding:6px 8px; border-radius:8px;">
+      ${opts.map(c => `<option value="${pdfEsc(c)}" ${c === x.chapter ? 'selected' : ''}>${pdfEsc(c)}</option>`).join('')}
+    </select>
+    <input type="date" id="gradeEditDate" value="${gradeIsoDate(x.date)}" style="padding:6px 8px; border-radius:8px;">
+    <button class="btn btn--primary btn--sm" onclick="gradeEditUI('${x.gid}')">บันทึก</button>
+    <span style="font-size:11px; color:var(--gray-dark); width:100%;">ย้ายทั้งคะแนนใน results และใบตรวจไปพร้อมกัน (สำรองของเดิมไว้ใน results_edited)</span>
+  </div>`;
+}
+
+async function gradeEditUI(gid) {
+  const chapter = (document.getElementById('gradeEditChap') || {}).value;
+  const date = (document.getElementById('gradeEditDate') || {}).value;
+  if (!chapter || !date) { toast('เลือกบทและวันที่ก่อน', 'error'); return; }
+  let j = await pendCall({ action: 'gradeEdit', gid: gid, chapter: chapter, date: date });
+  if (j && !j.ok && j.needConfirmDuplicate) {
+    if (!confirm(j.error + '\n\nย้ายไปซ้อนกันเลยไหม?')) return;
+    j = await pendCall({ action: 'gradeEdit', gid: gid, chapter: chapter, date: date, allowDuplicate: true });
+  }
+  if (j && j.ok) {
+    toast(j.noChange ? 'ไม่มีอะไรเปลี่ยน' : 'ย้ายไป ' + j.chapter + ' · ' + j.date + ' แล้ว', 'success');
+    _gradeEditGid = '';
+    state.examData = null;
+    if (j.needRebuild) alert('ย้ายแล้ว แต่มีคะแนนคีย์เดียวกันซ้อนอยู่ — รัน rebuildResultsLong() ใน Apps Script เพื่อให้หน้านักเรียนแสดงรายข้อถูกต้อง');
+  } else toast('ไม่สำเร็จ: ' + ((j && j.error) || 'เชื่อมต่อไม่ได้'), 'error');
+  await gradeLoad();
 }
 
 async function gradeResolveUI(gid, q, accept) {
