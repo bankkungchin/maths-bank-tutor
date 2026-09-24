@@ -1239,7 +1239,8 @@ const GS_SAFE_ACTIONS = [
   'listGoals', 'setGoal', 'clearGoal',
   /* ★ 24 ก.ย. 69 — ใบตรวจ PDF: gradeSave/gradeNoteSave ส่งรหัสที่หน้าเว็บสร้างไปด้วย
      เซิร์ฟเวอร์เจอรหัสเดิม = ไม่ทำซ้ำ → ยิงซ้ำได้ปลอดภัย (ไม่เกิดคะแนนซ้ำแถว) */
-  'gradeSave', 'gradeNoteSave', 'gradeList', 'gradeNotes', 'gradeRevert', 'gradeLock', 'gradeNoteClear'
+  'gradeSave', 'gradeNoteSave', 'gradeList', 'gradeNotes', 'gradeRevert', 'gradeLock', 'gradeNoteClear',
+  'gradeAck'     /* ★ 25 ก.ย. 69 — รับทราบซ้ำได้ผลเท่าเดิม */
 ];
 
 /* หาชื่อ action จาก body (POST) ก่อน ถ้าไม่มีค่อยดูใน query string (GET) */
@@ -5081,7 +5082,7 @@ async function skipSet(group, ck, full, name, on) {
 }
 
 /* ── (2) ข้อ 4 · ตัวเลขรอตรวจ — เช็คเองเป็นระยะ ไม่ต้องรอครูเปิดหน้า ── */
-let _pendBadgeAt = 0, _pendLastN = -1, _pendTimer = null;
+let _pendBadgeAt = 0, _pendLastN = -1, _pendTimer = null, _pendLastRepl = 0;
 
 async function refreshPendingBadge(force) {
   if (!SCRIPT_URL) return;
@@ -5091,7 +5092,11 @@ async function refreshPendingBadge(force) {
     const j = await pendCall({ action: 'listPending' });
     if (!j || !j.ok) return;
     const n = j.count != null ? j.count : (j.items || []).length;
-    pendPaintBadge(n);
+    pendPaintBadge(n, j.replaceCount || 0);
+    /* ★ F9 — นักเรียนขอแก้คะแนนที่ครูกรอกไว้แล้ว → เตือน (ครั้งแรกหลัง login + ทุกครั้งที่เพิ่ม) */
+    const _rc = j.replaceCount || 0;
+    if (_rc > 0 && _rc > _pendLastRepl) toast('⚠️ นักเรียนขอแก้คะแนนที่ครูกรอกไว้แล้ว ' + _rc + ' รายการ — ดูที่หน้า "รอตรวจ"', 'error');
+    _pendLastRepl = _rc;
     /* มีของใหม่เข้ามาระหว่างที่ครูเปิดหน้าอื่นอยู่ → บอกครั้งเดียว */
     if (_pendLastN >= 0 && n > _pendLastN && state.view !== 'pending') {
       toast('📥 นักเรียนส่งคะแนนมาใหม่ ' + (n - _pendLastN) + ' รายการ — รอตรวจทั้งหมด ' + n, 'success');
@@ -5976,7 +5981,8 @@ function renderGroupScores(sb) {
       const _cShow = _cp == null ? e.careless : _cp;
       const _cTitle = _cp == null ? 'สะเพร่า ' + e.careless + ' ข้อ'
         : 'สะเพร่า ' + e.careless + ' ข้อ = เสีย ' + _cp + ' คะแนน' + (_cp ? ' (ถ้าเก็บได้หมด ' + (_show + _cp) + '/' + _f + ')' : '');
-      return `<td style="text-align:center;"><span onclick="showExamDetailByIdx(${idx})" title="${e.date} · ${_w == null ? 'ถูก ' + e.score + '/30 ข้อ' : _w + '/' + _f + ' คะแนน (ถูก ' + e.score + '/30 ข้อ)'} · ${_cTitle}${retook ? ' · สอบซ้ำ ใช้ครั้งล่าสุด' : ''}" style="cursor:pointer; font-family:var(--font-num); font-weight:700; color:${scoreColor(_show, _f)}; border-bottom:1px dotted currentColor;">${_show}<span style="font-weight:400; color:var(--gray-dark); font-size:11px;">/</span><span style="font-size:12px; color:var(--orange);">${_cShow}</span>${retook ? '<sup style=\"font-size:8px;\">↻</sup>' : ''}</span></td>`;
+      const _un = examUnfilled(e.statuses);   /* ★ 25 ก.ย. 69 — ยังไม่ครบ 30 ข้อ */
+      return `<td style="text-align:center;${_un ? ' background:repeating-linear-gradient(45deg,transparent,transparent 5px,#FEF3C7 5px,#FEF3C7 10px);' : ''}"${_un ? ' data-unfilled="' + _un + '"' : ''}><span onclick="showExamDetailByIdx(${idx})" title="${_un ? '⏳ ยังไม่ครบ 30 ข้อ (ว่าง ' + _un + ' ข้อ) · ' : ''}${e.date} · ${_w == null ? 'ถูก ' + e.score + '/30 ข้อ' : _w + '/' + _f + ' คะแนน (ถูก ' + e.score + '/30 ข้อ)'} · ${_cTitle}${retook ? ' · สอบซ้ำ ใช้ครั้งล่าสุด' : ''}" style="cursor:pointer; font-family:var(--font-num); font-weight:700; color:${scoreColor(_show, _f)}; border-bottom:1px dotted currentColor;">${_show}<span style="font-weight:400; color:var(--gray-dark); font-size:11px;">/</span><span style="font-size:12px; color:var(--orange);">${_cShow}</span>${retook ? '<sup style=\"font-size:8px;\">↻</sup>' : ''}${_un ? '<sup style=\"font-size:9px; color:#B45309; font-weight:700;\">⏳' + _un + '</sup>' : ''}</span></td>`;
     }).join('');
     const own = chapters.map(ch => byStu[s.full] && byStu[s.full][ch]).filter(Boolean);
     const myAvg = own.length ? (own.reduce((a, e) => a + dispScoreOf(e), 0) / own.length).toFixed(1) : '–';
@@ -6076,6 +6082,8 @@ function showExamDetailByIdx(idx) {
               ` <span style="font-size:12px; color:var(--gray-dark);">(ถูก ${e.score}/30 ข้อ)</span>`;
         })()}
       </div>
+      ${examUnfilled(e.statuses) ? `<div class="exam-unfilled" style="margin-bottom:10px; padding:8px 12px; border-radius:10px; background:#FEF3C7; border:1.5px dashed #F59E0B; color:#92400E; font-size:13px;">
+        ⏳ <b>ยังไม่ครบ 30 ข้อ</b> — ว่าง ${examUnfilled(e.statuses)} ข้อ · คะแนนยังไม่สมบูรณ์ (ใบตรวจที่นักเรียนยังไม่เติม หรือกรอกไม่ครบ)</div>` : ''}
       <div style="display:flex; gap:12px; flex-wrap:wrap; font-size:12px; margin-bottom:12px; color:var(--gray-dark);">
         <span>⚠️ สะเพร่า <b>${e.careless}</b></span><span style="color:#7C3AED;">C คอนเซปต์ <b>${e.concept}</b></span>
         <span style="color:var(--danger);">X ทำไม่ได้ <b>${e.cannot}</b></span><span>⏰ ไม่ทัน <b>${e.timeout}</b></span>
@@ -7360,16 +7368,10 @@ function sheetNameFromFile(fname, groups) {
   return { name: base, group: '', raw: base };
 }
 /* ==SHEET_DETECT_END== */
-
 /* ═══════════════════════════════════════════════════════════════════
-   ★ 24 ก.ย. 69 — 📄 อ่านใบตรวจ PDF (ไม่ใช้ AI)
-
-   ครูตรวจใน PDF ตามเดิม → ลากไฟล์เข้าหน้านี้ → ระบบอ่านช่องที่ติ๊กเอง
-   → ครูดู/แตะแก้ → บันทึก (gradeSave) → คะแนนเข้า results ทันที
-   ข้อที่ว่าง = นักเรียนยังไม่ได้ส่งตรวจ → นักเรียนเติมเองในหน้า dashboard
-   ภาพในช่อง Photos/Notes ถูกตัดเป็นภาพรายข้อ ส่งขึ้นเก็บ (gradeNoteSave) ถ้าเปิดใช้โน้ตไว้
-
-   ชื่อนักเรียนเอาจากชื่อไฟล์ ("เมฆ วันพุธ.pdf") · บทและวันที่ใช้ช่องด้านบน
+   ★ 25 ก.ย. 69 — ตัวอ่าน PDF ใบตรวจ (ใช้ร่วมกันทั้งหน้าครูและหน้านักเรียน)
+   pdf.js อ่านหน้า → sheetDetectPage หาช่องที่ติ๊ก → ตัดภาพโน้ต → Tesseract อ่านเลขข้อในภาพ
+   ไม่มีตัวแปรของหน้าไหนอยู่ในนี้ — build.py แปะไฟล์นี้ลงทั้ง teacher-dashboard.html และ dashboard.js
    ═══════════════════════════════════════════════════════════════════ */
 const PDFJS_SRC    = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
 const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -7401,11 +7403,6 @@ function pdfUid(prefix) {
   return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
-function pdfState() {
-  const e = state.entry;
-  if (!e.pdf) e.pdf = { items: [], busy: false };
-  return e.pdf;
-}
 
 /* กรอบของรูปที่ครูแปะในหน้า PDF — อ่านจากคำสั่งวาดของ PDF ตรง ๆ (ไม่ต้องเดาจากพิกเซล)
    รูปพื้นหลังเต็มหน้า (ตัวแม่แบบ+ลายมือ) ข้ามไป · เอาเฉพาะที่อยู่ฝั่งช่อง Notes */
@@ -7577,6 +7574,22 @@ async function sheetReadPdf(file) {
     await sheetOcrNotes(page, notes, p);
   }
   return { codes: codes, unsure: unsure, counts: counts, notes: notes, pages: doc.numPages, guess: guess };
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ★ 24 ก.ย. 69 — 📄 อ่านใบตรวจ PDF (ไม่ใช้ AI)
+
+   ครูตรวจใน PDF ตามเดิม → ลากไฟล์เข้าหน้านี้ → ระบบอ่านช่องที่ติ๊กเอง
+   → ครูดู/แตะแก้ → บันทึก (gradeSave) → คะแนนเข้า results ทันที
+   ข้อที่ว่าง = นักเรียนยังไม่ได้ส่งตรวจ → นักเรียนเติมเองในหน้า dashboard
+   ภาพในช่อง Photos/Notes ถูกตัดเป็นภาพรายข้อ ส่งขึ้นเก็บ (gradeNoteSave) ถ้าเปิดใช้โน้ตไว้
+
+   ชื่อนักเรียนเอาจากชื่อไฟล์ ("เมฆ วันพุธ.pdf") · บทและวันที่ใช้ช่องด้านบน
+   ═══════════════════════════════════════════════════════════════════ */
+function pdfState() {
+  const e = state.entry;
+  if (!e.pdf) e.pdf = { items: [], busy: false };
+  return e.pdf;
 }
 
 function pdfMatchStudent(d, fileName) {
@@ -7939,6 +7952,7 @@ async function gradeLoad() {
   _gradeLoading = false;
   _gradeList = (j && j.ok) ? j : { ok: false, items: [] };
   gradePaintBadge();
+  gradeAlertToast();          /* ★ F9 — นักเรียนแก้คะแนนเองเพิ่มขึ้น → เด้งบอก */
   if (state.view === 'pending') {
     const el = document.getElementById('gradeReview');
     if (el) el.innerHTML = gradeReviewInner();
@@ -7952,8 +7966,10 @@ function gradeReqTotal() {
 function gradePaintBadge() {
   const el = document.getElementById('gradeBadge');
   if (!el) return;
-  const n = gradeReqTotal();
-  el.innerHTML = n ? ` <span title="นักเรียนขอแก้ข้อที่เกี่ยวกับ ✅ ${n} ข้อ" style="display:inline-block; min-width:18px; padding:0 5px; background:#7C3AED; color:#fff; border-radius:999px; font-size:11px; font-family:var(--font-num); line-height:18px; text-align:center;">✎${n}</span>` : '';
+  const n = gradeReqTotal(), u = gradeUnseenTotal();
+  const pill = (bg, t, txt) => ` <span title="${t}" style="display:inline-block; min-width:18px; padding:0 5px; background:${bg}; color:#fff; border-radius:999px; font-size:11px; font-family:var(--font-num); line-height:18px; text-align:center;">${txt}</span>`;
+  el.innerHTML = (n ? pill('#7C3AED', 'นักเรียนขอแก้ข้อที่เกี่ยวกับ ✅ ' + n + ' ข้อ', '✎' + n) : '') +
+                 (u ? `<span class="grade-unseen-badge">${pill('#DC2626', 'นักเรียนแก้คะแนนในใบตรวจเอง ' + u + ' ข้อ — ครูยังไม่ได้กดรับทราบ', '🔔' + u)}</span>` : '');
 }
 
 async function refreshGradeBadge(force) {
@@ -7966,12 +7982,16 @@ async function refreshGradeBadge(force) {
 function gradeReviewInner() {
   if (!_gradeList) return '<div style="color:var(--gray-dark); font-size:13px;">กำลังโหลดใบตรวจ…</div>';
   const all = _gradeList.items || [];
-  const items = _gradeShowAll ? all.slice(0, 40) : all.filter(x => x.reqCount || x.changed || x.needFill);
+  const items = _gradeShowAll ? all.slice(0, 40) : all.filter(x => x.reqCount || x.changed || x.needFill || x.unseen);
+  const uAll = gradeUnseenTotal();
+  const alert = uAll ? `<div class="grade-unseen-bar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; padding:8px 12px; border-radius:10px; background:#FEE2E2; border:1.5px solid #DC2626; color:#991B1B; font-size:13px;">
+      🔔 <b>นักเรียนแก้คะแนนในใบตรวจเอง ${uAll} ข้อ</b> (ยังไม่ได้รับทราบ · คะแนนใน results เปลี่ยนแล้ว)
+      <button class="btn btn--ghost btn--sm" style="margin-left:auto;" onclick="gradeAckUI('')">รับทราบทั้งหมด</button></div>` : '';
   const toggle = `<div style="margin-bottom:6px;"><a href="#" onclick="_gradeShowAll=!_gradeShowAll; document.getElementById('gradeReview').innerHTML=gradeReviewInner(); return false;" style="font-size:12px;">
       ${_gradeShowAll ? 'ดูเฉพาะใบที่ต้องจัดการ' : 'ดูใบตรวจทั้งหมด ' + all.length + ' ใบ (แก้บท/วันที่ได้)'}</a></div>`;
-  if (!items.length) return toggle + '<div style="color:var(--gray-dark); font-size:13px;">ยังไม่มีใบตรวจที่นักเรียนต้องเติมหรือขอแก้</div>';
-  const reqFirst = items.slice().sort((a, b) => (b.reqCount - a.reqCount) || (a.updatedAt < b.updatedAt ? 1 : -1));
-  return toggle + reqFirst.slice(0, 60).map(function (x) {
+  if (!items.length) return alert + toggle + '<div style="color:var(--gray-dark); font-size:13px;">ยังไม่มีใบตรวจที่นักเรียนต้องเติมหรือขอแก้</div>';
+  const reqFirst = items.slice().sort((a, b) => ((b.unseen || 0) - (a.unseen || 0)) || (b.reqCount - a.reqCount) || (a.updatedAt < b.updatedAt ? 1 : -1));
+  return alert + toggle + reqFirst.slice(0, 60).map(function (x) {
     const reqs = Object.keys(x.requests || {}).map(Number).sort((a, b) => a - b).map(function (q) {
       const r = x.requests[q];
       return `<div class="grade-req" data-q="${q}" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:6px 0; border-top:1px dashed var(--line);">
@@ -7985,8 +8005,8 @@ function gradeReviewInner() {
     const direct = (x.log || []).filter(l => l.by === 'student' && l.kind === 'direct' && x.teacher[l.q - 1] && x.final[l.q - 1] !== x.teacher[l.q - 1]);
     const seen = {};
     const changes = direct.reverse().filter(l => !seen[l.q] && (seen[l.q] = 1)).map(l =>
-      `<span class="grade-chg" style="display:inline-flex; gap:6px; align-items:center; padding:3px 8px; border-radius:999px; background:var(--bg-soft); font-size:12px; margin:2px;">
-        ข้อ ${l.q}: ${GRADE_CODE_TXT[x.teacher[l.q - 1]]} → ${GRADE_CODE_TXT[x.final[l.q - 1]]}${l.why ? ' · ' + pdfEsc(l.why) : ''}
+      `<span class="grade-chg${l.seen ? '' : ' grade-chg-new'}" style="display:inline-flex; gap:6px; align-items:center; padding:3px 8px; border-radius:999px; background:${l.seen ? 'var(--bg-soft)' : '#FEE2E2'}; font-size:12px; margin:2px;">
+        ${l.seen ? '' : '<b style="color:#DC2626;">ใหม่</b>'} ข้อ ${l.q}: ${GRADE_CODE_TXT[x.teacher[l.q - 1]]} → ${GRADE_CODE_TXT[x.final[l.q - 1]]}${l.why ? ' · ' + pdfEsc(l.why) : ''}
         <a href="#" onclick="gradeRevertUI('${x.gid}', ${l.q}); return false;" style="color:var(--danger);">คืนค่าครู</a>
       </span>`).join('');
     return `<div class="grade-card" data-gid="${x.gid}" style="padding:10px 0; border-bottom:1px solid var(--line);">
@@ -7994,6 +8014,8 @@ function gradeReviewInner() {
         <b>${pdfEsc(x.full)}</b><span style="color:var(--gray-dark); font-size:12px;">${pdfEsc(x.chapter)} · ${pendFmtDate(x.date)}</span>
         ${x.reqCount ? `<span style="color:#7C3AED; font-weight:700; font-size:12px;">ขอแก้ ${x.reqCount} ข้อ</span>` : ''}
         ${x.needFill ? `<span style="color:var(--orange); font-size:12px;">นักเรียนยังไม่เติม ${x.needFill} ข้อ</span>` : ''}
+        ${x.unseen ? `<span class="grade-unseen" style="color:#DC2626; font-weight:700; font-size:12px;">🔔 แก้เอง ${x.unseen} ข้อ</span>
+          <button class="btn btn--ghost btn--sm" onclick="gradeAckUI('${x.gid}')">✓ รับทราบ</button>` : ''}
         <button class="btn btn--ghost btn--sm" style="margin-left:auto;" onclick="_gradeEditGid=_gradeEditGid==='${x.gid}'?'':'${x.gid}'; document.getElementById('gradeReview').innerHTML=gradeReviewInner();">✏️ แก้บท/วันที่</button>
         <button class="btn btn--ghost btn--sm" onclick="gradeLockUI('${x.gid}', ${x.state !== 'locked'})">${x.state === 'locked' ? '🔓 ปลดล็อก' : '🔒 ล็อกใบนี้'}</button>
       </div>
@@ -8071,6 +8093,95 @@ async function gradeRevertUI(gid, q) {
 async function gradeLockUI(gid, locked) {
   const j = await pendCall({ action: 'gradeLock', gid: gid, locked: !!locked });
   if (!(j && j.ok)) toast('ไม่สำเร็จ: ' + ((j && j.error) || 'เชื่อมต่อไม่ได้'), 'error');
+  await gradeLoad();
+}
+
+/* ★ 25 ก.ย. 69 — ผลสอบที่ยังกรอกไม่ครบ 30 ข้อ (ใบตรวจที่นักเรียนยังไม่เติม ฯลฯ)
+   ว่างทั้ง 30 ช่อง = แถวรุ่นเก่าที่มีแต่ตัวเลขคะแนน → ไม่นับว่าไม่ครบ */
+function examUnfilled(statuses) {
+  const st = statuses || [];
+  let filled = 0;
+  for (let i = 0; i < 30; i++) if (String(st[i] == null ? '' : st[i]).trim()) filled++;
+  return filled ? 30 - filled : 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ★ 25 ก.ย. 69 (F9) — หน้ารอตรวจ: ใบที่นักเรียนส่งจาก PDF + คำขอแก้คะแนนที่ครูกรอกไว้แล้ว
+   + เตือนครูเมื่อนักเรียนแก้สัญลักษณ์ในใบตรวจเอง (🔔 จนกว่าจะกดรับทราบ)
+   ═══════════════════════════════════════════════════════════════════ */
+function pendCode(v) {
+  const s = String(v || '');
+  if (s.indexOf('ถูก') !== -1) return 'O';
+  if (s.indexOf('สะเพร่า') !== -1) return 'W';
+  if (s.indexOf('คอนเซปต์') !== -1) return 'C';
+  if (s.indexOf('ทำไม่ได้') !== -1) return 'X';
+  if (s.indexOf('ไม่ทัน') !== -1) return 'T';
+  return '';
+}
+
+function pendExtraHtml(it) {
+  let h = '';
+  if (it.existing) {
+    const st = pendStatuses(it);
+    const ch = [];
+    for (let q = 0; q < 30; q++) {
+      const a = pendCode(it.existing.statuses[q]), b = pendCode(st[q]);
+      if (a !== b) ch.push(`ข้อ ${q + 1}: ${GRADE_CODE_TXT[a]}→<b>${GRADE_CODE_TXT[b]}</b>`);
+    }
+    h += `<div class="pend-replace" style="margin-top:10px; padding:10px 12px; border-radius:10px; background:var(--danger-bg, #FDECEA); border:1.5px solid var(--danger, #D93025); font-size:13px; line-height:1.7;">
+      ⚠️ <b>ครูกรอกคะแนนบทนี้ไว้แล้ว</b> (สอบ ${pendFmtDate(it.existing.date)} · ได้ ${it.existing.score}/30)
+      → นักเรียนขอแก้เป็น <b>${pendCounts(st).ok}/30</b>
+      <div style="font-size:12px; margin-top:4px;">${ch.length ? 'เปลี่ยน ' + ch.length + ' ข้อ — ' + ch.join(' · ') : 'คำตอบเหมือนเดิมทุกข้อ (ส่งมาเพื่อแนบภาพโน้ต)'}</div>
+      <div style="font-size:11px; color:var(--gray-dark); margin-top:2px;">กดอนุมัติ = แทนที่คะแนนเดิม (สำรองของเดิมไว้ใน results_edited) · "อนุมัติทั้งหมด" จะข้ามรายการนี้</div>
+    </div>`;
+  }
+  if (it.gid) {
+    const nb = state.pending.notes || (state.pending.notes = {});
+    const cur = nb[it.pid];
+    h += `<div class="pend-pdf" style="margin-top:8px; font-size:12px; color:var(--gray-dark); display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+      <span>📄 นักเรียนส่งจากไฟล์ PDF ใบตรวจ</span>
+      ${it.noteCount ? `<button class="btn btn--ghost btn--sm" onclick="pendNotesToggle('${it.pid}')">${cur && cur.open ? 'ซ่อนรูปโน้ต' : '🖼 ดูรูปโน้ต ' + it.noteCount + ' รูป'}</button>` : '<span>ไม่มีภาพโน้ต</span>'}
+    </div>
+    ${cur && cur.open ? `<div class="pend-notes" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:8px; margin-top:8px;">
+      ${cur.loading ? '<div style="font-size:12px;">กำลังโหลดรูป…</div>' : (cur.notes || []).map(n =>
+        `<div style="border:1px solid var(--line); border-radius:8px; padding:4px; background:#fff;"><img src="data:image/jpeg;base64,${n.data}" style="width:100%; display:block;"><div style="font-size:11px; text-align:center;">ข้อ ${n.qs.join(', ')}</div></div>`).join('') || '<div style="font-size:12px;">ไม่พบรูป</div>'}
+    </div>` : ''}`;
+  }
+  return h;
+}
+
+async function pendNotesToggle(pid) {
+  const p = state.pending;
+  const nb = p.notes || (p.notes = {});
+  const it = (p.items || []).find(x => String(x.pid) === String(pid));
+  if (!it) return;
+  if (nb[pid] && nb[pid].open) { nb[pid].open = false; renderPending(document.getElementById('mainBody')); return; }
+  if (nb[pid] && nb[pid].notes) { nb[pid].open = true; renderPending(document.getElementById('mainBody')); return; }
+  nb[pid] = { open: true, loading: true };
+  renderPending(document.getElementById('mainBody'));
+  const j = await pendCall({ action: 'gradeNotes', gid: it.gid });
+  nb[pid] = { open: true, loading: false, notes: (j && j.ok && j.notes) || [] };
+  if (j && !j.ok) toast('โหลดรูปไม่สำเร็จ: ' + (j.error || ''), 'error');
+  renderPending(document.getElementById('mainBody'));
+}
+
+/* ── 🔔 นักเรียนแก้คะแนนในใบตรวจเอง ── */
+let _gradeUnseenLast = -1;
+function gradeUnseenTotal() {
+  return ((_gradeList && _gradeList.items) || []).reduce((s, x) => s + (x.unseen || 0), 0);
+}
+function gradeAlertToast() {
+  const u = gradeUnseenTotal();
+  if (u > 0 && u > _gradeUnseenLast && typeof toast === 'function') {
+    const who = ((_gradeList && _gradeList.items) || []).filter(x => x.unseen).map(x => pendShortName(x.full));
+    toast('🔔 นักเรียนแก้คะแนนในใบตรวจเอง ' + u + ' ข้อ (' + who.slice(0, 3).join(', ') + (who.length > 3 ? ' …' : '') + ') — ดูที่หน้า "รอตรวจ"', 'success');
+  }
+  _gradeUnseenLast = u;
+}
+async function gradeAckUI(gid) {
+  const j = await pendCall(gid ? { action: 'gradeAck', gid: gid } : { action: 'gradeAck', all: true });
+  if (j && j.ok) toast('รับทราบแล้ว', 'success');
+  else toast('ไม่สำเร็จ: ' + ((j && j.error) || 'เชื่อมต่อไม่ได้'), 'error');
   await gradeLoad();
 }
 
@@ -8204,19 +8315,22 @@ async function pendLoad() {
   if (state.view === 'pending') renderPending(document.getElementById('mainBody'));
 }
 
-function pendPaintBadge(n) {
+function pendPaintBadge(n, repl) {
   const el = document.getElementById('pendingBadge');
   if (!el) return;
-  el.innerHTML = n
+  if (repl == null) repl = ((state.pending && state.pending.items) || []).filter(x => x.existing).length;
+  el.innerHTML = (n
     ? ` <span title="นักเรียนส่งคะแนนมารอตรวจ ${n} รายการ" style="display:inline-block; min-width:18px; padding:0 5px; background:var(--orange); color:var(--bg); border-radius:999px; font-size:11px; font-family:var(--font-num); line-height:18px; text-align:center;">${n}</span>`
-    : '';
+    : '') + (n && repl
+    ? ` <span class="pend-repl-badge" title="นักเรียนขอแก้คะแนนที่ครูกรอกไว้แล้ว ${repl} รายการ" style="display:inline-block; min-width:18px; padding:0 5px; background:#DC2626; color:#fff; border-radius:999px; font-size:11px; font-family:var(--font-num); line-height:18px; text-align:center;">⚠${repl}</span>`
+    : '');
 }
 
 /* เช็คเงียบๆ หลัง login → ตัวเลขส้มบนปุ่ม "รอตรวจ" */
 async function checkPendingBadge() {
   try {
     const j = await pendCall({ action: 'listPending' });
-    if (j && j.ok) pendPaintBadge(j.count || j.items.length);
+    if (j && j.ok) pendPaintBadge(j.count || j.items.length, j.replaceCount || 0);
   } catch (e) { /* เงียบไว้ */ }
 }
 
@@ -8304,6 +8418,7 @@ function pendCardHtml(it) {
         <div style="flex:1; min-width:220px;">
           <div style="font-size:16px; font-weight:700;">
             ${pendShortName(it.full)}
+            ${it.existing ? '<span style="margin-left:6px; font-size:11px; color:var(--danger); font-weight:700;">✏️ ขอแก้คะแนนที่ครูกรอกแล้ว</span>' : ''}
             ${edited ? '<span style="margin-left:6px; font-size:11px; color:var(--orange);">✎ แก้แล้ว</span>' : ''}
           </div>
           <div style="font-size:12px; color:var(--gray-dark); margin-top:3px;">
@@ -8328,6 +8443,7 @@ function pendCardHtml(it) {
         </div>
       </div>
 
+      ${pendExtraHtml(it)}
       <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
         <button class="btn btn--ghost btn--sm" onclick="pendToggle('${it.pid}')">${open ? 'ซ่อนรายข้อ' : 'ดูรายข้อ'}</button>
         <div style="flex:1;"></div>
@@ -8383,6 +8499,7 @@ async function pendApprove(pid) {
            สอบ ${pendFmtDate(it.date)} · ได้ <b>${n.ok}/30</b>
            ${n.blank ? `<br><span style="color:var(--danger);">ยังไม่ได้ระบุ ${n.blank} ข้อ — จะถูกบันทึกเป็น "ไม่ทำ"</span>` : ''}
            ${edited ? '<br><span style="color:var(--orange);">บันทึกตามที่ครูแก้</span>' : ''}
+           ${it.existing ? '<br><span class="pend-replace-warn" style="color:var(--danger); font-weight:700;">⚠️ จะแทนที่คะแนนเดิมที่ครูกรอกไว้ (' + it.existing.score + '/30 → ' + n.ok + '/30)</span>' : ''}
            <br><br>คะแนนจะถูกเขียนลงชีต <code>results</code> และขึ้นในเว็บนักเรียนทันที`,
     actions: [
       { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
@@ -8390,12 +8507,17 @@ async function pendApprove(pid) {
         closeModal();
         p.busy[pid] = true;
         renderPending(document.getElementById('mainBody'));
-        const payload = { action: 'approvePending', pid: pid };
+        const payload = { action: 'approvePending', pid: pid, replace: !!it.existing };
         if (edited) payload.statuses = st;
-        const j = await pendCall(payload);
+        let j = await pendCall(payload);
+        /* ★ F9 — ครูกรอกบทนี้หลังจากโหลดรายการ → เซิร์ฟเวอร์ถามก่อนแทนที่ */
+        if (j && !j.ok && j.needReplace && confirm(j.error + '\n\nแทนที่คะแนนเดิมด้วยที่นักเรียนส่งเลยไหม?')) {
+          payload.replace = true;
+          j = await pendCall(payload);
+        }
         p.busy[pid] = false;
         if (j && j.ok) {
-          toast(`อนุมัติ "${pendShortName(it.full)}" · ${j.score}/30 แล้ว`, 'success');
+          toast(`อนุมัติ "${pendShortName(it.full)}" · ${j.score}/30 แล้ว` + (j.replaced ? ' (แทนที่คะแนนเดิม)' : '') + (j.graded === 'created' || j.graded === 'merged' ? ' · นักเรียนเห็นภาพโน้ตแล้ว' : ''), 'success');
           pendDrop(pid);
           checkMissingScoresBadge();
         } else {
@@ -8446,13 +8568,16 @@ async function pendReject(pid) {
 
 async function pendApproveAll() {
   const p = state.pending;
-  const list = p.items.slice();
-  if (!list.length) return;
+  /* ★ F9 — คำขอแก้คะแนนที่ครูกรอกแล้ว ต้องดูทีละรายการ ไม่รวมในอนุมัติทั้งหมด */
+  const skipRepl = p.items.filter(it => it.existing).length;
+  const list = p.items.filter(it => !it.existing);
+  if (!list.length) { if (skipRepl) toast('มีแต่คำขอแก้คะแนนที่ครูกรอกไว้แล้ว — กดอนุมัติทีละรายการครับ', 'error'); return; }
 
   const names = list.map(it => `${pendShortName(it.full)} — ${it.chapter} · ${pendCounts(pendStatuses(it)).ok}/30`);
   showModal({
     title: `อนุมัติทั้งหมด ${list.length} รายการ`,
     body: `ทุกรายการจะถูกเขียนลงชีต <code>results</code> โดยไม่ได้ตรวจรายข้อ
+           ${skipRepl ? `<div style="margin-top:6px; color:var(--danger);">ข้าม ${skipRepl} รายการที่เป็นคำขอแก้คะแนนที่ครูกรอกไว้แล้ว (ต้องกดทีละรายการ)</div>` : ''}
            <div style="margin-top:10px; max-height:220px; overflow:auto; border:1px solid var(--line); border-radius:10px; padding:10px; font-size:12px; line-height:1.8;">
              ${names.join('<br>')}
            </div>`,
