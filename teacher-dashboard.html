@@ -1239,7 +1239,7 @@ const GS_SAFE_ACTIONS = [
   'listGoals', 'setGoal', 'clearGoal',
   /* ★ 24 ก.ย. 69 — ใบตรวจ PDF: gradeSave/gradeNoteSave ส่งรหัสที่หน้าเว็บสร้างไปด้วย
      เซิร์ฟเวอร์เจอรหัสเดิม = ไม่ทำซ้ำ → ยิงซ้ำได้ปลอดภัย (ไม่เกิดคะแนนซ้ำแถว) */
-  'gradeSave', 'gradeNoteSave', 'gradeList', 'gradeNotes', 'gradeRevert', 'gradeLock'
+  'gradeSave', 'gradeNoteSave', 'gradeList', 'gradeNotes', 'gradeRevert', 'gradeLock', 'gradeNoteClear'
 ];
 
 /* หาชื่อ action จาก body (POST) ก่อน ถ้าไม่มีค่อยดูใน query string (GET) */
@@ -6694,7 +6694,7 @@ async function renderScoreEntry(body) {
         </div>
         <div class="form-field">
           <label>วันที่สอบ</label>
-          <input type="date" value="${e.date}" onchange="state.entry.date=this.value;">
+          <input type="date" value="${e.date}" onchange="state.entry.date=this.value; if (state.entry.mode === 'pdf') renderScoreEntry(document.getElementById('mainBody'));">
         </div>
       </div>
     </div>
@@ -7208,7 +7208,10 @@ function sheetDetectPage(px, W, H) {
 }
 
 /* ก้อนเนื้อหาในช่อง Photos/Notes — คืน [{y0,y1,x0,x1,rows:[index 0–14 ที่คร่อม], main}] */
-function sheetNoteBlobs(px, W, H, L) {
+function sheetNoteBlobs(px, W, H, L, exclude) {
+  /* exclude = กรอบรูปที่แปะ (จาก PDF) — ไม่นับพิกเซลในรูปเป็นลายมือ
+     ไม่งั้นรูปที่วางชิดกันจะกลายเป็นก้อนเดียวคร่อมหลายรูป */
+  const ex = (exclude || []).map(b => [Math.floor(b.x0), Math.floor(b.y0), Math.ceil(b.x1), Math.ceil(b.y1)]);
   const s = L.s;
   const xa = Math.round(W * 0.505), xb = Math.round(W * 0.945);
   const top = Math.max(0, Math.round(L.rows[0][0] - 12 * s));
@@ -7221,7 +7224,12 @@ function sheetNoteBlobs(px, W, H, L) {
     for (let x = xa; x < xb; x++) {
       const i = (y * W + x) * 4;
       const m = Math.min(px[i], px[i + 1], px[i + 2]);
-      if (m < 215) { n++; if (x < mn) mn = x; if (x > mx) mx = x; }
+      if (m < 215) {
+        let inImg = false;
+        for (let e = 0; e < ex.length; e++) { const r = ex[e]; if (x >= r[0] && x < r[2] && y >= r[1] && y < r[3]) { inImg = true; break; } }
+        if (inImg) continue;
+        n++; if (x < mn) mn = x; if (x > mx) mx = x;
+      }
     }
     /* เส้นคั่นแถวยาวเกือบเต็มความกว้าง = ของแม่แบบ ไม่ใช่โน้ต */
     const has = n > 3 && n < width * 0.6;
@@ -7286,7 +7294,8 @@ function sheetPlaceNotes(rawImgs, inkBlobs, rows, codes, pageIdx, s) {
   const hit = (a, b, pad) => a.x0 - pad < b.x1 && b.x0 - pad < a.x1 && a.y0 - pad < b.y1 && b.y0 - pad < a.y1;
   const notes = (rawImgs || []).map(b => ({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, kind: 'img' }));
   (inkBlobs || []).forEach(function (b) {
-    const host = notes.find(n => n.kind === 'img' && hit(n, b, 6 * s));
+    const hosts = notes.filter(n => n.kind === 'img' && hit(n, b, 6 * s));
+    const host = hosts.length === 1 ? hosts[0] : null;     /* ติดรูปเดียว = ของรูปนั้น · ติดหลายรูป = ไม่เดา แยกเป็นโน้ตเอง */
     if (host) {                      /* ลายมือบนรูป → ขยายกรอบรูปให้ครอบด้วย */
       host.x0 = Math.min(host.x0, b.x0); host.y0 = Math.min(host.y0, b.y0);
       host.x1 = Math.max(host.x1, b.x1); host.y1 = Math.max(host.y1, b.y1);
@@ -7312,6 +7321,20 @@ function sheetPlaceNotes(rawImgs, inkBlobs, rows, codes, pageIdx, s) {
     return { x0: n.x0, y0: n.y0, x1: n.x1, y1: n.y1, kind: n.kind, q: q,
              touch: touch.map(i => pageIdx * 15 + i + 1), unsure: why };
   });
+}
+
+/* ★ 25 ก.ย. 69 — อ่าน "เลขข้อ" จากรูปโจทย์ที่ครูแปะ (เช่น "22. จงหา…")
+   words = คำที่ตัวอ่านตัวอักษร (Tesseract) อ่านได้ [{text, x0, y0}] · w = ความกว้างรูป
+   เลือกคำรูปแบบ "NN." ที่อยู่ชิดซ้าย (x < 25% ของรูป) และอยู่บนสุด · เลข 1–30 เท่านั้น
+   ตัวเลือกข้อสอบใช้ "1)" หรือ "1." ที่อยู่ต่ำกว่าเลขข้อเสมอ → เลือกตัวบนสุดจึงปลอดภัย */
+function sheetQFromWords(words, w) {
+  const c = (words || []).map(function (x) {
+    const m = String(x.text || '').trim().match(/^(\d{1,2})\.$/);
+    return m ? { q: +m[1], x0: x.x0, y0: x.y0 } : null;
+  }).filter(x => x && x.q >= 1 && x.q <= 30 && x.x0 < w * 0.25);
+  if (!c.length) return 0;
+  c.sort((a, b) => a.y0 - b.y0);
+  return c[0].q;
 }
 
 /* ชื่อไฟล์ "เมฆ วันพุธ.pdf" → { name:'เมฆ', group:'วันพุธ' } ถ้าหาชื่อกลุ่มท้ายชื่อไฟล์เจอ */
@@ -7387,33 +7410,123 @@ function pdfState() {
 /* กรอบของรูปที่ครูแปะในหน้า PDF — อ่านจากคำสั่งวาดของ PDF ตรง ๆ (ไม่ต้องเดาจากพิกเซล)
    รูปพื้นหลังเต็มหน้า (ตัวแม่แบบ+ลายมือ) ข้ามไป · เอาเฉพาะที่อยู่ฝั่งช่อง Notes */
 async function sheetImageBoxes(lib, page, vp, W, H) {
+  /* ★ 25 ก.ย. 69 — รูปที่ครูครอปใน iPad: PDF เก็บรูปเต็ม + "กรอบตัด" (clip) บังส่วนที่ครอปทิ้ง
+     ต้องเอากรอบรูป ∩ กรอบตัด ไม่งั้นได้รูปเต็มที่กินไปถึงข้ออื่น (เคสใบปุณ)
+     และรูปที่วางทีหลังทับรูปก่อนหน้า → ตัดส่วนที่ถูกทับออกจากรูปก่อนหน้า */
   const out = [];
   try {
     const ol = await page.getOperatorList();
     const O = lib.OPS;
-    let ctm = [1, 0, 0, 1, 0, 0];
+    const full = { x0: -1e9, y0: -1e9, x1: 1e9, y1: 1e9 };
+    let ctm = [1, 0, 0, 1, 0, 0], clip = full, lastPath = null;
     const stack = [];
     const mul = (a, b) => [a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1], a[0] * b[2] + a[2] * b[3],
                            a[1] * b[2] + a[3] * b[3], a[0] * b[4] + a[2] * b[5] + a[4], a[1] * b[4] + a[3] * b[5] + a[5]];
+    /* สี่เหลี่ยมในพิกัด PDF (ผ่าน ctm) → พิกัดบนภาพที่เรนเดอร์ */
+    const toView = (m, x0, y0, x1, y1) => {
+      const pts = [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].map(p => [m[0] * p[0] + m[2] * p[1] + m[4], m[1] * p[0] + m[3] * p[1] + m[5]]);
+      const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+      const r = vp.convertToViewportRectangle([Math.min.apply(null, xs), Math.min.apply(null, ys), Math.max.apply(null, xs), Math.max.apply(null, ys)]);
+      return { x0: Math.min(r[0], r[2]), x1: Math.max(r[0], r[2]), y0: Math.min(r[1], r[3]), y1: Math.max(r[1], r[3]) };
+    };
+    const inter = (a, b) => ({ x0: Math.max(a.x0, b.x0), y0: Math.max(a.y0, b.y0), x1: Math.min(a.x1, b.x1), y1: Math.min(a.y1, b.y1) });
+    const drawn = [];
     for (let i = 0; i < ol.fnArray.length; i++) {
       const fn = ol.fnArray[i], a = ol.argsArray[i];
-      if (fn === O.save) stack.push(ctm.slice());
-      else if (fn === O.restore) ctm = stack.pop() || ctm;
+      if (fn === O.save) stack.push({ ctm: ctm.slice(), clip: clip });
+      else if (fn === O.restore) { const st = stack.pop(); if (st) { ctm = st.ctm; clip = st.clip; } }
       else if (fn === O.transform) ctm = mul(ctm, a);
+      else if (fn === O.constructPath) {
+        const mm = a && a[2];
+        /* pdf.js 3.x เก็บกรอบของ path เป็น [minX, maxX, minY, maxY] (ไม่ใช่ x0,y0,x1,y1) */
+        lastPath = (mm && mm.length === 4 && isFinite(mm[0])) ? toView(ctm, mm[0], mm[2], mm[1], mm[3]) : null;
+      }
+      else if (fn === O.clip || fn === O.eoClip) { if (lastPath) clip = inter(clip, lastPath); }
       else if (fn === O.paintImageXObject || fn === O.paintInlineImageXObject || fn === O.paintJpegXObject || fn === O.paintImageXObjectRepeat) {
-        const pts = [[0, 0], [1, 0], [0, 1], [1, 1]].map(p => [ctm[0] * p[0] + ctm[2] * p[1] + ctm[4], ctm[1] * p[0] + ctm[3] * p[1] + ctm[5]]);
-        const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
-        const r = vp.convertToViewportRectangle([Math.min.apply(null, xs), Math.min.apply(null, ys), Math.max.apply(null, xs), Math.max.apply(null, ys)]);
-        const b = { x0: Math.max(0, Math.min(r[0], r[2])), x1: Math.min(W, Math.max(r[0], r[2])),
-                    y0: Math.max(0, Math.min(r[1], r[3])), y1: Math.min(H, Math.max(r[1], r[3])) };
-        const area = (b.x1 - b.x0) * (b.y1 - b.y0);
-        if (area > W * H * 0.5 || b.x1 - b.x0 < 12 || b.y1 - b.y0 < 12) continue;
-        if ((b.x0 + b.x1) / 2 < W * 0.45) continue;
-        out.push(b);
+        const b = inter(inter(toView(ctm, 0, 0, 1, 1), clip), { x0: 0, y0: 0, x1: W, y1: H });
+        if (b.x1 - b.x0 < 12 || b.y1 - b.y0 < 12) continue;
+        drawn.push(b);
       }
     }
+    drawn.forEach(function (b, i) {
+      if ((b.x1 - b.x0) * (b.y1 - b.y0) > W * H * 0.5) return;       /* พื้นหลังเต็มหน้า */
+      if ((b.x0 + b.x1) / 2 < W * 0.45) return;                        /* ไม่ใช่ช่อง Notes */
+      const v = { x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 };
+      drawn.slice(i + 1).forEach(function (c) {                         /* รูปที่วางทีหลังทับอยู่ */
+        if ((c.x1 - c.x0) * (c.y1 - c.y0) > W * H * 0.5) return;
+        const ox = Math.min(v.x1, c.x1) - Math.max(v.x0, c.x0);
+        if (ox < (v.x1 - v.x0) * 0.8) return;                           /* ทับแค่บางส่วนแนวนอน → ไม่ตัด */
+        if (c.y0 <= v.y0 && c.y1 > v.y0 && c.y1 < v.y1) v.y0 = c.y1;    /* ทับขอบบน */
+        else if (c.y1 >= v.y1 && c.y0 < v.y1 && c.y0 > v.y0) v.y1 = c.y0; /* ทับขอบล่าง */
+      });
+      if (v.y1 - v.y0 >= 12) out.push(v);
+    });
   } catch (e) { /* อ่านคำสั่งวาดไม่ได้ → ใช้การหาก้อนจากพิกเซลอย่างเดียว */ }
   return out;
+}
+
+/* ── ตัวอ่านเลขข้อจากรูป (Tesseract · ทำงานในเบราว์เซอร์ ไม่ส่งรูปออกไปไหน ไม่ใช่ AI แบบถามตอบ) ──
+   โหลดครั้งแรก ~7 MB จาก jsdelivr แล้วเบราว์เซอร์จำไว้ · โหลดไม่ได้ = ใช้ตำแหน่งรูปอย่างเดียวเหมือนเดิม
+   ปิดได้ด้วย SHEET_OCR = false */
+const SHEET_OCR = true;
+const TESS_SRC = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+const TESS_OPT = {
+  workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+  corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1',
+  langPath: 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int'
+};
+let _tessP = null;
+function tessReady() {
+  if (!SHEET_OCR) return Promise.resolve(null);
+  if (_tessP) return _tessP;
+  _tessP = new Promise(function (res) {
+    const go = async function () {
+      try {
+        const w = await window.Tesseract.createWorker('eng', 1, TESS_OPT);
+        await w.setParameters({ tessedit_pageseg_mode: '11' });
+        res(w);
+      } catch (e) { res(null); }
+    };
+    if (window.Tesseract) return go();
+    const s = document.createElement('script');
+    s.src = TESS_SRC;
+    s.onload = go;
+    s.onerror = function () { res(null); };
+    document.head.appendChild(s);
+  });
+  return _tessP;
+}
+
+/* อ่านเลขข้อจากรูปที่แปะ — เรนเดอร์หน้าใหม่ที่ความละเอียด 4 เท่า (ตัวเลขในรูปเล็กมาก อ่านที่ขนาดปกติไม่ออก) */
+async function sheetOcrNotes(page, notes, pageIdx) {
+  const imgs = notes.filter(n => n.kind === 'img' && n.page === pageIdx);
+  if (!imgs.length) return;
+  const w = await tessReady();
+  if (!w) return;
+  const K = 4;
+  const vp = page.getViewport({ scale: K * SHEET_REF_W / page.getViewport({ scale: 1 }).width });
+  const cv = document.createElement('canvas');
+  cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  for (const n of imgs) {
+    try {
+      const c2 = document.createElement('canvas');
+      c2.width = Math.round((n.box.x1 - n.box.x0) * K); c2.height = Math.round((n.box.y1 - n.box.y0) * K);
+      c2.getContext('2d').drawImage(cv, n.box.x0 * K, n.box.y0 * K, c2.width, c2.height, 0, 0, c2.width, c2.height);
+      const r = await w.recognize(c2);
+      const words = ((r && r.data && r.data.words) || []).map(x => ({ text: x.text, x0: x.bbox.x0, y0: x.bbox.y0 }));
+      const q = sheetQFromWords(words, c2.width);
+      if (!q) continue;
+      n.ocrQ = q;
+      if (q !== n.q) n.geoQ = n.q;
+      n.q = q;
+      if (n.touch.indexOf(q) === -1) n.touch = n.touch.concat([q]).sort((a, b) => a - b);
+      /* เลขข้ออยู่ในหน้าเดียวกับรูป = เชื่อได้ · ข้ามหน้า = ให้ครูดู */
+      n.unsure = (q > pageIdx * 15 && q <= pageIdx * 15 + 15) ? '' : 'เลขข้อในรูป (' + q + ') อยู่คนละหน้ากับรูป';
+    } catch (e) { /* อ่านไม่ได้ → ใช้ตำแหน่งตามเดิม */ }
+  }
 }
 
 /* อ่าน PDF 1 ไฟล์ → { codes[30], unsure[30], notes[], pages, guess } */
@@ -7444,7 +7557,9 @@ async function sheetReadPdf(file) {
       counts[q] = row.counts;
     });
     const imgs = await sheetImageBoxes(lib, page, vp, cv.width, cv.height);
-    sheetPlaceNotes(imgs, r.notes, r.bands, codes, p, cv.width / SHEET_REF_W).forEach(function (b) {
+    /* หาลายมือใหม่โดยไม่นับพิกเซลที่อยู่ในรูป → ลายมือที่เหลือถ้าติดรูปจะรวมเข้ากับรูปนั้น */
+    const ink = imgs.length ? sheetNoteBlobs(img.data, cv.width, cv.height, { rows: r.bands, s: cv.width / SHEET_REF_W }, imgs) : r.notes;
+    sheetPlaceNotes(imgs, ink, r.bands, codes, p, cv.width / SHEET_REF_W).forEach(function (b) {
       const pad = 8;
       const x0 = Math.max(0, Math.floor(b.x0 - pad)), y0 = Math.max(0, Math.floor(b.y0 - pad));
       const w = Math.min(cv.width, Math.ceil(b.x1 + pad)) - x0, h = Math.min(cv.height, Math.ceil(b.y1 + pad)) - y0;
@@ -7456,8 +7571,10 @@ async function sheetReadPdf(file) {
       g2.fillStyle = '#fff'; g2.fillRect(0, 0, c2.width, c2.height);
       g2.drawImage(cv, x0, y0, w, h, 0, 0, c2.width, c2.height);
       notes.push({ page: p, q: b.q, touch: b.touch, unsure: b.unsure, kind: b.kind,
+                   box: { x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 },
                    dataUrl: c2.toDataURL('image/jpeg', 0.72), noteId: pdfUid('N') });
     });
+    await sheetOcrNotes(page, notes, p);
   }
   return { codes: codes, unsure: unsure, counts: counts, notes: notes, pages: doc.numPages, guess: guess };
 }
@@ -7599,6 +7716,29 @@ async function pdfSaveItem(id, silent) {
       return false;
     }
   }
+  /* ★ 25 ก.ย. 69 — มีใบตรวจนี้อยู่แล้ว (เช่น อ่านซ้ำเพื่อแก้ภาพโน้ตที่ผูกข้อผิด)
+     → ถามว่าจะส่ง "ภาพโน้ตชุดนี้แทนภาพเดิม" ไหม · คะแนนเดิมไม่แตะ */
+  if (j && !j.ok && j.duplicateSheet && j.gid) {
+    if (!it.notes.length) {
+      it.status = 'ready'; it.msg = j.error + ' — ใบนี้ไม่มีภาพโน้ตให้ส่งแทน';
+      pdfPaint();
+      return false;
+    }
+    if (!confirm(j.error + '\n\nส่งภาพโน้ต ' + it.notes.length + ' ภาพของไฟล์นี้ "แทนภาพเดิมทั้งหมด" ไหม?\n(คะแนนและสัญลักษณ์เดิมไม่เปลี่ยน · ภาพเดิมย้ายไปเก็บสำรอง)')) {
+      it.status = 'ready'; it.msg = 'ยกเลิก — มีใบตรวจนี้อยู่แล้ว';
+      pdfPaint();
+      return false;
+    }
+    const c = await pendCall({ action: 'gradeNoteClear', gid: j.gid });
+    if (!c || !c.ok) {
+      it.status = 'ready'; it.msg = 'ล้างภาพเดิมไม่สำเร็จ: ' + ((c && c.error) || 'เชื่อมต่อไม่ได้') + ' — กดบันทึกอีกครั้งได้';
+      pdfPaint();
+      return false;
+    }
+    it.gid = j.gid;                  /* ส่งภาพเข้าใบเดิม */
+    it.replaced = true;
+    j = { ok: true, notesOn: c.notesOn, already: true };
+  }
   if (!j || !j.ok) {
     if (j && j.needLogin) authFailed(j);
     it.status = 'ready';
@@ -7619,7 +7759,7 @@ async function pdfSaveItem(id, silent) {
   }
   it.status = 'saved';
   const need = it.codes.filter(c => !c).length;
-  it.msg = '✓ บันทึกแล้ว' + (need ? ' · รอนักเรียนเติม ' + need + ' ข้อ' : '') +
+  it.msg = (it.replaced ? '✓ ส่งภาพโน้ตใหม่แทนของเดิมแล้ว · คะแนนเดิมไม่เปลี่ยน' : '✓ บันทึกแล้ว' + (need ? ' · รอนักเรียนเติม ' + need + ' ข้อ' : '')) +
            (it.notes.length ? (it.notesOn ? (noteFail ? ' · ภาพโน้ตไม่สำเร็จ ' + noteFail + ' ภาพ (กดบันทึกอีกครั้งเพื่อส่งภาพที่เหลือ)' : ' · ภาพโน้ต ' + it.notes.length + ' ภาพ')
                                           : ' · ยังไม่ได้เปิดใช้ภาพโน้ต (ภาพไม่ถูกส่ง)') : '');
   if (noteFail) it.status = 'partial';
@@ -7693,6 +7833,7 @@ function pdfItemHtml(d, it) {
       ${it.notes.map(nt => `
         <div class="pdf-note" data-note="${nt.noteId}" data-unsure="${nt.unsure ? 1 : 0}" style="border:${nt.unsure ? '3px dashed var(--orange)' : '1px solid var(--line)'}; border-radius:10px; padding:6px; max-width:360px;">
           <img src="${nt.dataUrl}" style="max-width:100%; max-height:130px; display:block; border-radius:6px;">
+          ${nt.ocrQ ? `<div class="pdf-note-ocr" style="font-size:11px; color:var(--success); margin-top:4px;">🔎 อ่านเลขข้อจากรูปได้: ข้อ ${nt.ocrQ}${nt.geoQ ? ' (ตำแหน่งรูปอยู่แถวข้อ ' + nt.geoQ + ')' : ''}</div>` : ''}
           ${nt.unsure ? `<div style="font-size:12px; color:var(--orange); font-weight:700; margin-top:6px;">ไม่แน่ใจ: ${pdfEsc(nt.unsure)} (ข้อ ${nt.touch.join('–')}) — เป็นโน้ตของข้อ</div>
             <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">${nt.touch.map(q => `<button class="btn btn--ghost btn--sm pdf-note-pick" data-q="${q}" onclick="pdfNoteQ('${it.id}', '${nt.noteId}', ${q})">ข้อ ${q}</button>`).join('')}</div>` : ''}
           <div style="display:flex; gap:6px; align-items:center; margin-top:6px; font-size:12px;">
