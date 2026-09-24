@@ -3347,8 +3347,14 @@ async function ensureLeaveCache(force) {
 
 /* รายการแจ้งลาของคาบหนึ่ง (อ่านจาก cache — ไม่ยิงเน็ตซ้ำ) */
 function leaveOfSession(groupId, sessionNo) {
+  /* ★ 26 ก.ย. 69 — คนเดิมส่งซ้ำ (แก้เหตุผล) → นับ/โชว์ครั้งเดียว ใช้ใบล่าสุด (listLeave เรียงใหม่สุดก่อน) */
+  const seen = {};
   return (_leaveRequestsCache || []).filter(function (r) {
-    return r.groupId === groupId && Number(r.sessionNo) === Number(sessionNo);
+    if (!(r.groupId === groupId && Number(r.sessionNo) === Number(sessionNo))) return false;
+    const k = String(r.studentId || r.studentName);
+    if (seen[k]) return false;
+    seen[k] = 1;
+    return true;
   });
 }
 
@@ -3648,6 +3654,7 @@ function renderAttendanceSummary(body) {
 
   body.innerHTML = `
     ${resumeBanner}
+    ${allLeaveCard()}
     ${upcomingLeaveCard(g)}
     ${attAlertBanner(g, attAlertList)}
     <!-- Group selector -->
@@ -3835,9 +3842,10 @@ function showStartOnlineCheckinModal() {
     title: `เช็คชื่อออนไลน์ — ${g.name}`,
     body: `
       <p style="margin-bottom:10px; color:var(--gray-dark);">เลือกคาบที่จะเช็คชื่อ:</p>
-      <select id="onlineSessionSelect" style="width:100%; padding:10px 14px; border:1px solid var(--line); border-radius:8px; outline:none; font-size:14px; margin-bottom:14px;">
+      <select id="onlineSessionSelect" onchange="paintModalLeave('${g.id}', this.value, 'onlineLeaveBox')" style="width:100%; padding:10px 14px; border:1px solid var(--line); border-radius:8px; outline:none; font-size:14px; margin-bottom:14px;">
         ${sessionOptions}
       </select>
+      <div id="onlineLeaveBox" class="modal-leave" style="margin:-4px 0 14px; padding:10px 14px; border:1px solid #B8D4EE; border-radius:8px; background:#F6FAFE;">${modalLeaveHTML(g.id, suggestedSession.no)}</div>
       <div style="background:var(--bg-soft); padding:12px 16px; border-radius:8px; font-size:13px; color:var(--gray-dark);">
         <b>วิธีใช้งาน:</b><br>
         1. ครูกด "เริ่มเช็คชื่อออนไลน์" → ระบบสร้างรหัส 6 หลัก<br>
@@ -3860,6 +3868,7 @@ function showStartOnlineCheckinModal() {
       }}
     ]
   });
+  refreshModalLeave(g.id, 'onlineLeaveBox', 'onlineSessionSelect');   /* ★ 26 ก.ย. 69 — ดึงใบล่าสุดมาทับ */
 }
 
 /* Start online check-in — call server to create code */
@@ -4475,9 +4484,10 @@ function showStartKioskModal() {
     title: `เริ่มเช็คชื่อ — ${g.name}`,
     body: `
       <p style="margin-bottom:10px; color:var(--gray-dark);">เลือกคาบที่จะเช็คชื่อ:</p>
-      <select id="kioskSessionSelect" style="width:100%; padding:10px 14px; border:1px solid var(--line); border-radius:8px; outline:none; font-size:14px;">
+      <select id="kioskSessionSelect" onchange="paintModalLeave('${g.id}', this.value, 'kioskLeaveBox')" style="width:100%; padding:10px 14px; border:1px solid var(--line); border-radius:8px; outline:none; font-size:14px;">
         ${sessionOptions}
       </select>
+      <div id="kioskLeaveBox" class="modal-leave" style="margin-top:12px; padding:10px 14px; border:1px solid #B8D4EE; border-radius:8px; background:#F6FAFE;">${modalLeaveHTML(g.id, suggestedSession.no)}</div>
       <p style="margin-top:14px; font-size:12px; color:var(--gray-dark);">
         หลังกด "เริ่ม" จอจะเปลี่ยนเป็น kiosk ให้นักเรียนเข้ามากรอก PIN ทีละคน<br>
         ระบบคำนวณ ตรงเวลา/สาย อัตโนมัติจากเวลาปัจจุบัน<br>
@@ -4493,6 +4503,7 @@ function showStartKioskModal() {
       }}
     ]
   });
+  refreshModalLeave(g.id, 'kioskLeaveBox', 'kioskSessionSelect');
 }
 
 /* Show modal — attendance detail of a student in a session */
@@ -8183,6 +8194,92 @@ async function gradeAckUI(gid) {
   if (j && j.ok) toast('รับทราบแล้ว', 'success');
   else toast('ไม่สำเร็จ: ' + ((j && j.error) || 'เชื่อมต่อไม่ได้'), 'error');
   await gradeLoad();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ★ 26 ก.ย. 69 — รายชื่อแจ้งลา/แจ้งสาย "ทุกกลุ่ม" บนหน้าเช็คชื่อ
+   ขึ้นทุกใบที่วันของคาบยังไม่ผ่าน (วันนี้นับด้วย) → เลยวันแล้วหายเอง
+   + หน้าต่างเลือกคาบ (เช็คชื่อออนไลน์ / ที่จอครู) โชว์คนที่แจ้งไว้ของคาบที่เลือก เปลี่ยนคาบแล้วเปลี่ยนตาม
+   อ่านจาก _leaveRequestsCache ตัวเดิม (listLeave) — ไม่ต้องแก้ Apps Script
+   ═══════════════════════════════════════════════════════════════════ */
+function leaveDateOf(r) {
+  const g = ((state.data && state.data.groups) || []).find(x => x.id === r.groupId);
+  const s = g && (g.sessions || []).find(x => Number(x.no) === Number(r.sessionNo));
+  const d = (s && s.date) || String(r.sessionDate || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : '';
+}
+
+function upcomingLeaveAll() {
+  const today = todayStr();
+  const seen = {};
+  const out = [];
+  (_leaveRequestsCache || []).forEach(function (r) {        /* listLeave เรียงใหม่สุดก่อน → เก็บใบล่าสุดของแต่ละคน/คาบ */
+    const k = r.groupId + '|' + r.sessionNo + '|' + r.studentId;
+    if (seen[k]) return;
+    seen[k] = 1;
+    const date = leaveDateOf(r);
+    if (!date || date < today) return;
+    out.push({ r: r, date: date });
+  });
+  return out;
+}
+
+function allLeaveCard() {
+  const items = upcomingLeaveAll();
+  const refresh = '<button class="btn btn--ghost btn--sm" onclick="ensureLeaveCache(true)" title="ดึงรายการแจ้งลาล่าสุดจากชีต">⟳</button>';
+  if (!items.length) {
+    return '<div class="card leave-all" style="padding:11px 18px; display:flex; gap:10px; align-items:center;">' +
+      '<div style="flex:1; font-size:13px; color:var(--gray-dark);">🔔 แจ้งลา / แจ้งสาย ทุกกลุ่ม — ยังไม่มีใครแจ้งล่วงหน้า</div>' + refresh + '</div>';
+  }
+  const blocks = {};
+  items.forEach(function (x) {
+    const k = x.date + '|' + x.r.groupId + '|' + x.r.sessionNo;
+    (blocks[k] = blocks[k] || { date: x.date, r: x.r, n: 0 }).n++;
+  });
+  const groups = (state.data && state.data.groups) || [];
+  const keys = Object.keys(blocks).sort(function (a, b) {
+    const A = blocks[a], B = blocks[b];
+    if (A.date !== B.date) return A.date < B.date ? -1 : 1;
+    return String(A.r.groupName || '').localeCompare(String(B.r.groupName || ''), 'th');
+  });
+  const today = todayStr();
+  const nLate = items.filter(x => x.r.type === 'แจ้งสาย').length;
+  const html = keys.map(function (k) {
+    const b = blocks[k];
+    const g = groups.find(x => x.id === b.r.groupId);
+    const s = g && (g.sessions || []).find(x => Number(x.no) === Number(b.r.sessionNo));
+    const tNo = g ? teachingNoMap(g) : {};
+    const head = (b.date === today ? '📅 วันนี้ · ' : '🗓 ') + thDayName(b.date) + ' ' + thDate(b.date) + ' · ' +
+      _eh((g && g.name) || b.r.groupName || '') + ' · คาบที่ ' + (tNo[b.r.sessionNo] || b.r.sessionNo) +
+      (s && g ? ' · ' + getSessionTime(s, g) : '');
+    return '<div class="leave-all-block" data-date="' + b.date + '" style="padding:8px 0; border-top:1px dashed var(--line);">' +
+      '<div style="font-weight:700; font-size:13px;">' + head + ' <span style="font-weight:400; color:var(--gray-dark);">· ' + b.n + ' คน</span></div>' +
+      onlineLeaveListHTML({ groupId: b.r.groupId, sessionNo: b.r.sessionNo }) + '</div>';
+  }).join('');
+  return '<div class="card leave-all" style="padding:13px 18px; border-left:3px solid #2B6CB0;">' +
+    '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:4px;">' +
+      '<div style="flex:1; font-weight:700;">🔔 แจ้งลา / แจ้งสาย ล่วงหน้า — ทุกกลุ่ม <span class="num" style="color:#2B6CB0;">' + items.length + ' คน</span>' +
+      '<span style="font-weight:400; font-size:12px; color:var(--gray-dark);"> · ลา ' + (items.length - nLate) + ' · สาย ' + nLate + ' · เลยวันแล้วหายเอง</span></div>' +
+      refresh + '</div>' + html + '</div>';
+}
+
+/* หน้าต่างเลือกคาบ: ใครแจ้งลา/แจ้งสายไว้สำหรับคาบที่เลือก */
+function modalLeaveHTML(groupId, sessionNo) {
+  const g = ((state.data && state.data.groups) || []).find(x => x.id === groupId);
+  const s = g && (g.sessions || []).find(x => Number(x.no) === Number(sessionNo));
+  const n = leaveOfSession(groupId, sessionNo).length;
+  return '<div style="font-weight:700; font-size:13px; margin-bottom:2px;">🔔 แจ้งลา / แจ้งสาย ของคาบนี้' +
+      (s ? ' (' + thDayName(s.date) + ' ' + thDate(s.date) + ')' : '') + (n ? ' — ' + n + ' คน' : '') + '</div>' +
+    onlineLeaveListHTML({ groupId: groupId, sessionNo: Number(sessionNo) });
+}
+function paintModalLeave(groupId, sessionNo, boxId) {
+  const el = document.getElementById(boxId);
+  if (el) el.innerHTML = modalLeaveHTML(groupId, sessionNo);
+}
+async function refreshModalLeave(groupId, boxId, selId) {
+  try { await ensureLeaveCache(true); } catch (e) {}
+  const sel = document.getElementById(selId);
+  if (sel) paintModalLeave(groupId, sel.value, boxId);
 }
 
 function entryCounts() {
