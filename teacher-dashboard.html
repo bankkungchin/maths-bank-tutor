@@ -1116,7 +1116,7 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
       </button>
       <button class="btn btn--ghost btn--sm" id="btnPending" style="flex:1 1 100%;">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-        รอตรวจ<span id="pendingBadge"></span>
+        รอตรวจ<span id="pendingBadge"></span><span id="gradeBadge"></span>
       </button>
     </div>
 
@@ -1236,7 +1236,10 @@ const GS_SAFE_ACTIONS = [
   'syncData', 'scoreSkipSet', 'examSetActive', 'saveFace', 'deleteFace',
   'endCheckin', 'teacherLogin', 'teacherLogout', 'updateCheckinNote',
   /* ★ 18 ก.ย. 69 — เป้าหมายคะแนน: อ่าน + เขียนทับค่าเดิม ยิงซ้ำปลอดภัยทั้งคู่ */
-  'listGoals', 'setGoal', 'clearGoal'
+  'listGoals', 'setGoal', 'clearGoal',
+  /* ★ 24 ก.ย. 69 — ใบตรวจ PDF: gradeSave/gradeNoteSave ส่งรหัสที่หน้าเว็บสร้างไปด้วย
+     เซิร์ฟเวอร์เจอรหัสเดิม = ไม่ทำซ้ำ → ยิงซ้ำได้ปลอดภัย (ไม่เกิดคะแนนซ้ำแถว) */
+  'gradeSave', 'gradeNoteSave', 'gradeList', 'gradeNotes', 'gradeRevert', 'gradeLock'
 ];
 
 /* หาชื่อ action จาก body (POST) ก่อน ถ้าไม่มีค่อยดูใน query string (GET) */
@@ -5101,7 +5104,8 @@ function startPendingWatch() {
   if (_pendTimer) return;
   refreshPendingBadge(true);
   refreshLeaveBadge(true);
-  _pendTimer = setInterval(function () { refreshPendingBadge(true); refreshLeaveBadge(true); }, 120000);
+  refreshGradeBadge(true);     /* ★ 24 ก.ย. 69 — นักเรียนขอแก้ใบตรวจ */
+  _pendTimer = setInterval(function () { refreshPendingBadge(true); refreshLeaveBadge(true); refreshGradeBadge(true); }, 120000);
 }
 
 /* ── ★ 21 ก.ย. 69 · ตัวเลขแจ้งลา/แจ้งสายบนปุ่ม "เช็คชื่อ" ──
@@ -6651,6 +6655,7 @@ async function renderScoreEntry(body) {
     <div class="card" style="display:flex; gap:10px; flex-wrap:wrap;">
       ${modeBtn('tap', '⌨️ แตะทีละข้อ', 'ทีละคน 30 ข้อ เหมาะกับ iPad')}
       ${modeBtn('paste', '📋 วางจาก Gemini', 'วางทีเดียวได้หลายคน')}
+      ${modeBtn('pdf', '📄 อ่านใบตรวจ PDF', 'ลากไฟล์ได้หลายใบ · ไม่ใช้ AI')}
     </div>
 
     <div class="card">
@@ -6696,7 +6701,7 @@ async function renderScoreEntry(body) {
 
     ${entryProgressCard(d, e, _eIdx, _eSkip, roster, labels)}
 
-    ${e.mode === 'paste' ? pasteEntryHtml(d, e) : tapEntryHtml(e, brushBtns, cells, n)}
+    ${e.mode === 'pdf' ? pdfEntryHtml(d, e) : e.mode === 'paste' ? pasteEntryHtml(d, e) : tapEntryHtml(e, brushBtns, cells, n)}
   `;
 }
 
@@ -7095,6 +7100,698 @@ async function pasteSaveAll() {
   checkMissingScoresBadge();
 }
 
+/* ==SHEET_DETECT_BEGIN== ─────────────────────────────────────────────
+   ★ 24 ก.ย. 69 — อ่านกระดาษคำตอบ PDF เองโดยไม่ใช้ AI
+   ใช้กับแม่แบบกระดาษคำตอบของครู (หน้าละ 15 ข้อ · 5 ช่อง: ✅ ⚠️ C X ⏰ · ช่อง Photos/Notes)
+
+   วิธีคิด: กระดาษทุกใบใช้แม่แบบเดียวกัน ช่องจึงอยู่ตำแหน่งเดิมเสมอ
+     1. หาขอบกล่องสีเขียว (คอลัมน์ ✅) → ได้ตำแหน่ง 15 แถวจริงของหน้านั้น
+        (หาไม่ครบ 15 → ใช้ตำแหน่งมาตรฐานของแม่แบบแทน และติดธง layoutGuess)
+     2. นับ "จุดหมึก" ในแต่ละช่อง (ตัดขอบกล่องออก) — ช่องว่างได้ 0 จุด
+     3. ช่องที่หมึกน้อยผิดปกติ หรือติ๊กสองช่องในแถวเดียว → unsure ให้ครูแตะแก้เอง ห้ามเดา
+     4. ช่อง Notes: หาก้อนภาพ/ลายมือ แล้วบอกว่าคร่อมข้อไหนบ้าง
+   ฟังก์ชันในบล็อกนี้ไม่แตะ DOM — รับ RGBA ล้วน ๆ เทสด้วย node ได้
+   ─────────────────────────────────────────────────────────────────── */
+const SHEET_CODES = ['O', 'W', 'C', 'X', 'T'];          /* ลำดับคอลัมน์บนกระดาษ */
+/* ตำแหน่งอ้างอิงวัดจากแม่แบบจริง (หน้ากว้าง 1241 px ที่ 150 dpi) */
+const SHEET_REF_W = 1241;
+const SHEET_COL_OFF = [0, 88, 189.5, 295.5, 401.5];     /* ระยะจากกลางช่อง ✅ */
+const SHEET_BOX_HALF = 20;                              /* ครึ่งกว้างของพื้นที่ในกล่องที่ใช้นับ */
+const SHEET_MARK_MIN = 25;                              /* จุดหมึกขั้นต่ำ = ติ๊กแน่ ๆ */
+const SHEET_WEAK_MIN = 8;                               /* ต่ำกว่านี้ = ฝุ่น/เงา */
+
+function sheetIsInk(r, g, b) {
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  return mn < 170 && (mx - mn > 35 || mx < 110);
+}
+function sheetIsGreenLine(r, g, b) {
+  return (g - r > 50) && (g - b > 30) && g < 200;
+}
+
+/* หาตำแหน่ง 15 กล่องในคอลัมน์ ✅ */
+function sheetLayout(px, W, H) {
+  const s = W / SHEET_REF_W;
+  const x0 = Math.floor(W * 0.07), x1 = Math.floor(W * 0.2);
+  const colCount = new Array(x1).fill(0);
+  for (let y = 0; y < H; y++) {
+    for (let x = x0; x < x1; x++) {
+      const i = (y * W + x) * 4;
+      if (sheetIsGreenLine(px[i], px[i + 1], px[i + 2])) colCount[x]++;
+    }
+  }
+  let xL = -1, xR = -1;
+  const need = Math.max(40, H * 0.1);
+  for (let x = x0; x < x1; x++) if (colCount[x] > need) { if (xL < 0) xL = x; xR = x; }
+  let rows = [], guess = false, gx;
+  if (xL >= 0 && xR - xL > 30 * s) {
+    gx = (xL + xR) / 2;
+    const runs = [];
+    let st = -1, last = -10;
+    for (let y = 0; y < H; y++) {
+      let on = false;
+      for (let x = xL; x <= xL + 3; x++) {
+        const i = (y * W + x) * 4;
+        if (sheetIsGreenLine(px[i], px[i + 1], px[i + 2])) { on = true; break; }
+      }
+      if (on) { if (y - last > 2) { if (st >= 0) runs.push([st, last]); st = y; } last = y; }
+    }
+    if (st >= 0) runs.push([st, last]);
+    rows = runs.filter(r => r[1] - r[0] > 35 * s && r[1] - r[0] < 80 * s);
+  }
+  if (rows.length !== 15) {
+    guess = true;
+    gx = 159.5 * s;
+    rows = [];
+    for (let i = 0; i < 15; i++) {
+      const c = H * (0.1736 + i * 0.05188);
+      rows.push([Math.round(c - 27.5 * s), Math.round(c + 27.5 * s)]);
+    }
+  }
+  return { s: s, gx: gx, rows: rows, guess: guess };
+}
+
+function sheetCountInk(px, W, H, cx, cy, hx, hy) {
+  let n = 0;
+  for (let y = Math.max(0, Math.round(cy - hy)); y < Math.min(H, Math.round(cy + hy)); y++) {
+    for (let x = Math.max(0, Math.round(cx - hx)); x < Math.min(W, Math.round(cx + hx)); x++) {
+      const i = (y * W + x) * 4;
+      if (sheetIsInk(px[i], px[i + 1], px[i + 2])) n++;
+    }
+  }
+  return n;
+}
+
+/* อ่าน 1 หน้า → 15 แถว + ก้อนโน้ต
+   rows[i] = { code:'O'|'W'|'C'|'X'|'T'|'', counts:[5], unsure:bool, why:'' } */
+function sheetDetectPage(px, W, H) {
+  const L = sheetLayout(px, W, H);
+  const s = L.s, s2 = s * s;
+  const out = [];
+  L.rows.forEach(function (r) {
+    const cy = (r[0] + r[1]) / 2;
+    const hy = Math.max(6, (r[1] - r[0]) / 2 - 9 * s);
+    const counts = SHEET_COL_OFF.map(off => sheetCountInk(px, W, H, L.gx + off * s, cy, SHEET_BOX_HALF * s, hy));
+    const norm = counts.map(c => c / s2);
+    const order = norm.map((v, i) => i).sort((a, b) => norm[b] - norm[a]);
+    const top = norm[order[0]], second = norm[order[1]];
+    let code = '', unsure = false, why = '';
+    if (top >= SHEET_MARK_MIN) {
+      code = SHEET_CODES[order[0]];
+      if (second >= SHEET_MARK_MIN) { unsure = true; why = 'ติ๊กมากกว่า 1 ช่อง'; }
+      else if (second >= SHEET_WEAK_MIN) { unsure = true; why = 'มีรอยในช่องอื่นด้วย'; }
+    } else if (top >= SHEET_WEAK_MIN) {
+      unsure = true; why = 'รอยจางเกินไป';
+    }
+    out.push({ code: code, counts: counts, unsure: unsure, why: why });
+  });
+  return { rows: out, bands: L.rows, guess: L.guess, notes: sheetNoteBlobs(px, W, H, L) };
+}
+
+/* ก้อนเนื้อหาในช่อง Photos/Notes — คืน [{y0,y1,x0,x1,rows:[index 0–14 ที่คร่อม], main}] */
+function sheetNoteBlobs(px, W, H, L) {
+  const s = L.s;
+  const xa = Math.round(W * 0.505), xb = Math.round(W * 0.945);
+  const top = Math.max(0, Math.round(L.rows[0][0] - 12 * s));
+  const bot = Math.min(H - 1, Math.round(L.rows[14][1] + 12 * s));
+  const width = xb - xa;
+  const lineHas = [];
+  const colMin = [], colMax = [];
+  for (let y = top; y <= bot; y++) {
+    let n = 0, mn = W, mx = -1;
+    for (let x = xa; x < xb; x++) {
+      const i = (y * W + x) * 4;
+      const m = Math.min(px[i], px[i + 1], px[i + 2]);
+      if (m < 215) { n++; if (x < mn) mn = x; if (x > mx) mx = x; }
+    }
+    /* เส้นคั่นแถวยาวเกือบเต็มความกว้าง = ของแม่แบบ ไม่ใช่โน้ต */
+    const has = n > 3 && n < width * 0.6;
+    lineHas.push(has); colMin.push(mn); colMax.push(mx);
+  }
+  const blobs = [];
+  let st = -1, lastOn = -100, gap = Math.round(18 * s);
+  for (let k = 0; k < lineHas.length; k++) {
+    if (!lineHas[k]) continue;
+    if (st < 0 || k - lastOn > gap) { if (st >= 0) blobs.push([st, lastOn]); st = k; }
+    lastOn = k;
+  }
+  if (st >= 0) blobs.push([st, lastOn]);
+  const bands = L.rows.map(function (r, i) {
+    const prev = i ? (L.rows[i - 1][1] + r[0]) / 2 : r[0] - 18 * s;
+    const next = i < 14 ? (r[1] + L.rows[i + 1][0]) / 2 : r[1] + 18 * s;
+    return [prev, next];
+  });
+  const out = [];
+  blobs.forEach(function (b) {
+    const y0 = b[0] + top, y1 = b[1] + top;
+    if (y1 - y0 < 10 * s) return;
+    let x0 = W, x1 = -1, ink = 0;
+    for (let k = b[0]; k <= b[1]; k++) {
+      if (!lineHas[k]) continue;
+      ink++;
+      if (colMin[k] < x0) x0 = colMin[k];
+      if (colMax[k] > x1) x1 = colMax[k];
+    }
+    if (x1 - x0 < 12 * s || ink < 8) return;
+    const rows = [];
+    let best = -1, bestOv = 0;
+    bands.forEach(function (bd, i) {
+      const ov = Math.min(y1, bd[1]) - Math.max(y0, bd[0]);
+      if (ov > 0 && (ov >= (y1 - y0) * 0.15 || ov >= (bd[1] - bd[0]) * 0.3)) rows.push(i);
+      if (ov > bestOv) { bestOv = ov; best = i; }
+    });
+    if (!rows.length && best >= 0) rows.push(best);
+    if (!rows.length) return;
+    out.push({ y0: y0, y1: y1, x0: x0, x1: x1, rows: rows, main: best });
+  });
+  return out;
+}
+
+/* ข้อหลักของโน้ต — โน้ตที่คร่อมหลายแถวมักเป็นของข้อที่ "ผิด" (ข้อที่ครูต้องอธิบาย)
+   ลำดับที่เลือก: ข้อที่มีสัญลักษณ์และไม่ใช่ ✅ → ข้อที่ไม่ใช่ ✅ → แถวที่ทับมากที่สุด */
+function sheetNoteMainQ(blob, codes, pageIdx) {
+  const qs = blob.rows.map(i => pageIdx * 15 + i + 1);
+  const pick = qs.filter(q => codes[q - 1] && codes[q - 1] !== 'O');
+  if (pick.length) return pick[0];
+  const notOk = qs.filter(q => codes[q - 1] !== 'O');
+  if (notOk.length === 1) return notOk[0];
+  return pageIdx * 15 + blob.main + 1;
+}
+
+/* ชื่อไฟล์ "เมฆ วันพุธ.pdf" → { name:'เมฆ', group:'วันพุธ' } ถ้าหาชื่อกลุ่มท้ายชื่อไฟล์เจอ */
+function sheetNameFromFile(fname, groups) {
+  let base = String(fname || '').replace(/\.pdf$/i, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
+  base = base.replace(/\s*\(\d+\)$/, '').trim();                /* "เมฆ วันพุธ (1)" = ไฟล์ซ้ำ */
+  const m = base.match(/^(.*?)\s*\(([^)]*)\)\s*$/);              /* "เมฆ (วันพุธ)" */
+  if (m) return { name: m[1].trim(), group: m[2].trim(), raw: base };
+  const flat = x => String(x || '').replace(/\s+/g, '');
+  const fb = flat(base);
+  let hit = null;
+  (groups || []).slice().sort((a, b) => flat(b).length - flat(a).length).forEach(function (g) {
+    if (hit || !flat(g)) return;
+    if (fb.length > flat(g).length && fb.slice(-flat(g).length) === flat(g)) hit = g;
+  });
+  if (hit) {
+    let nm = base;
+    const gi = base.replace(/\s+/g, ' ');
+    const idx = gi.lastIndexOf(String(hit).trim());
+    nm = idx > 0 ? gi.slice(0, idx).trim() : base.slice(0, base.length - String(hit).length).trim();
+    return { name: nm, group: hit, raw: base };
+  }
+  return { name: base, group: '', raw: base };
+}
+/* ==SHEET_DETECT_END== */
+
+/* ═══════════════════════════════════════════════════════════════════
+   ★ 24 ก.ย. 69 — 📄 อ่านใบตรวจ PDF (ไม่ใช้ AI)
+
+   ครูตรวจใน PDF ตามเดิม → ลากไฟล์เข้าหน้านี้ → ระบบอ่านช่องที่ติ๊กเอง
+   → ครูดู/แตะแก้ → บันทึก (gradeSave) → คะแนนเข้า results ทันที
+   ข้อที่ว่าง = นักเรียนยังไม่ได้ส่งตรวจ → นักเรียนเติมเองในหน้า dashboard
+   ภาพในช่อง Photos/Notes ถูกตัดเป็นภาพรายข้อ ส่งขึ้นเก็บ (gradeNoteSave) ถ้าเปิดใช้โน้ตไว้
+
+   ชื่อนักเรียนเอาจากชื่อไฟล์ ("เมฆ วันพุธ.pdf") · บทและวันที่ใช้ช่องด้านบน
+   ═══════════════════════════════════════════════════════════════════ */
+const PDFJS_SRC    = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+const PDF_CYCLE = ['', 'O', 'W', 'C', 'X', 'T'];
+const PDF_CODE_ST = { O: '✅ ถูก', W: '⚠️ สะเพร่า', C: 'C คอนเซปต์', X: 'X ทำไม่ได้', T: '⏰ ไม่ทัน', '': '' };
+let _pdfjsP = null;
+
+function pdfjsReady() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (_pdfjsP) return _pdfjsP;
+  _pdfjsP = new Promise(function (res, rej) {
+    const s = document.createElement('script');
+    s.src = PDFJS_SRC;
+    s.onload = function () {
+      try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER; } catch (e) {}
+      res(window.pdfjsLib);
+    };
+    s.onerror = function () { _pdfjsP = null; rej(new Error('โหลดตัวอ่าน PDF ไม่ได้ — ตรวจอินเทอร์เน็ตแล้วลองใหม่')); };
+    document.head.appendChild(s);
+  });
+  return _pdfjsP;
+}
+
+function pdfEsc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function pdfUid(prefix) {
+  return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function pdfState() {
+  const e = state.entry;
+  if (!e.pdf) e.pdf = { items: [], busy: false };
+  return e.pdf;
+}
+
+/* อ่าน PDF 1 ไฟล์ → { codes[30], unsure[30], notes[], pages, guess } */
+async function sheetReadPdf(file) {
+  const lib = await pdfjsReady();
+  const buf = await file.arrayBuffer();
+  const doc = await lib.getDocument({ data: buf }).promise;
+  const codes = new Array(30).fill(''), unsure = new Array(30).fill(''), counts = [];
+  const notes = [];
+  let guess = false;
+  const pages = Math.min(doc.numPages, 2);
+  for (let p = 0; p < pages; p++) {
+    const page = await doc.getPage(p + 1);
+    const vp1 = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: SHEET_REF_W / vp1.width });
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    const img = ctx.getImageData(0, 0, cv.width, cv.height);
+    const r = sheetDetectPage(img.data, cv.width, cv.height);
+    if (r.guess) guess = true;
+    r.rows.forEach(function (row, i) {
+      const q = p * 15 + i;
+      codes[q] = row.code;
+      unsure[q] = row.unsure ? row.why : '';
+      counts[q] = row.counts;
+    });
+    r.notes.forEach(function (b) {
+      const pad = 8;
+      const x0 = Math.max(0, b.x0 - pad), y0 = Math.max(0, b.y0 - pad);
+      const w = Math.min(cv.width, b.x1 + pad) - x0, h = Math.min(cv.height, b.y1 + pad) - y0;
+      const k = Math.min(1, 900 / w);
+      const c2 = document.createElement('canvas');
+      c2.width = Math.round(w * k); c2.height = Math.round(h * k);
+      const g2 = c2.getContext('2d');
+      g2.fillStyle = '#fff'; g2.fillRect(0, 0, c2.width, c2.height);
+      g2.drawImage(cv, x0, y0, w, h, 0, 0, c2.width, c2.height);
+      notes.push({ page: p, blob: b, dataUrl: c2.toDataURL('image/jpeg', 0.72),
+                   touch: b.rows.map(i => p * 15 + i + 1) });
+    });
+  }
+  notes.forEach(function (n) {
+    n.q = sheetNoteMainQ(n.blob, codes, n.page);
+    n.noteId = pdfUid('N');
+    delete n.blob;
+  });
+  return { codes: codes, unsure: unsure, counts: counts, notes: notes, pages: doc.numPages, guess: guess };
+}
+
+function pdfMatchStudent(d, fileName) {
+  const nm = sheetNameFromFile(fileName, d.groups || []);
+  let stu = null;
+  if (nm.group) stu = pasteFindStudent(d, nm.name + ' (' + nm.group + ')', nm.group) || pasteFindStudent(d, nm.name, nm.group);
+  if (!stu) stu = pasteFindStudent(d, nm.raw, state.entry.group);
+  return { parsed: nm, stu: stu };
+}
+
+async function pdfPick(files) {
+  const d = state.examData || pdfState().d;
+  const ps = pdfState();
+  const list = Array.prototype.slice.call(files || []).filter(f => /\.pdf$/i.test(f.name) || f.type === 'application/pdf');
+  if (!list.length) { toast('เลือกไฟล์ PDF ก่อนครับ', 'error'); return; }
+  ps.busy = true;
+  pdfPaint();
+  for (const f of list) {
+    const m = pdfMatchStudent(d, f.name);
+    const it = { id: pdfUid('I'), fileName: f.name, parsed: m.parsed,
+                 full: m.stu ? m.stu.full : '', group: m.stu ? m.stu.group : '',
+                 codes: new Array(30).fill(''), unsure: new Array(30).fill(''), notes: [],
+                 status: 'reading', msg: 'กำลังอ่าน…' };
+    ps.items.push(it);
+    pdfPaint();
+    try {
+      const r = await sheetReadPdf(f);
+      Object.assign(it, { codes: r.codes, unsure: r.unsure, counts: r.counts, notes: r.notes, pages: r.pages, guess: r.guess });
+      it.status = 'ready';
+      it.msg = r.pages !== 2 ? 'ไฟล์นี้มี ' + r.pages + ' หน้า (ปกติ 2 หน้า) — ตรวจให้ดีก่อนบันทึก'
+             : r.guess ? 'หาเส้นตารางไม่เจอ ใช้ตำแหน่งมาตรฐาน — ตรวจให้ดีก่อนบันทึก' : '';
+    } catch (err) {
+      it.status = 'error';
+      it.msg = 'อ่านไฟล์ไม่ได้: ' + (err && err.message || err);
+    }
+    pdfPaint();
+  }
+  ps.busy = false;
+  pdfPaint();
+}
+
+function pdfDrop(ev) {
+  ev.preventDefault();
+  const z = document.getElementById('pdfDrop');
+  if (z) z.style.background = '';
+  pdfPick(ev.dataTransfer && ev.dataTransfer.files);
+}
+
+function pdfItem(id) { return pdfState().items.find(x => x.id === id); }
+
+function pdfTap(id, q) {
+  const it = pdfItem(id);
+  if (!it || it.status === 'saved' || it.status === 'saving' || it.savedScore != null) return;
+  const cur = PDF_CYCLE.indexOf(it.codes[q] || '');
+  it.codes[q] = PDF_CYCLE[(cur + 1) % PDF_CYCLE.length];
+  it.unsure[q] = '';
+  pdfPaint();
+}
+
+function pdfConfirmAll(id) {
+  const it = pdfItem(id);
+  if (!it) return;
+  it.unsure = new Array(30).fill('');
+  pdfPaint();
+}
+
+function pdfSetStudent(id, full) {
+  const it = pdfItem(id);
+  const s = ((state.examData || pdfState().d).students || []).find(x => x.full === full);
+  if (!it) return;
+  it.full = s ? s.full : '';
+  it.group = s ? s.group : '';
+  pdfPaint();
+}
+
+function pdfNoteQ(id, noteId, q) {
+  const it = pdfItem(id);
+  const n = it && it.notes.find(x => x.noteId === noteId);
+  if (n) n.q = parseInt(q, 10);
+  pdfPaint();
+}
+
+function pdfNoteDrop(id, noteId) {
+  const it = pdfItem(id);
+  if (it) it.notes = it.notes.filter(x => x.noteId !== noteId);
+  pdfPaint();
+}
+
+function pdfRemove(id) {
+  const ps = pdfState();
+  ps.items = ps.items.filter(x => x.id !== id);
+  pdfPaint();
+}
+
+function pdfClearSaved() {
+  const ps = pdfState();
+  ps.items = ps.items.filter(x => x.status !== 'saved');
+  pdfPaint();
+}
+
+function pdfProblems(it) {
+  const e = state.entry;
+  const p = [];
+  if (!it.full) p.push('ยังไม่ได้เลือกนักเรียน');
+  if (!isStdChapter(e.chapter) && !isMockChapter(e.chapter)) p.push('บทด้านบนไม่ใช่ชื่อมาตรฐาน');
+  const u = it.unsure.filter(Boolean).length;
+  if (u) p.push('มี ' + u + ' ข้อที่อ่านไม่แน่ใจ — แตะแก้หรือกด "ยืนยันตามที่อ่านได้"');
+  if (it.codes.every(c => !c)) p.push('ไม่พบช่องที่ติ๊กเลย');
+  return p;
+}
+
+async function pdfSaveItem(id, silent) {
+  const e = state.entry;
+  const it = pdfItem(id);
+  if (!it || it.status === 'saving') return false;
+  if (it.status === 'saved' && !(it.notes || []).some(n => !n.saved)) return true;
+  const probs = pdfProblems(it);
+  if (probs.length) { if (!silent) toast(probs[0], 'error'); return false; }
+  it.status = 'saving'; it.msg = 'กำลังบันทึก…';
+  pdfPaint();
+  if (!it.gid) it.gid = pdfUid('G');           /* สร้างครั้งเดียว — ยิงซ้ำด้วย gid เดิมไม่เกิดคะแนนซ้ำ */
+  const body = { action: 'gradeSave', gid: it.gid, full: it.full, group: it.group,
+                 chapter: e.chapter, date: e.date, marks: it.codes.slice() };
+  let j = it.savedScore != null ? { ok: true, notesOn: it.notesOn, already: true } : await pendCall(body);
+  if (j && !j.ok && j.needConfirmDuplicate) {
+    if (confirm(j.error + '\n\nบันทึกใบตรวจนี้เพิ่มเป็นอีกแถวไหม?')) {
+      body.allowDuplicate = true;
+      j = await pendCall(body);
+    } else {
+      it.status = 'ready'; it.msg = 'ยกเลิก — มีคะแนนเดิมอยู่แล้ว';
+      pdfPaint();
+      return false;
+    }
+  }
+  if (!j || !j.ok) {
+    if (j && j.needLogin) authFailed(j);
+    it.status = 'ready';
+    it.msg = 'บันทึกไม่สำเร็จ: ' + ((j && j.error) || 'เชื่อมต่อไม่ได้') + ' — กดบันทึกอีกครั้งได้ (ไม่เกิดคะแนนซ้ำ)';
+    pdfPaint();
+    return false;
+  }
+  it.savedScore = j.score != null ? j.score : (it.savedScore || 0);
+  it.notesOn = !!j.notesOn;
+  let noteFail = 0;
+  if (it.notesOn) {
+    for (const n of it.notes) {
+      if (n.saved) continue;
+      const r = await pendCall({ action: 'gradeNoteSave', gid: it.gid, noteId: n.noteId, qs: [n.q],
+                                 data: String(n.dataUrl).replace(/^data:image\/\w+;base64,/, '') });
+      if (r && r.ok) n.saved = true; else noteFail++;
+    }
+  }
+  it.status = 'saved';
+  const need = it.codes.filter(c => !c).length;
+  it.msg = '✓ บันทึกแล้ว' + (need ? ' · รอนักเรียนเติม ' + need + ' ข้อ' : '') +
+           (it.notes.length ? (it.notesOn ? (noteFail ? ' · ภาพโน้ตไม่สำเร็จ ' + noteFail + ' ภาพ (กดบันทึกอีกครั้งเพื่อส่งภาพที่เหลือ)' : ' · ภาพโน้ต ' + it.notes.length + ' ภาพ')
+                                          : ' · ยังไม่ได้เปิดใช้ภาพโน้ต (ภาพไม่ถูกส่ง)') : '');
+  if (noteFail) it.status = 'partial';
+  state.examData = null;                       /* ให้ตาราง/ป้าย "ยังไม่กรอก" ดึงใหม่ */
+  pdfPaint();
+  return true;
+}
+
+async function pdfSaveAll() {
+  const ps = pdfState();
+  const todo = ps.items.filter(x => x.status === 'ready' || x.status === 'partial');
+  const bad = todo.filter(x => pdfProblems(x).length);
+  if (!todo.length) { toast('ไม่มีใบที่รอบันทึก', 'error'); return; }
+  if (!confirm('บันทึก ' + (todo.length - bad.length) + ' ใบ · บท ' + state.entry.chapter + ' · วันที่ ' + state.entry.date +
+               (bad.length ? '\n(ข้าม ' + bad.length + ' ใบที่ยังต้องแก้)' : '') + ' ?')) return;
+  let ok = 0;
+  for (const it of todo) { if (!pdfProblems(it).length && await pdfSaveItem(it.id, true)) ok++; }
+  toast('บันทึกใบตรวจ ' + ok + '/' + todo.length + ' ใบ', ok === todo.length ? 'success' : 'error');
+  try { checkMissingScoresBadge(); } catch (e) {}
+}
+
+function pdfCellHtml(it, q) {
+  const c = it.codes[q] || '';
+  const s = ENTRY_STATES[entryStateIdx(PDF_CODE_ST[c])];
+  const u = it.unsure[q];
+  const hasNote = it.notes.some(n => n.q === q + 1);
+  const locked = it.status === 'saved' || it.status === 'saving' || it.savedScore != null;
+  return `<button ${locked ? 'disabled' : ''} onclick="pdfTap('${it.id}', ${q})" title="${u ? 'ไม่แน่ใจ: ' + u : ''}"
+    data-q="${q + 1}" data-code="${c}" data-unsure="${u ? 1 : 0}"
+    style="aspect-ratio:1; min-height:40px; border-radius:9px; cursor:${locked ? 'default' : 'pointer'};
+           border:${u ? '3px dashed var(--orange)' : '1px solid var(--line)'};
+           background:${c ? s.bg : 'var(--bg)'}; color:${c ? s.color : 'var(--gray-soft)'};
+           font-family:var(--font-num); font-weight:700; font-size:12px; display:flex; flex-direction:column;
+           align-items:center; justify-content:center; line-height:1.1; position:relative;">
+      <span style="font-size:9px; opacity:.7;">${q + 1}</span><span>${u ? '?' : (c ? s.short : '·')}</span>
+      ${hasNote ? '<span style="position:absolute; top:1px; right:3px; font-size:9px;">📝</span>' : ''}
+    </button>`;
+}
+
+function pdfItemHtml(d, it) {
+  const n = { O: 0, blank: 0, other: 0 };
+  it.codes.forEach(c => { if (c === 'O') n.O++; else if (!c) n.blank++; else n.other++; });
+  const unsureN = it.unsure.filter(Boolean).length;
+  const probs = it.status === 'ready' ? pdfProblems(it) : [];
+  const w = weightedScore(state.entry.chapter, it.codes.map(c => PDF_CODE_ST[c]));
+  const full = fullOfChapter(state.entry.chapter);
+  const stuOpts = (d.students || []).filter(s => s.active || s.full === it.full).sort((a, b) => String(a.group).localeCompare(String(b.group), 'th') || String(a.name).localeCompare(String(b.name), 'th'));
+  const tone = it.status === 'saved' ? 'var(--success)' : it.status === 'error' ? 'var(--danger)' : (probs.length ? 'var(--orange)' : 'var(--line)');
+  return `
+  <div class="card pdf-item" data-id="${it.id}" data-status="${it.status}" style="border:2px solid ${tone};">
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <div style="font-size:13px; color:var(--gray-dark); min-width:0; overflow:hidden; text-overflow:ellipsis;">📄 ${pdfEsc(it.fileName)}</div>
+      <select class="pdf-stu" ${it.status === 'saved' ? 'disabled' : ''} onchange="pdfSetStudent('${it.id}', this.value)"
+              style="flex:1; min-width:200px; padding:7px 10px; border-radius:8px; border:1px solid ${it.full ? 'var(--line)' : 'var(--danger)'};">
+        <option value="">— เลือกนักเรียน (อ่านจากชื่อไฟล์ไม่เจอ) —</option>
+        ${stuOpts.map(s => `<option value="${pdfEsc(s.full)}" ${s.full === it.full ? 'selected' : ''}>${pdfEsc(s.full)}</option>`).join('')}
+      </select>
+      ${it.status !== 'saved' ? `<button class="btn btn--ghost btn--sm" onclick="pdfRemove('${it.id}')">✕</button>` : ''}
+    </div>
+    ${it.status === 'reading' ? `<div style="padding:18px; text-align:center; color:var(--gray-dark);">กำลังอ่านไฟล์…</div>` : it.status === 'error' ? '' : `
+    <div style="display:grid; grid-template-columns:repeat(15,1fr); gap:4px; margin-top:12px;">
+      ${it.codes.map((c, q) => pdfCellHtml(it, q)).join('')}
+    </div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:10px; font-size:13px;">
+      <span>ถูก <b style="font-family:var(--font-num);">${n.O}</b>/30${w != null ? ` · <b style="font-family:var(--font-num);">${w}</b>/${full} คะแนน` : ''}</span>
+      <span style="color:var(--gray-dark);">· ผิด (ครูให้) ${n.other} · <b>ว่าง ${n.blank}</b> = ให้นักเรียนเติมเอง</span>
+      ${unsureN ? `<span class="pdf-unsure" style="color:var(--orange); font-weight:700;">· ไม่แน่ใจ ${unsureN} ข้อ</span>
+        <button class="btn btn--ghost btn--sm" onclick="pdfConfirmAll('${it.id}')">ยืนยันตามที่อ่านได้</button>` : ''}
+    </div>
+    ${it.notes.length ? `<div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+      ${it.notes.map(nt => `
+        <div class="pdf-note" data-note="${nt.noteId}" style="border:1px solid var(--line); border-radius:10px; padding:6px; max-width:320px;">
+          <img src="${nt.dataUrl}" style="max-width:100%; max-height:110px; display:block; border-radius:6px;">
+          <div style="display:flex; gap:6px; align-items:center; margin-top:6px; font-size:12px;">
+            📝 โน้ตข้อ
+            <select ${it.status === 'saved' ? 'disabled' : ''} onchange="pdfNoteQ('${it.id}', '${nt.noteId}', this.value)" style="padding:3px 6px; border-radius:6px;">
+              ${Array.from({ length: 30 }, (_, i) => i + 1).map(q => `<option value="${q}" ${q === nt.q ? 'selected' : ''}>${q}${nt.touch.indexOf(q) !== -1 ? ' •' : ''}</option>`).join('')}
+            </select>
+            ${nt.saved ? '<span style="color:var(--success);">✓</span>' : ''}
+            ${it.status !== 'saved' ? `<button class="btn btn--ghost btn--sm" style="margin-left:auto;" onclick="pdfNoteDrop('${it.id}', '${nt.noteId}')">ไม่ใช้ภาพนี้</button>` : ''}
+          </div>
+        </div>`).join('')}
+    </div>` : ''}`}
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px;">
+      <div class="pdf-msg" style="flex:1; font-size:12px; color:${it.status === 'saved' ? 'var(--success)' : (probs.length || it.status === 'error' ? 'var(--danger)' : 'var(--gray-dark)')};">
+        ${pdfEsc(it.msg || '')}${probs.length ? (it.msg ? ' · ' : '') + probs.map(pdfEsc).join(' · ') : ''}
+      </div>
+      ${(it.status === 'ready' || it.status === 'partial') ? `<button class="btn btn--primary btn--sm" onclick="pdfSaveItem('${it.id}')" ${probs.length ? 'disabled' : ''}>💾 บันทึกใบนี้</button>` : ''}
+    </div>
+  </div>`;
+}
+
+function pdfListHtml(d) {
+  const ps = pdfState();
+  const ready = ps.items.filter(x => (x.status === 'ready' || x.status === 'partial') && !pdfProblems(x).length).length;
+  const saved = ps.items.filter(x => x.status === 'saved').length;
+  return `
+    ${ps.items.length ? `<div class="card" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <div style="flex:1; font-size:14px;">ไฟล์ ${ps.items.length} ใบ · พร้อมบันทึก <b>${ready}</b> · บันทึกแล้ว ${saved}${ps.busy ? ' · กำลังอ่าน…' : ''}</div>
+      ${saved ? `<button class="btn btn--ghost btn--sm" onclick="pdfClearSaved()">ซ่อนใบที่บันทึกแล้ว</button>` : ''}
+      <button class="btn btn--primary btn--sm" onclick="pdfSaveAll()" ${ready ? '' : 'disabled'}>💾 บันทึกทั้งหมด (${ready})</button>
+    </div>` : ''}
+    ${ps.items.map(it => pdfItemHtml(d, it)).join('')}`;
+}
+
+function pdfPaint() {
+  const el = document.getElementById('pdfList');
+  const d = state.examData || pdfState().d;      /* หลังบันทึก examData ถูกล้างให้ดึงใหม่ → ใช้ชุดที่จำไว้ */
+  if (!el || !d) return;
+  el.innerHTML = pdfListHtml(d);
+}
+
+function pdfEntryHtml(d, e) {
+  pdfState().d = d;
+  const stdOk = isStdChapter(e.chapter) || isMockChapter(e.chapter);
+  return `
+    <div class="card">
+      <div class="card__head">
+        <span class="card__title">📄 ลากไฟล์ใบตรวจ PDF มาวาง</span>
+        <span style="font-size:11px; color:var(--gray-dark);">บท <b>${pdfEsc(e.chapter)}</b> · วันที่ ${pdfEsc(e.date)} (เปลี่ยนได้ที่ช่องด้านบน)</span>
+      </div>
+      ${stdOk ? '' : '<div style="color:var(--danger); font-size:13px; margin-bottom:8px;">⚠️ บทที่เลือกไม่ใช่ชื่อมาตรฐาน — ใบตรวจบันทึกได้เฉพาะบทมาตรฐาน</div>'}
+      <label id="pdfDrop" ondragover="event.preventDefault(); this.style.background='var(--bg-soft)';"
+             ondragleave="this.style.background='';" ondrop="pdfDrop(event)"
+             style="display:block; border:2px dashed var(--line); border-radius:14px; padding:26px; text-align:center; cursor:pointer;">
+        <input type="file" id="pdfFiles" accept="application/pdf,.pdf" multiple style="display:none;" onchange="pdfPick(this.files); this.value='';">
+        <div style="font-size:28px;">📄</div>
+        <div style="font-size:14px; font-weight:700; margin-top:4px;">แตะเพื่อเลือกไฟล์ หรือลากมาวางที่นี่ (หลายไฟล์ได้)</div>
+        <div style="font-size:12px; color:var(--gray-dark); margin-top:6px; line-height:1.6;">
+          ตั้งชื่อไฟล์เป็น <b>ชื่อ กลุ่ม</b> เช่น <code>เมฆ วันพุธ.pdf</code> · ระบบอ่านช่องที่ติ๊กเอง (ไม่ใช้ AI)<br>
+          ข้อที่ว่าง = นักเรียนยังไม่ได้ส่งตรวจ → นักเรียนเติมเองใน dashboard · ภาพในช่อง Notes ส่งให้นักเรียนดูได้
+        </div>
+      </label>
+    </div>
+    <div id="pdfList">${pdfListHtml(d)}</div>`;
+}
+
+/* ─────────── ใบตรวจที่นักเรียนแก้/ขอแก้ (แสดงบนหน้ารอตรวจ) ─────────── */
+let _gradeList = null, _gradeBadgeAt = 0, _gradeLoading = false;
+const GRADE_CODE_TXT = { O: '✅', W: '⚠️', C: 'C', X: 'X', T: '⏰', '': 'ว่าง' };
+
+async function gradeLoad() {
+  if (_gradeLoading) return;
+  _gradeLoading = true;
+  const j = await pendCall({ action: 'gradeList' });
+  _gradeLoading = false;
+  _gradeList = (j && j.ok) ? j : { ok: false, items: [] };
+  gradePaintBadge();
+  if (state.view === 'pending') {
+    const el = document.getElementById('gradeReview');
+    if (el) el.innerHTML = gradeReviewInner();
+  }
+}
+
+function gradeReqTotal() {
+  return ((_gradeList && _gradeList.items) || []).reduce((s, x) => s + (x.reqCount || 0), 0);
+}
+
+function gradePaintBadge() {
+  const el = document.getElementById('gradeBadge');
+  if (!el) return;
+  const n = gradeReqTotal();
+  el.innerHTML = n ? ` <span title="นักเรียนขอแก้ข้อที่เกี่ยวกับ ✅ ${n} ข้อ" style="display:inline-block; min-width:18px; padding:0 5px; background:#7C3AED; color:#fff; border-radius:999px; font-size:11px; font-family:var(--font-num); line-height:18px; text-align:center;">✎${n}</span>` : '';
+}
+
+async function refreshGradeBadge(force) {
+  if (!SCRIPT_URL) return;
+  if (!force && Date.now() - _gradeBadgeAt < 60000) return;
+  _gradeBadgeAt = Date.now();
+  try { await gradeLoad(); } catch (e) {}
+}
+
+function gradeReviewInner() {
+  if (!_gradeList) return '<div style="color:var(--gray-dark); font-size:13px;">กำลังโหลดใบตรวจ…</div>';
+  const items = (_gradeList.items || []).filter(x => x.reqCount || x.changed || x.needFill);
+  if (!items.length) return '<div style="color:var(--gray-dark); font-size:13px;">ยังไม่มีใบตรวจที่นักเรียนต้องเติมหรือขอแก้</div>';
+  const reqFirst = items.slice().sort((a, b) => (b.reqCount - a.reqCount) || (a.updatedAt < b.updatedAt ? 1 : -1));
+  return reqFirst.slice(0, 60).map(function (x) {
+    const reqs = Object.keys(x.requests || {}).map(Number).sort((a, b) => a - b).map(function (q) {
+      const r = x.requests[q];
+      return `<div class="grade-req" data-q="${q}" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:6px 0; border-top:1px dashed var(--line);">
+        <span style="font-weight:700;">ข้อ ${q}</span>
+        <span>${GRADE_CODE_TXT[x.teacher[q - 1]]} ครู → ${GRADE_CODE_TXT[r.from]} ตอนนี้ → ขอเป็น <b>${GRADE_CODE_TXT[r.to]}</b></span>
+        <span style="color:var(--gray-dark); font-size:12px; flex:1;">${pdfEsc(r.why || '')}</span>
+        <button class="btn btn--primary btn--sm" onclick="gradeResolveUI('${x.gid}', ${q}, true)">ยอมรับ</button>
+        <button class="btn btn--ghost btn--sm" onclick="gradeResolveUI('${x.gid}', ${q}, false)">ไม่ยอมรับ</button>
+      </div>`;
+    }).join('');
+    const direct = (x.log || []).filter(l => l.by === 'student' && l.kind === 'direct' && x.teacher[l.q - 1] && x.final[l.q - 1] !== x.teacher[l.q - 1]);
+    const seen = {};
+    const changes = direct.reverse().filter(l => !seen[l.q] && (seen[l.q] = 1)).map(l =>
+      `<span class="grade-chg" style="display:inline-flex; gap:6px; align-items:center; padding:3px 8px; border-radius:999px; background:var(--bg-soft); font-size:12px; margin:2px;">
+        ข้อ ${l.q}: ${GRADE_CODE_TXT[x.teacher[l.q - 1]]} → ${GRADE_CODE_TXT[x.final[l.q - 1]]}${l.why ? ' · ' + pdfEsc(l.why) : ''}
+        <a href="#" onclick="gradeRevertUI('${x.gid}', ${l.q}); return false;" style="color:var(--danger);">คืนค่าครู</a>
+      </span>`).join('');
+    return `<div class="grade-card" data-gid="${x.gid}" style="padding:10px 0; border-bottom:1px solid var(--line);">
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <b>${pdfEsc(x.full)}</b><span style="color:var(--gray-dark); font-size:12px;">${pdfEsc(x.chapter)} · ${pendFmtDate(x.date)}</span>
+        ${x.reqCount ? `<span style="color:#7C3AED; font-weight:700; font-size:12px;">ขอแก้ ${x.reqCount} ข้อ</span>` : ''}
+        ${x.needFill ? `<span style="color:var(--orange); font-size:12px;">นักเรียนยังไม่เติม ${x.needFill} ข้อ</span>` : ''}
+        <button class="btn btn--ghost btn--sm" style="margin-left:auto;" onclick="gradeLockUI('${x.gid}', ${x.state !== 'locked'})">${x.state === 'locked' ? '🔓 ปลดล็อก' : '🔒 ล็อกใบนี้'}</button>
+      </div>
+      ${reqs}
+      ${changes ? `<div style="margin-top:6px;">${changes}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function gradeReviewCard() {
+  if (_gradeList === null) gradeLoad();
+  return `<div class="card">
+    <div class="card__head">
+      <span class="card__title">📄 ใบตรวจ — นักเรียนเติม/ขอแก้</span>
+      <button class="btn btn--ghost btn--sm" onclick="_gradeList=null; gradeLoad(); document.getElementById('gradeReview').innerHTML=gradeReviewInner();">โหลดใหม่</button>
+    </div>
+    <div style="font-size:12px; color:var(--gray-dark); margin-bottom:6px;">
+      นักเรียนแก้ข้อที่ไม่กระทบคะแนนได้เอง (เช่น C → ⚠️) · อะไรที่เข้า/ออกจาก ✅ ต้องรอครูกดยอมรับ
+    </div>
+    <div id="gradeReview">${gradeReviewInner()}</div>
+  </div>`;
+}
+
+async function gradeResolveUI(gid, q, accept) {
+  const j = await pendCall({ action: 'gradeResolve', gid: gid, q: q, accept: !!accept });
+  if (j && j.ok) { toast(accept ? 'ยอมรับข้อ ' + q + ' แล้ว' : 'ไม่ยอมรับข้อ ' + q, 'success'); state.examData = null; }
+  else toast('ไม่สำเร็จ: ' + ((j && j.error) || 'เชื่อมต่อไม่ได้'), 'error');
+  await gradeLoad();
+}
+
+async function gradeRevertUI(gid, q) {
+  if (!confirm('คืนค่าข้อ ' + q + ' เป็นที่ครูให้ไว้?')) return;
+  const j = await pendCall({ action: 'gradeRevert', gid: gid, q: q });
+  if (j && j.ok) { toast('คืนค่าข้อ ' + q + ' แล้ว', 'success'); state.examData = null; }
+  else toast('ไม่สำเร็จ: ' + ((j && j.error) || 'เชื่อมต่อไม่ได้'), 'error');
+  await gradeLoad();
+}
+
+async function gradeLockUI(gid, locked) {
+  const j = await pendCall({ action: 'gradeLock', gid: gid, locked: !!locked });
+  if (!(j && j.ok)) toast('ไม่สำเร็จ: ' + ((j && j.error) || 'เชื่อมต่อไม่ได้'), 'error');
+  await gradeLoad();
+}
+
 function entryCounts() {
   const n = { ok: 0, careless: 0, concept: 0, cannot: 0, timeout: 0, blank: 0 };
   state.entry.st.forEach(v => {
@@ -7252,7 +7949,7 @@ function renderPending(body) {
   }
 
   if (!p.items.length) {
-    body.innerHTML = `
+    body.innerHTML = gradeReviewCard() + `
       <div class="empty">
         <h3>ไม่มีรายการรอตรวจ</h3>
         <p>เมื่อนักเรียนกรอกคะแนนเองในเว็บนักเรียน รายการจะมาโผล่ที่นี่<br>
@@ -7273,6 +7970,7 @@ function renderPending(body) {
       <button class="btn btn--ghost btn--sm" onclick="state.pending.items=null; state.pending.edit={}; state.pending.open={}; renderPending(document.getElementById('mainBody'));">โหลดใหม่</button>
       <button class="btn btn--primary btn--sm" onclick="pendApproveAll()">อนุมัติทั้งหมด</button>
     </div>
+    ${gradeReviewCard()}
     ${p.items.map(pendCardHtml).join('')}
   `;
 }
