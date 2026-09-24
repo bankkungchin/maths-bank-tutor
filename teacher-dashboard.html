@@ -7993,7 +7993,9 @@ async function refreshGradeBadge(force) {
 function gradeReviewInner() {
   if (!_gradeList) return '<div style="color:var(--gray-dark); font-size:13px;">กำลังโหลดใบตรวจ…</div>';
   const all = _gradeList.items || [];
-  const items = _gradeShowAll ? all.slice(0, 40) : all.filter(x => x.reqCount || x.changed || x.needFill || x.unseen);
+  /* ★ 26 ก.ย. 69 — แสดงเฉพาะใบที่ครูยังต้องทำอะไร: มีคำขอ ✅ · มีการแก้ที่ยังไม่รับทราบ · ยังว่าง (และยังไม่ปิดการแก้)
+     เดิมนับ "เคยถูกแก้" (changed) ด้วย ใบที่เติมครบแล้วจึงค้างอยู่ตลอดไป */
+  const items = _gradeShowAll ? all.slice(0, 40) : all.filter(x => x.reqCount || x.unseen || (x.needFill && x.state !== 'locked'));
   const uAll = gradeUnseenTotal();
   const alert = uAll ? `<div class="grade-unseen-bar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; padding:8px 12px; border-radius:10px; background:#FEE2E2; border:1.5px solid #DC2626; color:#991B1B; font-size:13px;">
       🔔 <b>นักเรียนแก้คะแนนในใบตรวจเอง ${uAll} ข้อ</b> (ยังไม่ได้รับทราบ · คะแนนใน results เปลี่ยนแล้ว)
@@ -8028,7 +8030,9 @@ function gradeReviewInner() {
         ${x.unseen ? `<span class="grade-unseen" style="color:#DC2626; font-weight:700; font-size:12px;">🔔 แก้เอง ${x.unseen} ข้อ</span>
           <button class="btn btn--ghost btn--sm" onclick="gradeAckUI('${x.gid}')">✓ รับทราบ</button>` : ''}
         <button class="btn btn--ghost btn--sm" style="margin-left:auto;" onclick="_gradeEditGid=_gradeEditGid==='${x.gid}'?'':'${x.gid}'; document.getElementById('gradeReview').innerHTML=gradeReviewInner();">✏️ แก้บท/วันที่</button>
-        <button class="btn btn--ghost btn--sm" onclick="gradeLockUI('${x.gid}', ${x.state !== 'locked'})">${x.state === 'locked' ? '🔓 ปลดล็อก' : '🔒 ล็อกใบนี้'}</button>
+        ${x.state === 'locked' ? '<span class="grade-locked" style="font-size:12px; color:var(--gray-dark);">🔒 ปิดการแก้แล้ว</span>' : ''}
+        <button class="btn btn--ghost btn--sm grade-lock-btn" onclick="gradeLockUI('${x.gid}', ${x.state !== 'locked'}, ${x.needFill || 0})"
+          title="${x.state === 'locked' ? 'เปิดให้นักเรียนเติมข้อว่าง/แก้สัญลักษณ์/ขอแก้ ✅ ได้อีกครั้ง' : 'นักเรียนจะเติม แก้ หรือขอแก้อะไรในใบนี้ไม่ได้อีก (คะแนนไม่เปลี่ยน · กดเปิดคืนได้ทุกเมื่อ) — ใบจะหายจากรายการที่ต้องจัดการ'}">${x.state === 'locked' ? '🔓 เปิดให้นักเรียนแก้' : '🔒 ปิดการแก้ของนักเรียน'}</button>
       </div>
       ${_gradeEditGid === x.gid ? gradeEditForm(x) : ''}
       ${reqs}
@@ -8046,6 +8050,10 @@ function gradeReviewCard() {
     </div>
     <div style="font-size:12px; color:var(--gray-dark); margin-bottom:6px;">
       นักเรียนแก้ข้อที่ไม่กระทบคะแนนได้เอง (เช่น C → ⚠️) · อะไรที่เข้า/ออกจาก ✅ ต้องรอครูกดยอมรับ
+    </div>
+    <div class="grade-help" style="font-size:12px; color:var(--gray-dark); margin-bottom:6px; line-height:1.6;">
+      ใบจะหายจากรายการนี้เองเมื่อ <b>นักเรียนเติมครบ 30 ข้อ</b> + <b>ไม่มีคำขอ ✅ ค้าง</b> + <b>ครูกดรับทราบการแก้แล้ว</b> — หรือเมื่อครูกด <b>🔒 ปิดการแก้ของนักเรียน</b>
+      · ใบเก่าทั้งหมดยังดูได้ที่ "ดูใบตรวจทั้งหมด"
     </div>
     <div id="gradeReview">${gradeReviewInner()}</div>
   </div>`;
@@ -8101,7 +8109,9 @@ async function gradeRevertUI(gid, q) {
   await gradeLoad();
 }
 
-async function gradeLockUI(gid, locked) {
+async function gradeLockUI(gid, locked, needFill) {
+  /* ★ 26 ก.ย. 69 — ปิดตอนยังมีข้อว่าง = นักเรียนเติมไม่ได้ ผลจะติดป้าย ⏳ ไม่ครบ ค้างไว้ */
+  if (locked && needFill && !confirm('ใบนี้ยังว่าง ' + needFill + ' ข้อ\n\nถ้าปิดการแก้ตอนนี้ นักเรียนจะเติมข้อที่เหลือไม่ได้ และผลจะขึ้นว่า "ยังไม่ครบ 30 ข้อ" จนกว่าครูจะเปิดคืน\n\nปิดเลยไหม?')) return;
   const j = await pendCall({ action: 'gradeLock', gid: gid, locked: !!locked });
   if (!(j && j.ok)) toast('ไม่สำเร็จ: ' + ((j && j.error) || 'เชื่อมต่อไม่ได้'), 'error');
   await gradeLoad();
