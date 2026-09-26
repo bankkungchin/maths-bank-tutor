@@ -4438,27 +4438,30 @@ async function endOnlineCheckin() {
 
 function cancelOnlineCheckin() {
   showModal({
-    title: 'ยกเลิกการเช็คชื่อ',
-    body: 'รหัสเช็คชื่อจะถูกลบ · ข้อมูลที่นักเรียนเช็คแล้วจะยังอยู่ แต่คนที่ยังไม่เช็คจะไม่ถูกบันทึกเป็นขาด',
+    title: 'ยกเลิกการเช็คชื่อออนไลน์',
+    body: 'จะไม่มีการบันทึกลงตารางเช็คชื่อเลย — ไม่มีใครถูกมาร์ค "ขาด" และคนที่กดเช็คไปแล้วก็ไม่ถูกบันทึกด้วย '
+        + 'คาบนี้เหมือนไม่เคยเปิดเช็คชื่อออนไลน์ · รหัสนี้จะถูกลบออกจากระบบทันที นักเรียนกดต่อไม่ได้ · '
+        + 'อยากเช็คชื่อคาบนี้ภายหลัง เปิดรหัสใหม่ได้เหมือนเดิม<br><br>'
+        + 'ถ้าต้องการจบคาบพร้อมมาร์คคนที่ยังไม่เช็คเป็น "ขาด" ให้กดปุ่ม "จบคาบ" แทน',
     actions: [
       { label: 'ไม่ยกเลิก', class: 'btn--ghost', onClick: closeModal },
       { label: 'ยกเลิก', class: 'btn--danger', onClick: async () => {
         closeModal();
         clearInterval(state.onlineCheckin.pollTimer);
         clearActiveCheckin();
-        // ลบ active_checkin ผ่าน endCheckin (แต่ไม่ mark absent)
+        // ★ 26 ก.ย. 69 — ยิง cancelCheckin (ไม่ใช่ endCheckin) เพื่อไม่ให้มาร์คใครเป็นขาด
         try {
           await gsFetch(SCRIPT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'endCheckin', token: teacherToken(), checkinCode: state.onlineCheckin.code })
+            body: JSON.stringify({ action: 'cancelCheckin', token: teacherToken(), checkinCode: state.onlineCheckin.code })
           });
         } catch(e) {}
         state.onlineCheckin.code = null;
         state.onlineCheckin.session = null;
         state.view = 'attendance';
         renderAll();
-        toast('ยกเลิกการเช็คชื่อแล้ว', 'success');
+        toast('ยกเลิกการเช็คชื่อออนไลน์แล้ว — ไม่มีการบันทึกลงตารางเช็คชื่อ', 'success');
       }}
     ]
   });
