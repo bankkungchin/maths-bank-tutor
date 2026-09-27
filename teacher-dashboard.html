@@ -3476,6 +3476,9 @@ function showSessionSummary(groupId, sessionNo) {
       '</div>',
     actions: [
       { label: 'ปิด', class: 'btn--ghost', onClick: closeModal },
+      { label: '🔄 รีเซ็ตคาบนี้', class: 'btn--ghost btn--danger', onClick: function () {
+          resetSessionAttendance(g.id, sess.no);
+        } },
       { label: '📋 คัดลอกสรุป', class: 'btn--primary', onClick: function () {
           const text = buildSessionSummaryText(g, sess);
           navigator.clipboard.writeText(text).then(
@@ -4734,6 +4737,70 @@ function overrideAttendanceDetail(groupId, sessionNo, studentId, newStatus, note
   toast(newStatus ? `แก้เป็น ${statusLabel(newStatus)} แล้ว` : 'บันทึกเหตุผลแล้ว', 'success');
   renderMain();
   showAttendanceDetail(groupId, sessionNo, studentId);   // เปิดค้างไว้ ให้แก้คนต่อไปหรือแก้ซ้ำได้เลย
+}
+
+/* ★ 27 ก.ย. 69 — ปุ่มรีเซ็ตคาบเรียน เผื่อเช็คชื่อผิดคาบ/ทดสอบระบบ
+   ล้างเฉพาะฝั่งเครื่องครู (state.data) แล้ว sync ทับชีตด้วย action เดิม (syncData) —
+   ไม่เพิ่ม action ใหม่ฝั่ง server เพื่อไม่ให้ผิดคู่มือ "เปลี่ยนท่อ ไม่เปลี่ยนหน้าจอ" ตอนย้าย Supabase */
+function resetSessionAttendance(groupId, sessionNo) {
+  const g = state.data.groups.find(x => x.id === groupId);
+  if (!g) return;
+  const session = (g.sessions || []).find(s => s.no === Number(sessionNo));
+  if (!session) return;
+
+  // กันรีเซ็ตคาบที่กำลังเปิดเช็คชื่อออนไลน์ค้างอยู่ — ไม่งั้นพอครูกดจบคาบ/นักเรียนเช็คต่อ
+  // ข้อมูลจะถูกเขียนกลับเข้ามาทันที (recordCheckinCore เขียน teacher_data ตอนเช็คชื่อเลย ไม่รอจบคาบ)
+  if (state.onlineCheckin && state.onlineCheckin.code && state.onlineCheckin.session &&
+      String(state.onlineCheckin.session.groupId) === String(groupId) &&
+      Number(state.onlineCheckin.session.sessionNo) === Number(sessionNo)) {
+    toast('คาบนี้กำลังเปิดเช็คชื่อออนไลน์อยู่ — กด "จบคาบ" หรือ "ยกเลิก" ก่อน แล้วค่อยรีเซ็ต', 'error');
+    return;
+  }
+
+  const hasData = session.attendance && session.attendance.records &&
+    Object.keys(session.attendance.records).some(k => session.attendance.records[k].status && session.attendance.records[k].status !== 'pending');
+
+  showModal({
+    title: 'รีเซ็ตคาบนี้?',
+    body:
+      '<div style="font-size:14px; line-height:1.75;">' +
+        'ข้อมูลเช็คชื่อ<b>ทั้งหมด</b>ของคาบนี้ (มา/สาย/ลา/ขาด/เวลาเช็คชื่อ) จะถูกล้างกลับเป็น <b>ยังไม่เช็คชื่อ</b> ทุกคน<br>' +
+        'สถานะ "จบคาบแล้ว" ของคาบนี้จะถูกยกเลิกด้วย (เปิดเช็คชื่อใหม่ได้อีกครั้ง)<br><br>' +
+        '<span style="color:#B42318;"><b>กู้คืนไม่ได้</b></span> — ใช้เมื่อเช็คชื่อผิดคาบหรือทดสอบระบบเท่านั้น' +
+        (!hasData ? '<br><br><i style="color:var(--gray-dark);">(คาบนี้ยังไม่มีข้อมูลเช็คชื่อเลยตอนนี้)</i>' : '') +
+      '</div>',
+    actions: [
+      { label: 'ไม่รีเซ็ต', class: 'btn--ghost', onClick: closeModal },
+      { label: '🔄 ยืนยันรีเซ็ต', class: 'btn--danger', onClick: async function () {
+          session.attendance = { startedAt: null, finishedAt: null, records: {} };
+          if (session.status === 'done') delete session.status;
+          saveData();
+          autoSync();
+          closeModal();
+          renderMain();
+
+          // ★ 27 ก.ย. 69 — ล้าง audit log ดิบใน checkin_records (+ active_checkins ค้าง) ของคาบนี้ด้วย
+          // ทำแยกจาก syncData (คนละที่เก็บใน Sheet) — ถ้าเน็ตหลุดตรงนี้ ตารางเข้าเรียนที่ครูเห็นก็ยังว่างถูกต้องแล้ว
+          // แค่ audit log ดิบจะยังค้าง กดรีเซ็ตซ้ำอีกทีได้ ไม่ error
+          if (!SCRIPT_URL) { toast('รีเซ็ตคาบเรียบร้อยแล้ว (ยังไม่ได้เชื่อม Google Sheet — ไม่มี audit log ต้องล้าง)', 'success'); return; }
+          try {
+            const res = await gsFetch(SCRIPT_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ action: 'resetSessionRecords', token: teacherToken(), groupId: groupId, sessionNo: session.no })
+            });
+            const result = await res.json();
+            if (result.ok) {
+              toast(`รีเซ็ตคาบเรียบร้อยแล้ว · ล้าง audit log ${result.deletedRecords} แถว` + (result.deletedActive ? ` · เก็บกวาดรหัสค้าง ${result.deletedActive} แถว` : ''), 'success');
+            } else {
+              toast('รีเซ็ตตารางเข้าเรียนแล้ว แต่ล้าง audit log ไม่สำเร็จ: ' + (result.error || '') + ' — กดรีเซ็ตคาบนี้ซ้ำได้', 'error');
+            }
+          } catch (e) {
+            toast('รีเซ็ตตารางเข้าเรียนแล้ว แต่เชื่อมต่อล้าง audit log ไม่ได้: ' + e.message + ' — กดรีเซ็ตคาบนี้ซ้ำได้', 'error');
+          }
+        } }
+    ]
+  });
 }
 
 /* PRINT — Attendance report A4 */
