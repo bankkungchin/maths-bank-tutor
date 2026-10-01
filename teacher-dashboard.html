@@ -4772,17 +4772,22 @@ function resetSessionAttendance(groupId, sessionNo) {
     actions: [
       { label: 'ไม่รีเซ็ต', class: 'btn--ghost', onClick: closeModal },
       { label: '🔄 ยืนยันรีเซ็ต', class: 'btn--danger', onClick: async function () {
-          session.attendance = { startedAt: null, finishedAt: null, records: {} };
-          if (session.status === 'done') delete session.status;
-          saveData();
-          autoSync();
           closeModal();
-          renderMain();
 
-          // ★ 27 ก.ย. 69 — ล้าง audit log ดิบใน checkin_records (+ active_checkins ค้าง) ของคาบนี้ด้วย
-          // ทำแยกจาก syncData (คนละที่เก็บใน Sheet) — ถ้าเน็ตหลุดตรงนี้ ตารางเข้าเรียนที่ครูเห็นก็ยังว่างถูกต้องแล้ว
-          // แค่ audit log ดิบจะยังค้าง กดรีเซ็ตซ้ำอีกทีได้ ไม่ error
-          if (!SCRIPT_URL) { toast('รีเซ็ตคาบเรียบร้อยแล้ว (ยังไม่ได้เชื่อม Google Sheet — ไม่มี audit log ต้องล้าง)', 'success'); return; }
+          // ★ 27 ก.ย. 69 (v2) — ไม่ล้าง state.data ในเครื่องเองอีกต่อไป (ของเดิมทำแล้วเจอบั๊ก:
+          // renderMain() ที่เรียกทันทีหลังล้าง ไปโดน auto-pull ทุก 60 วิ ดึง teacher_data "ของเก่า"
+          // จากเซิร์ฟเวอร์ (autoSync ยังไม่ทันพุชขึ้นเพราะหน่วง 3 วิ) กลับมาทับ ข้อมูลเก่าเลยเด้งคืน
+          // — เหมือนบั๊ก cancelCheckin รอบ 2 เป๊ะ)
+          // ใหม่: ให้เซิร์ฟเวอร์ล้าง teacher_data + audit log ในคำสั่งเดียวจบ (atomic) แล้วค่อยโหลดของจริงกลับมา
+          if (!SCRIPT_URL) {
+            // ไม่ได้เชื่อม Google Sheet เลย — รีเซ็ตได้แค่ฝั่งเครื่องนี้เครื่องเดียว ไม่มี audit log ต้องล้าง
+            session.attendance = { startedAt: null, finishedAt: null, records: {} };
+            if (session.status === 'done') delete session.status;
+            saveData();
+            renderMain();
+            toast('รีเซ็ตคาบเรียบร้อยแล้ว (ยังไม่ได้เชื่อม Google Sheet)', 'success');
+            return;
+          }
           try {
             const res = await gsFetch(SCRIPT_URL, {
               method: 'POST',
@@ -4791,12 +4796,15 @@ function resetSessionAttendance(groupId, sessionNo) {
             });
             const result = await res.json();
             if (result.ok) {
+              await loadFromSheet();   // ดึงของจริงจากเซิร์ฟเวอร์ทับของเก่าในเครื่อง — การันตีไม่มีของเก่าเด้งกลับ
+              state.view = 'attendance';
+              renderAll();
               toast(`รีเซ็ตคาบเรียบร้อยแล้ว · ล้าง audit log ${result.deletedRecords} แถว` + (result.deletedActive ? ` · เก็บกวาดรหัสค้าง ${result.deletedActive} แถว` : ''), 'success');
             } else {
-              toast('รีเซ็ตตารางเข้าเรียนแล้ว แต่ล้าง audit log ไม่สำเร็จ: ' + (result.error || '') + ' — กดรีเซ็ตคาบนี้ซ้ำได้', 'error');
+              toast('รีเซ็ตไม่สำเร็จ: ' + (result.error || ''), 'error');
             }
           } catch (e) {
-            toast('รีเซ็ตตารางเข้าเรียนแล้ว แต่เชื่อมต่อล้าง audit log ไม่ได้: ' + e.message + ' — กดรีเซ็ตคาบนี้ซ้ำได้', 'error');
+            toast('เชื่อมต่อไม่ได้: ' + e.message, 'error');
           }
         } }
     ]
@@ -6573,12 +6581,22 @@ function entryScoreIndex(d, group) {
 function entryIsSkip(map, group, ck, full) { return !!map[ignoreKeyOf(group, ck, full)]; }
 
 /* ป้ายสถานะของคู่ (คน × บท) — ใช้ทั้ง dropdown ชื่อและ dropdown บท */
+/* วันที่ท้ายตัวเลือกบท — วันที่ในชีตอาจไม่ใช่ YYYY-MM-DD (เช่น ISO มีเวลา) ทำให้ thDate ได้ "NaN undefined NaN"
+   อ่านไม่ได้ = ไม่แสดงวันที่ แทนที่จะแสดงข้อความขยะ */
+function entryDateLabel(v) {
+  if (!v) return '';
+  let dt = (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) ? parseDate(v) : new Date(v);
+  if (!dt || isNaN(dt.getTime()) || dt.getFullYear() < 1990) return '';
+  const y = (dt.getFullYear() + 543) % 100;
+  return `${dt.getDate()} ${THAI_MONTHS[dt.getMonth()]} ${String(y).padStart(2,'0')}`;
+}
+
 function entryMark(idx, skipMap, group, ck, full) {
   if (entryIsSkip(skipMap, group, ck, full)) return { k: 'skip', t: '— ไม่ได้เรียน' };
   const hit = idx[ck] && idx[ck][full];
   if (hit) {
     const sc = (hit.score === '' || hit.score == null) ? 'กรอกแล้ว' : hit.score + '/30';
-    return { k: 'done', t: '✓ ' + sc + (hit.date ? ' · ' + thDate(hit.date) : '') };
+    return { k: 'done', t: '✓ ' + sc + (entryDateLabel(hit.date) ? ' · ' + entryDateLabel(hit.date) : '') };
   }
   if (!idx[ck]) return { k: 'never', t: '' };     /* กลุ่มนี้ยังไม่เคยสอบบทนี้ — ไม่ถือว่าค้าง */
   return { k: 'miss', t: '• ยังไม่กรอก' };
