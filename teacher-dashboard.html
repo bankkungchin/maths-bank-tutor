@@ -7112,7 +7112,8 @@ function pasteEntryHtml(d, e) {
               </td>
               <td style="padding:7px 8px;">
                 <select onchange="pasteSetChapter(${i}, this.value)" style="max-width:200px; padding:4px 6px; border:1px solid ${r.stdChapter && !r.chapterDiff ? 'var(--line)' : 'var(--orange)'}; border-radius:6px; font-size:12px;">
-                  ${CHAPTERS.map(c => `<option value="${c.replace(/"/g, '&quot;')}" ${c === r.chapter ? 'selected' : ''}>${c}</option>`).join('')}
+                  <optgroup label="บทมาตรฐาน">${CHAPTERS.map(c => `<option value="${c.replace(/"/g, '&quot;')}" ${c === r.chapter ? 'selected' : ''}>${c}</option>`).join('')}</optgroup>
+                  <optgroup label="สนามสอบ">${MOCK_CHAPTERS.map(c => `<option value="${c.replace(/"/g, '&quot;')}" ${c === r.chapter ? 'selected' : ''}>${c}</option>`).join('')}</optgroup>
                   ${isStdChapter(r.chapter) ? '' : `<option value="${String(r.chapter).replace(/"/g, '&quot;')}" selected>⚠️ ${r.chapter}</option>`}
                   ${r.chapterRaw && !isStdChapter(r.chapterRaw) && r.chapterRaw !== r.chapter ? `<option value="${r.chapterRaw.replace(/"/g, '&quot;')}">⚠️ ตามข้อความ: ${r.chapterRaw}</option>` : ''}
                 </select>
