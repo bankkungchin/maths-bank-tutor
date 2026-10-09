@@ -4772,22 +4772,17 @@ function resetSessionAttendance(groupId, sessionNo) {
     actions: [
       { label: 'ไม่รีเซ็ต', class: 'btn--ghost', onClick: closeModal },
       { label: '🔄 ยืนยันรีเซ็ต', class: 'btn--danger', onClick: async function () {
+          session.attendance = { startedAt: null, finishedAt: null, records: {} };
+          if (session.status === 'done') delete session.status;
+          saveData();
+          autoSync();
           closeModal();
+          renderMain();
 
-          // ★ 27 ก.ย. 69 (v2) — ไม่ล้าง state.data ในเครื่องเองอีกต่อไป (ของเดิมทำแล้วเจอบั๊ก:
-          // renderMain() ที่เรียกทันทีหลังล้าง ไปโดน auto-pull ทุก 60 วิ ดึง teacher_data "ของเก่า"
-          // จากเซิร์ฟเวอร์ (autoSync ยังไม่ทันพุชขึ้นเพราะหน่วง 3 วิ) กลับมาทับ ข้อมูลเก่าเลยเด้งคืน
-          // — เหมือนบั๊ก cancelCheckin รอบ 2 เป๊ะ)
-          // ใหม่: ให้เซิร์ฟเวอร์ล้าง teacher_data + audit log ในคำสั่งเดียวจบ (atomic) แล้วค่อยโหลดของจริงกลับมา
-          if (!SCRIPT_URL) {
-            // ไม่ได้เชื่อม Google Sheet เลย — รีเซ็ตได้แค่ฝั่งเครื่องนี้เครื่องเดียว ไม่มี audit log ต้องล้าง
-            session.attendance = { startedAt: null, finishedAt: null, records: {} };
-            if (session.status === 'done') delete session.status;
-            saveData();
-            renderMain();
-            toast('รีเซ็ตคาบเรียบร้อยแล้ว (ยังไม่ได้เชื่อม Google Sheet)', 'success');
-            return;
-          }
+          // ★ 27 ก.ย. 69 — ล้าง audit log ดิบใน checkin_records (+ active_checkins ค้าง) ของคาบนี้ด้วย
+          // ทำแยกจาก syncData (คนละที่เก็บใน Sheet) — ถ้าเน็ตหลุดตรงนี้ ตารางเข้าเรียนที่ครูเห็นก็ยังว่างถูกต้องแล้ว
+          // แค่ audit log ดิบจะยังค้าง กดรีเซ็ตซ้ำอีกทีได้ ไม่ error
+          if (!SCRIPT_URL) { toast('รีเซ็ตคาบเรียบร้อยแล้ว (ยังไม่ได้เชื่อม Google Sheet — ไม่มี audit log ต้องล้าง)', 'success'); return; }
           try {
             const res = await gsFetch(SCRIPT_URL, {
               method: 'POST',
@@ -4796,15 +4791,12 @@ function resetSessionAttendance(groupId, sessionNo) {
             });
             const result = await res.json();
             if (result.ok) {
-              await loadFromSheet();   // ดึงของจริงจากเซิร์ฟเวอร์ทับของเก่าในเครื่อง — การันตีไม่มีของเก่าเด้งกลับ
-              state.view = 'attendance';
-              renderAll();
               toast(`รีเซ็ตคาบเรียบร้อยแล้ว · ล้าง audit log ${result.deletedRecords} แถว` + (result.deletedActive ? ` · เก็บกวาดรหัสค้าง ${result.deletedActive} แถว` : ''), 'success');
             } else {
-              toast('รีเซ็ตไม่สำเร็จ: ' + (result.error || ''), 'error');
+              toast('รีเซ็ตตารางเข้าเรียนแล้ว แต่ล้าง audit log ไม่สำเร็จ: ' + (result.error || '') + ' — กดรีเซ็ตคาบนี้ซ้ำได้', 'error');
             }
           } catch (e) {
-            toast('เชื่อมต่อไม่ได้: ' + e.message, 'error');
+            toast('รีเซ็ตตารางเข้าเรียนแล้ว แต่เชื่อมต่อล้าง audit log ไม่ได้: ' + e.message + ' — กดรีเซ็ตคาบนี้ซ้ำได้', 'error');
           }
         } }
     ]
@@ -5465,6 +5457,161 @@ function carelessPoints(ch, statuses) {
   return s;
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   ★ 9 ต.ค. 69 — ตารางกรอก Excel: แยกตอนที่ 1 (ข้อ 1–25) / ตอนที่ 2 (ข้อ 26–30)
+   ครูเคยต้องนั่งนับเองว่าแต่ละตอนถูกกี่ข้อ สะเพร่ากี่ข้อ แล้วพิมพ์ลง Excel ซ้ำอีกรอบ
+   ทั้งที่ระบบเก็บสถานะรายข้อครบอยู่แล้ว — คิดให้ทั้งหมดแล้วคัดลอกวางลง Excel ได้เลย
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ช่วงคะแนนของชุดนี้ — อ่านจาก MOCK_POINTS ไม่ hardcode 25/30
+   คืน null เมื่อเป็นบทปกติ (คะแนนเท่ากันทุกข้อ ไม่มีการแบ่งตอน) */
+function examParts(ch) {
+  const m = MOCK_POINTS[String(ch || '').trim()];
+  if (!m || !m.ranges || m.ranges.length < 2) return null;
+  return m.ranges.map(r => ({ from: r.from, to: r.to, pts: r.pts }));
+}
+
+/* นับผลของนักเรียนหนึ่งคนแยกตามตอน
+   ok = ข้อที่ทำถูก · care = ข้อที่สะเพร่า (ทำเป็นแต่พลาด — คะแนนที่ "เกือบได้") */
+function partBreakdown(ch, statuses) {
+  const parts = examParts(ch);
+  if (!parts) return null;
+  const st = statuses || [];
+  const out = parts.map(p => ({ from: p.from, to: p.to, pts: p.pts,
+                                okQ: 0, okPts: 0, careQ: 0, carePts: 0 }));
+  for (let q = 1; q <= 30; q++) {
+    const v = String(st[q-1] == null ? '' : st[q-1]);
+    const seg = out.find(o => q >= o.from && q <= o.to);
+    if (!seg) continue;
+    if (v.indexOf('ถูก') !== -1)        { seg.okQ++;   seg.okPts   += ptsOfQ(ch, q); }
+    else if (v.indexOf('สะเพร่า') !== -1) { seg.careQ++; seg.carePts += ptsOfQ(ch, q); }
+  }
+  const total = out.reduce((a, o) => a + o.okPts, 0);
+  const careTotal = out.reduce((a, o) => a + o.carePts, 0);
+  return { parts: out, total: total, careTotal: careTotal };
+}
+
+/* หัวตาราง/แถว สำหรับทั้งหน้าจอและ TSV — ใช้ชุดเดียวกันเพื่อไม่ให้หลุดกัน */
+function partRowsOf(students, byStu, ch) {
+  return students.map((s, i) => {
+    const e = byStu[s.full] && byStu[s.full][ch];
+    const b = e ? partBreakdown(e.chapter, e.statuses) : null;
+    return { no: i + 1, name: s.name, full: s.full, exam: e, bd: b,
+             unfilled: e ? examUnfilled(e.statuses) : 0 };
+  });
+}
+
+/* ตาราง TSV — เรียงคอลัมน์ให้ตรงกับไฟล์ Excel ที่ครูใช้อยู่
+   (ลำดับ · ตอน 1 สี่ช่อง · ช่องว่างคั่น · ตอน 2 สี่ช่อง · รวมคะแนน · ชื่อ) */
+function partTSV(rows, ch) {
+  const parts = examParts(ch) || [];
+  const head1 = ['', 'ข้อ ' + (parts[0] ? parts[0].from + '–' + parts[0].to : '1–25') +
+                 ' (ข้อละ ' + (parts[0] ? parts[0].pts : 3) + ' คะแนน)', '', '', '', '',
+                 'ข้อ ' + (parts[1] ? parts[1].from + '–' + parts[1].to : '26–30') +
+                 ' (ข้อละ ' + (parts[1] ? parts[1].pts : 5) + ' คะแนน)', '', '', '', 'รวมคะแนน', 'ชื่อ'];
+  const head2 = ['', 'ได้ (ข้อ)', 'ได้ (คะแนน)', 'สะเพร่า (ข้อ)', 'สะเพร่า (คะแนน)', '',
+                 'ได้ (ข้อ)', 'ได้ (คะแนน)', 'สะเพร่า (ข้อ)', 'สะเพร่า (คะแนน)', '', ''];
+  const body = rows.map(r => {
+    if (!r.bd) return [r.no + ')', '', '', '', '', '', '', '', '', '', '', r.name];
+    const a = r.bd.parts[0] || {}, b = r.bd.parts[1] || {};
+    return [r.no + ')', a.okQ, a.okPts, a.careQ, a.carePts, '',
+            b.okQ, b.okPts, b.careQ, b.carePts, r.bd.total, r.name];
+  });
+  return [head1, head2].concat(body).map(r => r.join('\t')).join('\n');
+}
+
+function copyPartTable() {
+  const c = window._partCtx; if (!c) return;
+  const rows = partRowsOf(c.students, c.byStu, c.key);
+  const text = partTSV(rows, c.name);
+  const done = () => toast('คัดลอกแล้ว ' + rows.length + ' แถว — วางใน Excel ได้เลย (Ctrl+V)', 'success');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done));
+  } else fallbackCopy(text, done);
+}
+
+function fallbackCopy(text, done) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  let ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
+  document.body.removeChild(ta);
+  if (ok) done(); else toast('คัดลอกไม่สำเร็จ — ลองกดดาวน์โหลด CSV แทน', 'error');
+}
+
+function downloadPartCSV() {
+  const c = window._partCtx; if (!c) return;
+  const rows = partRowsOf(c.students, c.byStu, c.key);
+  /* \uFEFF = BOM ให้ Excel อ่านภาษาไทยไม่เป็นตัวต่างดาว */
+  const csv = '\uFEFF' + partTSV(rows, c.name).split('\n')
+    .map(line => line.split('\t').map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = (c.name + ' ' + c.group).replace(/[\\/:*?"<>|]/g, '-') + '.csv';
+  a.click(); URL.revokeObjectURL(url);
+  toast('ดาวน์โหลด CSV แล้ว', 'success');
+}
+
+/* การ์ดตารางกรอก Excel — แสดงเฉพาะโหมดสนามสอบ */
+function partTableHTML(students, byStu, chapters, labels, g) {
+  if (state.scoresKind !== 'mock' || !chapters.length) return '';
+  /* chapters เป็นคีย์ที่ normalize แล้ว (ตัดสระ/ช่องว่าง) — ต้องแปลงกลับเป็นชื่อจริง
+     ก่อนไปถามคะแนนต่อข้อ ไม่งั้น MOCK_POINTS หาไม่เจอแล้วการ์ดหายไปเงียบ ๆ */
+  const nameOf = k => (labels && labels[k]) || k;
+  const sel = (state.partSet && chapters.indexOf(state.partSet) >= 0) ? state.partSet
+            : chapters[chapters.length - 1];           /* ไม่ได้เลือก → ชุดล่าสุด */
+  const selName = nameOf(sel);
+  const parts = examParts(selName);
+  if (!parts) return '';
+  window._partCtx = { key: sel, name: selName, students: students, byStu: byStu, group: g };
+  const rows = partRowsOf(students, byStu, sel);
+  const did = rows.filter(r => r.bd);
+
+  const pick = chapters.length > 1
+    ? '<select onchange="state.partSet=this.value; renderMain();" style="font-size:12px; padding:3px 6px; border-radius:7px; border:1px solid var(--line-strong);">'
+      + chapters.map(c => '<option value="' + _eh(c) + '"' + (c === sel ? ' selected' : '') + '>' + _eh(nameOf(c)) + '</option>').join('')
+      + '</select>'
+    : '<b>' + _eh(selName) + '</b>';
+
+  const th = (t, w) => '<th style="text-align:center; font-size:11px;' + (w ? ' min-width:' + w + ';' : '') + '">' + t + '</th>';
+  const body = rows.map(r => {
+    if (!r.bd) return '<tr><td><div class="att-student-name">' + r.no + '. ' + _eh(r.name) + '</div></td>'
+      + '<td colspan="9" style="text-align:center; color:var(--gray-soft); font-size:12px;">ยังไม่มีผลสอบชุดนี้</td></tr>';
+    const a = r.bd.parts[0], b = r.bd.parts[1];
+    const num = v => '<td style="text-align:center; font-family:var(--font-num);">' + v + '</td>';
+    const care = v => '<td style="text-align:center; font-family:var(--font-num); color:' + (v ? 'var(--orange)' : 'var(--gray-soft)') + ';">' + v + '</td>';
+    return '<tr' + (r.unfilled ? ' style="background:repeating-linear-gradient(45deg,transparent,transparent 5px,#FEF3C7 5px,#FEF3C7 10px);"' : '') + '>'
+      + '<td><div class="att-student-name">' + r.no + '. ' + _eh(r.name)
+      + (r.unfilled ? ' <span style="font-size:10px; color:#B45309;">⏳ ว่าง ' + r.unfilled + ' ข้อ</span>' : '') + '</div></td>'
+      + num(a.okQ) + num(a.okPts) + care(a.careQ) + care(a.carePts)
+      + num(b.okQ) + num(b.okPts) + care(b.careQ) + care(b.carePts)
+      + '<td style="text-align:center; font-family:var(--font-num); font-weight:700; color:' + scoreColor(r.bd.total, fullOfChapter(selName)) + ';">' + r.bd.total + '</td>'
+      + '</tr>';
+  }).join('');
+
+  return '<div class="card" style="margin-top:18px;" id="partTableCard">'
+    + '<div class="card__head" style="flex-wrap:wrap; gap:8px;">'
+    +   '<span class="card__title">📋 ตารางกรอก Excel — แยกตอน · ' + pick + ' · <b>' + _eh(g) + '</b></span>'
+    +   '<span style="font-size:11px; color:var(--gray-dark);">สอบแล้ว ' + did.length + '/' + rows.length + ' คน · '
+    +     'ตอนที่ 1 ข้อ ' + parts[0].from + '–' + parts[0].to + ' ข้อละ ' + parts[0].pts + ' คะแนน · '
+    +     'ตอนที่ 2 ข้อ ' + parts[1].from + '–' + parts[1].to + ' ข้อละ ' + parts[1].pts + ' คะแนน</span>'
+    +   '<span style="margin-left:auto; display:flex; gap:6px;">'
+    +     '<button class="btn btn--sm btn--primary" onclick="copyPartTable(\'' + String(sel).replace(/'/g, "\\'") + '\')">📋 คัดลอกลง Excel</button>'
+    +     '<button class="btn btn--sm btn--ghost" onclick="downloadPartCSV(\'' + String(sel).replace(/'/g, "\\'") + '\')">⬇︎ CSV</button>'
+    +   '</span>'
+    + '</div>'
+    + '<div class="att-table-wrap"><table class="att-table">'
+    +   '<thead><tr><th rowspan="2">ชื่อ</th>'
+    +     '<th colspan="4" style="text-align:center; background:#FDF1E7;">ข้อ ' + parts[0].from + '–' + parts[0].to + ' (ข้อละ ' + parts[0].pts + ' คะแนน)</th>'
+    +     '<th colspan="4" style="text-align:center; background:#EAF4EC;">ข้อ ' + parts[1].from + '–' + parts[1].to + ' (ข้อละ ' + parts[1].pts + ' คะแนน)</th>'
+    +     '<th rowspan="2" style="text-align:center;">รวม<br>คะแนน</th></tr>'
+    +   '<tr>' + th('ได้<br>(ข้อ)','54px') + th('ได้<br>(คะแนน)','62px') + th('สะเพร่า<br>(ข้อ)','60px') + th('สะเพร่า<br>(คะแนน)','68px')
+    +           th('ได้<br>(ข้อ)','54px') + th('ได้<br>(คะแนน)','62px') + th('สะเพร่า<br>(ข้อ)','60px') + th('สะเพร่า<br>(คะแนน)','68px') + '</tr></thead>'
+    +   '<tbody>' + (body || '<tr><td colspan="10" style="text-align:center; color:var(--gray-dark); padding:20px;">ยังไม่มีนักเรียนในกลุ่มนี้</td></tr>') + '</tbody>'
+    + '</table></div></div>';
+}
+
 function scoreColor(sc, full) {
   const f = full || 30;
   const pct = sc / f;
@@ -6102,6 +6249,7 @@ function renderGroupScores(sb) {
         </table>
       </div>
     </div>
+    ${partTableHTML(students, byStu, chapters, labels, g)}
   `;
 }
 
@@ -6581,22 +6729,12 @@ function entryScoreIndex(d, group) {
 function entryIsSkip(map, group, ck, full) { return !!map[ignoreKeyOf(group, ck, full)]; }
 
 /* ป้ายสถานะของคู่ (คน × บท) — ใช้ทั้ง dropdown ชื่อและ dropdown บท */
-/* วันที่ท้ายตัวเลือกบท — วันที่ในชีตอาจไม่ใช่ YYYY-MM-DD (เช่น ISO มีเวลา) ทำให้ thDate ได้ "NaN undefined NaN"
-   อ่านไม่ได้ = ไม่แสดงวันที่ แทนที่จะแสดงข้อความขยะ */
-function entryDateLabel(v) {
-  if (!v) return '';
-  let dt = (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) ? parseDate(v) : new Date(v);
-  if (!dt || isNaN(dt.getTime()) || dt.getFullYear() < 1990) return '';
-  const y = (dt.getFullYear() + 543) % 100;
-  return `${dt.getDate()} ${THAI_MONTHS[dt.getMonth()]} ${String(y).padStart(2,'0')}`;
-}
-
 function entryMark(idx, skipMap, group, ck, full) {
   if (entryIsSkip(skipMap, group, ck, full)) return { k: 'skip', t: '— ไม่ได้เรียน' };
   const hit = idx[ck] && idx[ck][full];
   if (hit) {
     const sc = (hit.score === '' || hit.score == null) ? 'กรอกแล้ว' : hit.score + '/30';
-    return { k: 'done', t: '✓ ' + sc + (entryDateLabel(hit.date) ? ' · ' + entryDateLabel(hit.date) : '') };
+    return { k: 'done', t: '✓ ' + sc + (hit.date ? ' · ' + thDate(hit.date) : '') };
   }
   if (!idx[ck]) return { k: 'never', t: '' };     /* กลุ่มนี้ยังไม่เคยสอบบทนี้ — ไม่ถือว่าค้าง */
   return { k: 'miss', t: '• ยังไม่กรอก' };
@@ -7112,8 +7250,7 @@ function pasteEntryHtml(d, e) {
               </td>
               <td style="padding:7px 8px;">
                 <select onchange="pasteSetChapter(${i}, this.value)" style="max-width:200px; padding:4px 6px; border:1px solid ${r.stdChapter && !r.chapterDiff ? 'var(--line)' : 'var(--orange)'}; border-radius:6px; font-size:12px;">
-                  <optgroup label="บทมาตรฐาน">${CHAPTERS.map(c => `<option value="${c.replace(/"/g, '&quot;')}" ${c === r.chapter ? 'selected' : ''}>${c}</option>`).join('')}</optgroup>
-                  <optgroup label="สนามสอบ">${MOCK_CHAPTERS.map(c => `<option value="${c.replace(/"/g, '&quot;')}" ${c === r.chapter ? 'selected' : ''}>${c}</option>`).join('')}</optgroup>
+                  ${CHAPTERS.map(c => `<option value="${c.replace(/"/g, '&quot;')}" ${c === r.chapter ? 'selected' : ''}>${c}</option>`).join('')}
                   ${isStdChapter(r.chapter) ? '' : `<option value="${String(r.chapter).replace(/"/g, '&quot;')}" selected>⚠️ ${r.chapter}</option>`}
                   ${r.chapterRaw && !isStdChapter(r.chapterRaw) && r.chapterRaw !== r.chapter ? `<option value="${r.chapterRaw.replace(/"/g, '&quot;')}">⚠️ ตามข้อความ: ${r.chapterRaw}</option>` : ''}
                 </select>
