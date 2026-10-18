@@ -5406,7 +5406,124 @@ function dispScoreOf(e) {
 function kindFull() { return state.scoresKind === 'mock' ? 100 : 30; }
 
 function rosterOf(d, group) {
-  return d.students.filter(s => s.group === group && (s.active || state.showInactive));
+  return applySeatOrder(d.students.filter(s => s.group === group && (s.active || state.showInactive)), group);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   ↕️ เลขที่นักเรียน — 17 ต.ค. 69
+   ครูส่งตารางคะแนนให้ผู้ปกครองตามเลขที่เดิมทุกครั้ง แต่ทะเบียนข้อสอบเรียงตามลำดับที่เพิ่มเข้าชีต
+   (คนเข้าใหม่/ต่อคอร์สแล้วลำดับเพี้ยน) → ครูกำหนดเลขที่เองได้ ใช้ทุกที่ที่เรียกผ่าน rosterOf
+   (ตารางคะแนน · ตารางกรอก Excel แยกตอน · หน้ากรอกคะแนน · รายการขาดสอบ)
+
+   เก็บที่ state.data.seatOrder[groupKey(กลุ่มข้อสอบ)] = [id ทะเบียนข้อสอบ…]
+   → อยู่ใน teacher_data · ซิงก์ข้ามเครื่องเหมือนข้อมูลอื่น · ไม่ต้อง deploy Apps Script
+   ใช้ id ไม่ใช้ชื่อ: เปลี่ยนชื่อแล้วเลขที่ไม่หลุด · ขนาดเล็ก (~6 ตัว/คน) ไม่กินเพดาน A1
+   คนที่ไม่มีในรายการ (เพิ่มใหม่ทีหลัง) → ต่อท้ายตามลำดับเดิมในชีต
+   ═══════════════════════════════════════════════════════════════════════ */
+function seatKeyOf(s) { return String((s && (s.id || s.full)) || ''); }
+function seatOrderOf(group) {
+  const m = (state.data && state.data.seatOrder) || null;
+  const o = m && m[groupKey(group)];
+  return Array.isArray(o) && o.length ? o : null;
+}
+function applySeatOrder(list, group) {
+  const ord = seatOrderOf(group);
+  if (!ord) return list;
+  const pos = {};
+  ord.forEach((k, i) => { if (pos[k] == null) pos[k] = i; });
+  return list.map((s, i) => ({ s: s, r: pos[seatKeyOf(s)] != null ? pos[seatKeyOf(s)] : 1e6 + i }))
+             .sort((a, b) => a.r - b.r).map(x => x.s);
+}
+
+let _seatList = [], _seatGroup = '';
+function showSeatOrderModal(group) {
+  const d = state.examData;
+  if (!d || !group) return;
+  _seatGroup = group;
+  _seatList = rosterOf(d, group).slice();
+  renderSeatOrderModal();
+}
+function renderSeatOrderModal(note) {
+  const n = _seatList.length;
+  const rows = _seatList.map((s, i) => `
+    <div class="seat-row" style="display:flex; align-items:center; gap:6px; padding:5px 8px; background:var(--bg-soft); border-radius:8px; margin-bottom:4px; font-size:13px; ${s.active ? '' : 'opacity:.6;'}">
+      <input type="number" min="1" max="${n}" value="${i + 1}" title="พิมพ์เลขที่แล้วกด Enter เพื่อย้ายไปตรงนั้น"
+             onchange="seatMoveTo(${i}, this.value)"
+             style="width:52px; padding:4px 6px; border:1px solid var(--line-strong); border-radius:6px; font-family:var(--font-num); text-align:center;">
+      <span style="flex:1;">${_eh(s.name)}${s.active ? '' : ' <span style="font-size:10px; color:var(--danger);">(ไม่เรียนต่อ)</span>'}</span>
+      <button class="btn btn--ghost btn--xs" ${i === 0 ? 'disabled' : ''} onclick="seatMove(${i}, -1)" title="เลื่อนขึ้น">▲</button>
+      <button class="btn btn--ghost btn--xs" ${i === n - 1 ? 'disabled' : ''} onclick="seatMove(${i}, 1)" title="เลื่อนลง">▼</button>
+    </div>`).join('');
+  showModal({
+    title: `↕️ เรียงเลขที่ · ${_eh(_seatGroup)}`,
+    body: `
+      <div style="font-size:12px; color:var(--gray-dark); margin-bottom:10px; line-height:1.7;">
+        กด ▲ ▼ หรือพิมพ์เลขที่ใหม่ในช่องซ้าย · ใช้กับตารางคะแนน ตารางกรอก Excel และหน้ากรอกคะแนน<br>
+        <b>วางรายชื่อจาก Excel</b> ได้เลย (คอลัมน์ชื่อ 1 คนต่อบรรทัด) แล้วกด "เรียงตามที่วาง"
+      </div>
+      ${note ? `<div style="font-size:12px; margin-bottom:8px; padding:8px 10px; border-radius:8px; background:var(--bg-soft);">${note}</div>` : ''}
+      <div id="seatRows" style="max-height:340px; overflow-y:auto;">${rows}</div>
+      <textarea id="seatPaste" rows="3" placeholder="วางรายชื่อจาก Excel ที่นี่ (ไม่บังคับ)"
+                style="width:100%; margin-top:10px; padding:8px; border:1px solid var(--line-strong); border-radius:8px; font-size:13px; box-sizing:border-box;"></textarea>`,
+    actions: [
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
+      { label: 'เรียงตามที่วาง', class: 'btn--ghost', onClick: seatFromPaste },
+      { label: 'บันทึกเลขที่', class: 'btn--primary', onClick: saveSeatOrder }
+    ]
+  });
+}
+function seatMove(i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= _seatList.length) return;
+  const t = _seatList[i]; _seatList[i] = _seatList[j]; _seatList[j] = t;
+  renderSeatOrderModal();
+}
+function seatMoveTo(i, v) {
+  let j = parseInt(v, 10);
+  if (!(j >= 1)) { renderSeatOrderModal(); return; }
+  j = Math.min(j, _seatList.length) - 1;
+  const s = _seatList.splice(i, 1)[0];
+  _seatList.splice(j, 0, s);
+  renderSeatOrderModal();
+}
+/* จับชื่อที่วาง → คนในรายชื่อ: ตรงทั้งชื่อก่อน · ไม่เจอค่อยลองคำแรกของชื่อ (ต้องเจอคนเดียวเท่านั้น)
+   ⚠️ ห้ามเทียบแบบตัดสระ — "ปุน" กับ "ปูน" / "ปัณ" กับ "ปุณ" เป็นคนละคน (nameKey ไม่ตัดสระ) */
+function seatMatch(line, pool) {
+  const k = nameKey(line);
+  if (!k) return null;
+  let hit = pool.filter(s => nameKey(s.name) === k);
+  if (hit.length === 1) return hit[0];
+  if (hit.length > 1) return null;
+  const first = x => nameKey(String(x || '').trim().split(/\s+/)[0]);
+  hit = pool.filter(s => first(s.name) === k || nameKey(s.name) === first(line));
+  return hit.length === 1 ? hit[0] : null;
+}
+function seatFromPaste() {
+  const el = document.getElementById('seatPaste');
+  const lines = String(el && el.value || '').split(/\r?\n/)
+    .map(x => x.replace(/^\s*\d+[).\s]*/, '').split('\t').filter(c => c.trim()).pop() || '')
+    .map(x => x.trim()).filter(Boolean);
+  if (!lines.length) { toast('วางรายชื่อก่อน (1 คนต่อบรรทัด)', 'error'); return; }
+  const pool = _seatList.slice(), out = [], miss = [];
+  lines.forEach(l => {
+    const s = seatMatch(l, pool);
+    if (s) { out.push(s); pool.splice(pool.indexOf(s), 1); } else miss.push(l);
+  });
+  _seatList = out.concat(pool);
+  const parts = [`จับคู่ได้ <b>${out.length}</b> คน`];
+  if (miss.length) parts.push(`<span style="color:var(--danger);">หาไม่เจอ/ซ้ำ: ${miss.map(_eh).join(' · ')}</span>`);
+  if (pool.length) parts.push(`ไม่มีในที่วาง (ต่อท้าย): ${pool.map(s => _eh(s.name)).join(' · ')}`);
+  renderSeatOrderModal(parts.join('<br>') + '<br>ตรวจแล้วกด <b>บันทึกเลขที่</b>');
+}
+function saveSeatOrder() {
+  if (!state.data) { toast('ยังไม่ได้โหลดข้อมูลครู', 'error'); return; }
+  state.data.seatOrder = state.data.seatOrder || {};
+  state.data.seatOrder[groupKey(_seatGroup)] = _seatList.map(seatKeyOf).filter(Boolean);
+  saveData();
+  if (typeof autoSync === 'function') autoSync();
+  closeModal();
+  renderMain();
+  toast(`บันทึกเลขที่ ${_seatGroup} แล้ว (${_seatList.length} คน)`, 'success');
 }
 function isActiveFull(d, full) {
   const s = d.students.find(x => x.full === full);
@@ -5815,6 +5932,7 @@ async function renderScores(body) {
           ${d.groups.map(g => `<option value="${g}" ${g===state.scoresGroup?'selected':''}>${g}</option>`).join('')}
         </select>` : ''}
         <div style="margin-left:auto; display:flex; gap:6px; flex-wrap:wrap;">
+          ${state.scoresTab==='group' ? `<button class="btn btn--ghost btn--sm" onclick="showSeatOrderModal(state.scoresGroup)" title="จัดลำดับเลขที่นักเรียนให้ตรงกับที่ส่งผู้ปกครอง">↕️ เรียงเลขที่</button>` : ''}
           <button class="btn btn--ghost btn--sm" onclick="showManageRosterModal()">👥 จัดการรายชื่อ/กลุ่ม</button>
           <button class="btn btn--ghost btn--sm" onclick="showLinkRegistryModal()" title="ผูกทะเบียนข้อสอบเข้ากับกลุ่มเช็คชื่อ">🔗 จับคู่ทะเบียน</button>
           <button class="btn btn--ghost btn--sm" onclick="showNameVariantsModal()">🧹 รวมชื่อที่สะกดต่าง</button>
