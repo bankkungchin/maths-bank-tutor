@@ -2041,6 +2041,12 @@ function showApp() {
   renderAll();
   checkMissingScoresBadge();   // เช็คคะแนนที่ยังไม่ได้กรอก (เงียบๆ เบื้องหลัง)
   startPendingWatch();         // ★ 28 ส.ค. 69 — เช็ครอตรวจทุก 2 นาที ไม่ต้องรอครูเปิดหน้า
+  /* ★ 22 ต.ค. 69 — รายชื่อชุดสนามสอบจากคลัง (เบื้องหลัง) · ได้ชุดใหม่มาค่อยวาดหน้าเดิมซ้ำ
+     ไม่วาดซ้ำถ้ามีหน้าต่าง (modal) เปิดอยู่ — กันของที่ครูกำลังพิมพ์หาย */
+  ensureMockRegistry().then(n => {
+    const modalOpen = document.getElementById('modalBackdrop') && document.getElementById('modalBackdrop').classList.contains('is-open');
+    if (n && !modalOpen) { try { renderMain(); } catch (e) {} }
+  });
 
   // เครื่องใหม่ (ยังไม่มีข้อมูลในเครื่อง) → ดึงจาก Sheet อัตโนมัติ ไม่ต้องกดเอง
   if (state.isDemoData && SCRIPT_URL) {
@@ -5393,7 +5399,10 @@ function dataHealth(d) {
 /* ★ 17 ก.ย. 69 — กรองผลสอบตามประเภทที่กำลังดูอยู่ */
 function examsOfKind(list) {
   const wantMock = state.scoresKind === 'mock';
-  return (list || []).filter(e => isMockChapter(e.chapter) === wantMock);
+  /* ★ 22 ต.ค. 69 — โหมดสนามสอบแยกสาย Test Gamm / ข้อสอบจริง (ความยากคนละระดับ ไม่ควรเฉลี่ยรวม) */
+  const t = state.mockTrack || 'gamm';
+  return (list || []).filter(e => isMockChapter(e.chapter) === wantMock &&
+    (!wantMock || t === 'all' || mockTrackOf(e.chapter) === t));
 }
 
 /* คะแนนที่ใช้แสดง/คิดเฉลี่ย — สนามสอบใช้คะแนนถ่วงน้ำหนัก บทปกติใช้จำนวนข้อถูก */
@@ -5544,6 +5553,64 @@ const MOCK_POINTS = {
   'ชุดรวม 06': { full: 100, ranges: [ { from:1, to:25, pts:3 }, { from:26, to:30, pts:5 } ] },
   'ชุดรวม 07': { full: 100, ranges: [ { from:1, to:25, pts:3 }, { from:26, to:30, pts:5 } ] }
 };
+/* ═══════════════════════════════════════════════════════════════════════
+   ★ 22 ต.ค. 69 — รายชื่อชุดสนามสอบอ่านจาก questionbank.js ที่เดียว
+   ของเดิม: เพิ่มชุดใหม่ต้องแก้ MOCK_POINTS + MOCK_CHAPTERS ในไฟล์นี้ด้วย (ลืมแล้วตารางเพี้ยนเงียบ ๆ)
+   ตอนนี้: โหลดคลังจาก production แล้วเติมชุดที่ยังไม่มีให้เอง (คะแนนรายข้อ + รายชื่อ + สาย)
+   รายการข้างบนยังเก็บไว้เป็น "ทางถอย" — โหลดคลังไม่ได้ (เน็ตหลุด/GitHub ล่ม) ชุดเดิมยังทำงานครบ
+   ═══════════════════════════════════════════════════════════════════════ */
+const MOCK_TRACK = {};                       /* ชื่อชุด → 'gamm' | 'real' (จาก MOCK_SETS[].track) */
+function mockTrackOf(ch) {
+  const k = String(ch || '').trim();
+  if (MOCK_TRACK[k]) return MOCK_TRACK[k];
+  if (/^(A-?Level|9\s*วิชาสามัญ)\s*\d+/i.test(k)) return 'real';
+  return isMockChapter(k) ? 'gamm' : null;
+}
+const MOCK_TRACK_LABEL = { gamm: '🎯 Test Gamm', real: '📝 ข้อสอบจริง', all: 'ทั้งหมด' };
+function mockSortKey(k) { return (mockTrackOf(k) === 'real' ? '1' : '0') + String(k); }
+function applyMockRegistry(sets) {
+  let added = 0;
+  Object.keys(sets || {}).forEach(k => {
+    const m = sets[k] || {};
+    if (!isMockChapter(k)) return;
+    if (m.track) MOCK_TRACK[k] = m.track;
+    if (!MOCK_POINTS[k] && m.points && Array.isArray(m.points.ranges)) {
+      MOCK_POINTS[k] = { full: m.full || 100,
+        ranges: m.points.ranges.map(r => ({ from: +r.from, to: +r.to, pts: +r.pts })) };
+      added++;
+    }
+    if (MOCK_CHAPTERS.indexOf(k) < 0) { MOCK_CHAPTERS.push(k); added++; }
+  });
+  MOCK_CHAPTERS.sort((a, b) => mockSortKey(a) < mockSortKey(b) ? -1 : 1);
+  return added;
+}
+let _qbSrcP = null;
+function fetchQBSource(force) {
+  if (force) _qbSrcP = null;
+  if (!_qbSrcP) {
+    _qbSrcP = fetch(QB_SRC_URL + '?t=' + Date.now(), { cache: 'reload' }).then(res => {
+      if (!res.ok) throw new Error('โหลดคลังข้อสอบไม่ได้ (' + res.status + ')');
+      return res.text();
+    });
+    _qbSrcP.catch(() => { _qbSrcP = null; });          /* ล้มเหลว → ครั้งหน้าลองใหม่ */
+  }
+  return _qbSrcP;
+}
+let _mockRegP = null;
+function ensureMockRegistry() {
+  if (!_mockRegP) {
+    _mockRegP = fetchQBSource().then(src => {
+      const sets = new Function('PLAYLISTS', src + '\n;return (typeof MOCK_SETS !== "undefined") ? MOCK_SETS : null;')({});
+      return applyMockRegistry(sets);
+    }).catch(err => { console.warn('[mock registry]', err && err.message); _mockRegP = null; return 0; });
+  }
+  return _mockRegP;
+}
+/* รอได้ไม่เกิน ms — หน้าไม่ค้างถ้าเน็ตช้า (ใช้รายการทางถอยไปก่อน) */
+function ensureMockRegistryFor(ms) {
+  return Promise.race([ensureMockRegistry(), new Promise(r => setTimeout(() => r(0), ms || 4000))]);
+}
+
 function fullOfChapter(ch) {
   const m = MOCK_POINTS[String(ch || '').trim()];
   return m ? m.full : 30;
@@ -5915,6 +5982,8 @@ async function renderScores(body) {
   }
   const d = state.examData;
   if (!state.scoresGroup || d.groups.indexOf(state.scoresGroup) === -1) state.scoresGroup = d.groups[0] || null;
+  /* ★ 22 ต.ค. 69 — ต้องรู้จักทุกชุดก่อนวาด ไม่งั้นชุดใหม่จะถูกคิดเป็นเต็ม 30 */
+  await ensureMockRegistryFor(4000);
 
   /* ★ 18 ก.ย. 69 — โหลดเป้าเฉพาะตอนเข้าโหมดสนามสอบ (โหมดแยกบทไม่ใช้เป้ารายคน)
      โหลดครั้งเดียวแล้วจำไว้ · goalsLoad(true) ตอนตั้งค่าเสร็จเพื่อดึงของใหม่ */
@@ -5928,6 +5997,9 @@ async function renderScores(body) {
         <span style="width:1px; height:22px; background:var(--line-strong); margin:0 4px;"></span>
         <button class="btn btn--sm ${state.scoresKind==='chapter'?'btn--primary':'btn--ghost'}" onclick="state.scoresKind='chapter'; renderMain();" title="ข้อสอบแยกบท เต็ม 30 ข้อ">📘 แยกบท</button>
         <button class="btn btn--sm ${state.scoresKind==='mock'?'btn--primary':'btn--ghost'}" onclick="state.scoresKind='mock'; renderMain();" title="สนามสอบรวมทุกบท เต็ม 100 คะแนน">🎯 สนามสอบ</button>
+        ${state.scoresKind==='mock' ? `<span style="display:inline-flex; gap:4px; padding:3px; border:1px solid var(--line-strong); border-radius:999px;" title="Test Gamm กับข้อสอบจริงยากคนละระดับ — ดูแยกกัน">
+          ${['gamm','real','all'].map(t => `<button class="btn btn--xs ${(state.mockTrack||'gamm')===t?'btn--primary':'btn--ghost'}" onclick="state.mockTrack='${t}'; state.partSet=null; renderMain();">${MOCK_TRACK_LABEL[t]}</button>`).join('')}
+        </span>` : ''}
         ${state.scoresTab==='group' ? `
         <select onchange="state.scoresGroup=this.value; renderMain();" style="padding:8px 14px; border:1px solid var(--line-strong); border-radius:999px; outline:none; font-size:13px; background:var(--bg);">
           ${d.groups.map(g => `<option value="${g}" ${g===state.scoresGroup?'selected':''}>${g}</option>`).join('')}
@@ -5962,7 +6034,7 @@ async function renderScores(body) {
 function kindEmptyHTML() {
   return state.scoresKind === 'mock'
     ? `<div class="empty"><h3>ยังไม่มีผลสนามสอบ</h3>
-         <p>สนามสอบคือชุดรวมทุกบท (ชื่อบทขึ้นต้นด้วย "ชุดรวม") คะแนนเต็ม 100<br>
+         <p>สนามสอบคือชุดรวมทุกบท คะแนนเต็ม 100 · สาย <b>${MOCK_TRACK_LABEL[state.mockTrack||'gamm']}</b>${(state.mockTrack||'gamm')!=='all' ? ' (สลับสายได้จากปุ่มด้านบน)' : ''}<br>
          เมื่อกรอกผลชุดแรกแล้ว ตารางนี้จะแยกให้เอง ไม่ปนกับตารางบท</p></div>`
     : `<div class="empty"><h3>ยังไม่มีผลข้อสอบแยกบท</h3>
          <p>กลุ่มนี้ยังไม่มีผลสอบรายบท (เต็ม 30 ข้อ)</p></div>`;
@@ -5975,7 +6047,7 @@ function kindEmptyHTML() {
    ★ รอบ 2: ครูกดชื่อชุดเพื่อกางผังรายข้อ และแก้ บท/หมวด/ระดับ ได้เอง
      ค่าที่แก้เก็บในชีต qb_map → หน้านักเรียนอ่านชุดเดียวกัน (ไฟล์คลังไม่ถูกแตะ) */
 const QB_SRC_URL = 'https://bankkungchin.github.io/answer-sheet/questionbank.js';
-let QBMOD = null, MOCK_STATS = null, QBMAP_ROWS = null;
+let QBMOD = null, MOCK_STATS = null, MOCK_STATS_REAL = null, QBMAP_ROWS = null;
 let _planOpen = null, _planEdits = {};
 
 const qbCall = p => goalCall(p);          /* POST + token + toast ชุดเดียวกับเป้าหมายคะแนน */
@@ -5983,12 +6055,11 @@ const qbCall = p => goalCall(p);          /* POST + token + toast ชุดเ�
 /* โหลดคลัง + ผังที่ครูแก้ไว้ แล้วคืนโมดูลที่ใช้ทั้งการ์ดและตารางรายข้อ */
 async function loadQBModule(force) {
   if (QBMOD && !force) return QBMOD;
-  const res = await fetch(QB_SRC_URL + '?t=' + Date.now(), { cache: 'reload' });
-  if (!res.ok) throw new Error('โหลดคลังข้อสอบไม่ได้ (' + res.status + ')');
-  const src = await res.text();
+  const src = await fetchQBSource(force);
   const run = new Function('PLAYLISTS', src + `
     ; return (typeof allMockStats === "function" && typeof mockPlan === "function")
-      ? { allMockStats, mockPlan, applyQBMap, bankChapters, bankSubs, bankCount } : null;`);
+      ? { allMockStats, mockPlan, applyQBMap, bankChapters, bankSubs, bankCount,
+          MOCK_SETS: (typeof MOCK_SETS !== "undefined") ? MOCK_SETS : {} } : null;`);
   const mod = run({});
   if (!mod) throw new Error('คลังข้อสอบบน production ยังเป็นตัวเก่า — อัป questionbank.js ตัวใหม่ก่อนครับ');
   /* ผังที่ครูแก้ไว้ (ชีต qb_map) — ล้มเหลวก็ยังใช้ค่าจากไฟล์คลังได้ */
@@ -5998,7 +6069,10 @@ async function loadQBModule(force) {
     if (QBMAP_ROWS.length) mod.applyQBMap(QBMAP_ROWS);
   } catch (e) { QBMAP_ROWS = []; }
   QBMOD = mod;
+  applyMockRegistry(mod.MOCK_SETS);
   MOCK_STATS = mod.allMockStats();
+  /* คลังตัวเก่า (ก่อน 22 ต.ค.) ไม่รู้จักพารามิเตอร์สาย → คืน Test Gamm มาแทน → กรองทิ้ง */
+  MOCK_STATS_REAL = (mod.allMockStats('real') || []).filter(x => mockTrackOf(x.set) === 'real');
   return mod;
 }
 
@@ -6021,7 +6095,10 @@ async function renderMockBlueprint() {
     el.innerHTML = `<div class="card" style="padding:12px 16px; font-size:12px; color:var(--danger);">📐 ผังข้อสอบ: ${err.message}</div>`;
     return;
   }
-  const stats = MOCK_STATS || [];
+  /* ★ 22 ต.ค. 69 — การ์ดตามสายที่เลือก · ข้อสอบจริง = ตัวอ้างอิงว่า blueprint ที่ตั้งไว้ตรงของจริงไหม */
+  const _trk = state.mockTrack || 'gamm';
+  const stats = _trk === 'real' ? (MOCK_STATS_REAL || [])
+              : _trk === 'all' ? (MOCK_STATS || []).concat(MOCK_STATS_REAL || []) : (MOCK_STATS || []);
 
   const AREA_SHORT = ['พีชคณิต', 'เรขา', 'สถิติฯ', 'แคลคูลัส'];
   const cell = a => `<td style="text-align:center; font-family:var(--font-num);">
@@ -6066,9 +6143,9 @@ async function renderMockBlueprint() {
   el.innerHTML = `
     <div class="card">
       <div class="card__head" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-        <b>📐 ผังข้อสอบ &amp; ระดับความยาก</b>
+        <b>📐 ผังข้อสอบ &amp; ระดับความยาก${_trk === 'real' ? ' — ข้อสอบจริง' : _trk === 'all' ? ' — ทุกสาย' : ''}</b>
         <span style="font-size:11.5px; color:var(--gray-dark);">เทียบกับ ${stats[0] ? stats[0].source : 'blueprint A-Level'}</span>
-        <button class="btn btn--ghost btn--xs" style="margin-left:auto;" onclick="QBMOD=null; MOCK_STATS=null; _planOpen=null; renderMockBlueprint();">↻ อ่านคลังใหม่</button>
+        <button class="btn btn--ghost btn--xs" style="margin-left:auto;" onclick="QBMOD=null; MOCK_STATS=null; MOCK_STATS_REAL=null; _qbSrcP=null; _planOpen=null; renderMockBlueprint();">↻ อ่านคลังใหม่</button>
       </div>
       <div style="overflow-x:auto; padding:0 4px 4px;">
         <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
@@ -6800,7 +6877,10 @@ const CHAPTERS = [
    แยกจาก CHAPTERS เพราะไม่ใช่ "บทเรียน" — ไม่ควรไปโผล่ในรายการบทที่ต้องกรอกให้ครบ
    เพิ่มชุดใหม่ = เพิ่มชื่อที่นี่ + EMBEDDED_QB["ชุดรวม NN"] ใน questionbank.js */
 const MOCK_CHAPTERS = ['ชุดรวม 01', 'ชุดรวม 02', 'ชุดรวม 03', 'ชุดรวม 04', 'ชุดรวม 05', 'ชุดรวม 06', 'ชุดรวม 07'];
-function isMockChapter(name) { return /^ชุดรวม\s*\d*/.test(String(name || '').trim()); }
+function isMockChapter(name) {
+  /* ★ 22 ต.ค. 69 — สายข้อสอบจริง (A-Level NN · 9 วิชาสามัญ NN) ก็เป็นสนามสอบ */
+  return /^(ชุดรวม\s*\d*|A-?Level\s*\d+|9\s*วิชาสามัญ\s*\d+)/i.test(String(name || '').trim());
+}
 
 const isStdChapter = c => {
   const t = String(c || '').trim();
@@ -7156,6 +7236,91 @@ function pasteSplitBlocks(raw) {
   return b;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   🛡 ตัวกันพลาดตอนบันทึกคะแนน — 29 ต.ค. 69
+   เคสจริง: ชุดรวม 03 ของ "ลิกอร์" มี 3 แถว
+     • แถว 22 ต.ค. คำตอบ 30 ข้อเหมือนของ "ทอฝัน" ทุกข้อ (วางของคนอื่นมาบันทึกให้)
+     • แถว 15 ต.ค. ที่ถูกต้อง ถูกบันทึกซ้ำ 2 แถว (กดบันทึกซ้ำ)
+     → ตารางเลือกแถววันที่สอบล่าสุด = แถวผิด · ครูเห็นคะแนนไม่ตรงโดยไม่รู้สาเหตุ
+   ตรวจ 3 อย่างก่อนบันทึกทุกครั้ง (ทั้งวางจาก Gemini และแตะทีละข้อ):
+     🔁 ซ้ำเป๊ะ   — คนเดียวกัน บทเดียวกัน วันที่เดียวกัน คำตอบเหมือนทุกข้อ (มีในชีตแล้ว หรือซ้ำในชุดที่วาง)
+     👥 ลอกกัน    — คำตอบ 30 ข้อเหมือนของ "คนอื่น" ในบทเดียวกันทุกข้อ (กรอกแล้ว ≥ 10 ข้อ)
+     ↻ มีผลอยู่แล้ว — คนนี้มีผลบทนี้ในชีตแล้ว (จะกลายเป็นสอบซ้ำ · บอกด้วยว่าตารางจะโชว์แถวไหน)
+   ทุกข้อเป็น "คำเตือนที่ต้องยืนยัน" ไม่ใช่ห้ามบันทึก — สอบซ้ำจริงมีได้
+   ฝั่ง Apps Script กันชั้นสุดท้าย: แถวที่ซ้ำเป๊ะกับของในชีต จะไม่ถูกเขียนซ้ำ (กดสองครั้ง/เน็ตยิงซ้ำ)
+   ═══════════════════════════════════════════════════════════════════════ */
+function dupStCode(v) {
+  const s = String(v || '');
+  if (s.indexOf('ถูก') >= 0 || s.indexOf('✅') >= 0) return 'O';
+  if (s.indexOf('สะเพร่า') >= 0 || s.indexOf('⚠') >= 0) return 'W';
+  if (s.indexOf('คอนเซปต์') >= 0) return 'C';
+  if (s.indexOf('ทำไม่ได้') >= 0) return 'X';
+  if (s.indexOf('ไม่ทัน') >= 0 || s.indexOf('⏰') >= 0) return 'T';
+  return '-';
+}
+function dupSig(st) { const a = []; for (let i = 0; i < 30; i++) a.push(dupStCode((st || [])[i])); return a.join(''); }
+function dupYmd(v) {
+  const t = String(v || '').trim();
+  let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  let y, mo, d;
+  if (m) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+  else if ((m = t.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/))) { mo = +m[1]; d = +m[2]; y = +m[3]; }
+  else return t;
+  if (y > 2400) y -= 543;
+  return y + '-' + ('0' + mo).slice(-2) + '-' + ('0' + d).slice(-2);
+}
+function dupShowDate(v) { const k = dupYmd(v); const m = k.match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? (+m[3]) + '/' + (+m[2]) + '/' + m[1] : String(v || ''); }
+/* บทเดียวกันแม้สะกดต่าง · "ชุดรวม 3" = "ชุดรวม 03" (ฝั่ง Apps Script ก็ปรับเป็น 03 ตอนบันทึก) */
+function dupChKey(ch) {
+  return chapterKey(String(ch || '').replace(/ชุดรวม\s*0*(\d+)/, (m, n) => 'ชุดรวม ' + ('0' + n).slice(-2)));
+}
+function dupShortName(full) { return String(full || '').replace(/\s*\([^)]*\)\s*$/, '').trim(); }
+/* rec = { full, chapter, date, statuses } · batch = รายการอื่นที่กำลังจะบันทึกพร้อมกัน (ไม่รวมตัวเอง)
+   คืน [{ kind:'dup'|'copy'|'prev', msg }] */
+function entryDupFindings(rec, batch) {
+  const out = [];
+  if (!rec || !rec.full || !rec.chapter) return out;
+  const d = state.examData;
+  const ck = dupChKey(rec.chapter), sig = dupSig(rec.statuses), ymd = dupYmd(rec.date);
+  const filled = sig.replace(/-/g, '').length;
+  const me = nameKey(rec.full);
+  const seen = {};
+  const push = (kind, msg) => { if (!seen[msg]) { seen[msg] = 1; out.push({ kind, msg }); } };
+  const exams = (d && d.exams) || [];
+  exams.forEach(e => {
+    if (dupChKey(e.chapter) !== ck) return;
+    const eSig = dupSig(e.statuses), eYmd = dupYmd(e.date);
+    if (nameKey(e.full) === me) {
+      if (eSig === sig && eYmd === ymd) push('dup', '🔁 บันทึกซ้ำ — ในชีตมีแถวนี้อยู่แล้ว (สอบ ' + dupShowDate(e.date) + ' คำตอบเหมือนกันทุกข้อ)');
+      else push('prev', '↻ คนนี้มีผลบทนี้อยู่แล้ว (สอบ ' + dupShowDate(e.date) + ' ถูก ' + (eSig.split('O').length - 1) + ' ข้อ) — จะนับเป็นสอบซ้ำ'
+        + (eYmd > ymd ? ' · ⚠️ แถวเดิมวันที่สอบใหม่กว่า ตารางจะยังโชว์แถวเดิม ไม่ใช่แถวนี้' : ''));
+    } else if (filled >= 10 && eSig === sig) {
+      push('copy', '👥 คำตอบ 30 ข้อเหมือนของ "' + dupShortName(e.full) + '" (สอบ ' + dupShowDate(e.date) + ') ทุกข้อ — วางของคนอื่นมาหรือเปล่า');
+    }
+  });
+  (batch || []).forEach(b => {
+    if (!b || !b.full || dupChKey(b.chapter) !== ck || dupSig(b.statuses) !== sig) return;
+    if (nameKey(b.full) === me) { if (dupYmd(b.date) === ymd) push('dup', '🔁 ซ้ำกับอีกรายการในชุดที่วาง (คนเดียวกัน คำตอบเหมือนกันทุกข้อ)'); }
+    else if (filled >= 10) push('copy', '👥 คำตอบเหมือนของ "' + dupShortName(b.full) + '" ในชุดที่วางทุกข้อ — วางซ้ำผิดคนหรือเปล่า');
+  });
+  return out;
+}
+const DUP_TAGS = ['🔁', '👥', '↻'];
+function isDupIssue(x) { return DUP_TAGS.some(t => String(x).indexOf(t) === 0); }
+/* คิดคำเตือนกันพลาดของทุกแถวที่วางใหม่ (เรียกทุกครั้งที่ชื่อ/บทในแถวเปลี่ยน) */
+function pasteDupAnnotate() {
+  const rows = state.entry.parsed || [];
+  rows.forEach((r, i) => {
+    const before = (r.issues || []).filter(isDupIssue).join('|');
+    r.issues = (r.issues || []).filter(x => !isDupIssue(x));
+    const rec = { full: r.full, chapter: r.chapter, date: r.date, statuses: r.st };
+    const batch = rows.filter((x, j) => j !== i).map(x => ({ full: x.full, chapter: x.chapter, date: x.date, statuses: x.st }));
+    const f = entryDupFindings(rec, batch).map(x => x.msg);
+    r.issues = r.issues.concat(f);
+    if (f.join('|') !== before) r.confirmed = false;    /* คำเตือนเปลี่ยน → ต้องยืนยันใหม่ */
+  });
+}
+
 function pasteMeta(text) {
   const meta = { name: '', chapter: '', date: '' };
   text.split('\n').forEach(line => {
@@ -7287,6 +7452,8 @@ function pasteParse() {
       ok: !!stu && filled > 0 && issues.length === 0
     };
   });
+  pasteDupAnnotate();                                    /* ★ 29 ต.ค. 69 — 🔁 👥 ↻ */
+  e.parsed.forEach(r => { r.ok = pasteRowOk(r); });
   renderScoreEntry(document.getElementById('mainBody'));
 }
 
@@ -7295,6 +7462,7 @@ function pasteRowOk(r) {
   return !!r.full && r.filled > 0 && (r.issues.length === 0 || r.confirmed);
 }
 function pasteRefresh() {
+  pasteDupAnnotate();                                    /* ชื่อ/บทเปลี่ยน → คิดคำเตือนกันพลาดใหม่ */
   (state.entry.parsed || []).forEach(r => { r.ok = pasteRowOk(r); });
   renderScoreEntry(document.getElementById('mainBody'));
 }
@@ -7433,14 +7601,18 @@ function pasteEntryHtml(d, e) {
 
 async function pasteSaveAll() {
   const e = state.entry;
+  /* ★ 29 ต.ค. 69 — กดซ้ำระหว่างกำลังบันทึก = แถวซ้ำในชีต (เคสลิกอร์) → กันไว้ตรงนี้ */
+  if (e._saving) { toast('กำลังบันทึกอยู่ — รอสักครู่', 'error'); return; }
   const rows = (e.parsed || []).filter(r => r.ok);
   if (!rows.length) { toast('ไม่มีรายการที่บันทึกได้', 'error'); return; }
   const noteEl = document.getElementById('pasteNote');
   const note = noteEl ? noteEl.value.trim() : '';
   if (!confirm('บันทึก ' + rows.length + ' คน ลง Google Sheet?')) return;
 
+  e._saving = true;
   const prog = document.getElementById('pasteProgress');
-  let done = 0, fail = 0;
+  let done = 0, fail = 0, skipped = 0;
+  try {
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     if (prog) prog.innerHTML = 'กำลังบันทึก ' + (i + 1) + '/' + rows.length + ' — ' + r.rawName + ' …';
@@ -7454,11 +7626,12 @@ async function pasteSaveAll() {
         })
       });
       const j = await res.json();
-      if (j && j.ok) done++; else fail++;
+      if (j && j.ok && j.duplicate) skipped++; else if (j && j.ok) done++; else fail++;
     } catch (err) { fail++; }
   }
+  } finally { e._saving = false; }
   if (prog) prog.innerHTML = '<b style="color:' + (fail ? 'var(--danger)' : 'var(--success)') + ';">' +
-    'บันทึกสำเร็จ ' + done + ' คน' + (fail ? ' · ไม่สำเร็จ ' + fail + ' คน' : '') + '</b>';
+    'บันทึกสำเร็จ ' + done + ' คน' + (skipped ? ' · ข้าม ' + skipped + ' คน (มีแถวเดียวกันในชีตแล้ว)' : '') + (fail ? ' · ไม่สำเร็จ ' + fail + ' คน' : '') + '</b>';
   toast('บันทึก ' + done + '/' + rows.length + ' คนแล้ว', fail ? 'error' : 'success');
   state.examData = null;
   e.parsed = null; e.pasteText = '';
@@ -8685,8 +8858,16 @@ async function saveEntry(next) {
     note: note ? note.value.trim() : '',
     statuses: e.st.slice()
   };
-  const r = await examWrite({ action: 'saveExamScore', rec: rec });
+  /* ★ 29 ต.ค. 69 — 🔁 ซ้ำ / 👥 เหมือนคนอื่น / ↻ มีผลอยู่แล้ว → ถามก่อนบันทึก */
+  if (e._saving) { toast('กำลังบันทึกอยู่ — รอสักครู่', 'error'); return; }
+  if (!state.examData) { try { await fetchExamData(); } catch (err) {} }
+  const _dups = entryDupFindings(rec, []);
+  if (_dups.length && !confirm('ตรวจพบก่อนบันทึก:\n\n' + _dups.map(x => '• ' + x.msg).join('\n') + '\n\nบันทึกต่อไหม?')) return;
+  e._saving = true;
+  let r;
+  try { r = await examWrite({ action: 'saveExamScore', rec: rec }); } finally { e._saving = false; }
   if (!r) return;
+  if (r.duplicate) { toast('ไม่ได้บันทึกซ้ำ — ในชีตมีแถวนี้อยู่แล้ว', 'error'); return; }
   toast(`บันทึก "${e.full.replace(/\s*\([^)]*\)\s*$/, '')}" · ${r.score}/30 แล้ว`, 'success');
 
   state.examData = null;               // ให้รายงานคะแนนอ่านใหม่
@@ -9974,7 +10155,7 @@ async function goalsLoad(force) {
 /* ชื่อบทที่ใช้เป็นคีย์เป้า — ชุดรวมทุกชุดใช้เป้าเดียวกัน (คีย์ '') */
 function goalChapKey(ch) {
   const c = String(ch || '').trim();
-  if (!c || /^ชุดรวม\s*\d*/.test(c)) return '';
+  if (!c || isMockChapter(c)) return '';          /* ★ 22 ต.ค. 69 — สนามสอบทุกสาย (รวมข้อสอบจริง) ใช้เป้าเดียวกัน */
   return c.replace(/^Exponential logarithm/i, 'Expo Logarithm');
 }
 function goalFullOf(ch) { return goalChapKey(ch) ? 30 : 100; }
