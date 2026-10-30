@@ -5687,21 +5687,22 @@ function partRowsOf(students, byStu, ch) {
   });
 }
 
-/* ตาราง TSV — เรียงคอลัมน์ให้ตรงกับไฟล์ Excel ที่ครูใช้อยู่
-   (ลำดับ · ตอน 1 สี่ช่อง · ช่องว่างคั่น · ตอน 2 สี่ช่อง · รวมคะแนน · ชื่อ) */
+/* ตาราง TSV — เรียงคอลัมน์ให้ตรงกับไฟล์ Excel ที่ครูใช้อยู่ (A–N)
+   A ลำดับ · B–E ตอน 1 · F ว่าง · G–J ตอน 2 · K ว่าง · L รวมคะแนน · M ว่าง · N ชื่อ
+   ★ 30 ต.ค. 69 — เดิมไม่มีช่องว่าง K/M → วางแล้วรวมคะแนนไปตก K ชื่อไปตก L (เหลื่อม 1–2 คอลัมน์) */
 function partTSV(rows, ch) {
   const parts = examParts(ch) || [];
   const head1 = ['', 'ข้อ ' + (parts[0] ? parts[0].from + '–' + parts[0].to : '1–25') +
                  ' (ข้อละ ' + (parts[0] ? parts[0].pts : 3) + ' คะแนน)', '', '', '', '',
                  'ข้อ ' + (parts[1] ? parts[1].from + '–' + parts[1].to : '26–30') +
-                 ' (ข้อละ ' + (parts[1] ? parts[1].pts : 5) + ' คะแนน)', '', '', '', 'รวมคะแนน', 'ชื่อ'];
+                 ' (ข้อละ ' + (parts[1] ? parts[1].pts : 5) + ' คะแนน)', '', '', '', '', 'รวมคะแนน', '', 'ชื่อ'];
   const head2 = ['', 'ได้ (ข้อ)', 'ได้ (คะแนน)', 'สะเพร่า (ข้อ)', 'สะเพร่า (คะแนน)', '',
-                 'ได้ (ข้อ)', 'ได้ (คะแนน)', 'สะเพร่า (ข้อ)', 'สะเพร่า (คะแนน)', '', ''];
+                 'ได้ (ข้อ)', 'ได้ (คะแนน)', 'สะเพร่า (ข้อ)', 'สะเพร่า (คะแนน)', '', 'ได้ (คะแนน)', '', ''];
   const body = rows.map(r => {
-    if (!r.bd) return [r.no + ')', '', '', '', '', '', '', '', '', '', '', r.name];
+    if (!r.bd) return [r.no + ')', '', '', '', '', '', '', '', '', '', '', '', '', r.name];
     const a = r.bd.parts[0] || {}, b = r.bd.parts[1] || {};
     return [r.no + ')', a.okQ, a.okPts, a.careQ, a.carePts, '',
-            b.okQ, b.okPts, b.careQ, b.carePts, r.bd.total, r.name];
+            b.okQ, b.okPts, b.careQ, b.carePts, '', r.bd.total, '', r.name];
   });
   return [head1, head2].concat(body).map(r => r.join('\t')).join('\n');
 }
