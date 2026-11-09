@@ -2136,7 +2136,28 @@ function renderSidebar() {
 /* ===========================================================
    RENDER — MAIN PANEL (detail)
    =========================================================== */
+/* ★ 9 พ.ย. 69 — กดเช็คชื่อแล้วหน้าไม่ขึ้น
+   Apps Script (tdStrip_/tdLoad_) เก็บคาบที่ "เริ่มเช็คชื่อแล้ว" เป็น { startedAt, finishedAt } ไม่มี records
+   แล้วเติม records คืนเฉพาะคาบที่มีคนเช็คแล้วอย่างน้อย 1 คน
+   → คาบที่เพิ่งเปิดแต่ยังไม่มีใครเช็ค (เช่น เปิดคาบตอน 16.30 นักเรียนยังไม่กด) ไม่มี records
+   → att.records[s.id] พัง → หน้าสรุปการเข้าเรียนหยุดวาด ค้างหน้าเดิม
+   แก้ที่ต้นทาง: เติมโครงที่ขาดให้ครบทุกครั้งก่อนวาด (ไม่แตะข้อมูลที่มีอยู่) */
+function normalizeTeacherData() {
+  const d = state.data;
+  if (!d || !Array.isArray(d.groups)) return;
+  d.groups.forEach(g => {
+    if (!g) return;
+    if (!Array.isArray(g.students)) g.students = [];
+    (g.sessions || []).forEach(se => {
+      if (se && se.attendance && (typeof se.attendance.records !== 'object' || !se.attendance.records)) {
+        se.attendance.records = {};
+      }
+    });
+  });
+}
+
 function renderMain() {
+  normalizeTeacherData();
   const body = document.getElementById('mainBody');
   const title = document.getElementById('mainTitle');
   const eyebrow = document.getElementById('mainEyebrow');
@@ -2588,6 +2609,8 @@ function getAttendance(groupId, sessionNo) {
       session.attendance.records[s.id] = { status: 'pending', checkInTime: null, note: '' };
     });
   }
+  /* ★ 9 พ.ย. 69 — คาบที่โหลดจากชีตมาแบบยังไม่มีใครเช็ค จะมาเป็น { startedAt, finishedAt } ไม่มี records */
+  if (!session.attendance.records || typeof session.attendance.records !== 'object') session.attendance.records = {};
   return session.attendance;
 }
 
@@ -3536,8 +3559,9 @@ function renderAttendanceSummary(body) {
 
   // ถ้ายังไม่ได้เลือกกลุ่ม → เลือกอันแรก
   if (!state.selectedGroupId) state.selectedGroupId = state.data.groups[0].id;
-  const g = state.data.groups.find(x => x.id === state.selectedGroupId);
-  if (!g) return;
+  let g = state.data.groups.find(x => x.id === state.selectedGroupId);
+  /* กลุ่มที่เลือกค้างไว้ถูกลบ/เก็บเข้าคลังไปแล้ว → ใช้กลุ่มแรกแทน (เดิม return เงียบ หน้าค้าง) */
+  if (!g) { g = state.data.groups[0]; state.selectedGroupId = g.id; }
   ensureSessions(g);
 
   // ตารางสรุป attendance: rows = นักเรียน, cols = คาบ
@@ -3559,7 +3583,7 @@ function renderAttendanceSummary(body) {
         return `<td><span class="att-cell outside" data-tip="${s.name} · ${why}" title="${why}">·</span></td>`;
       }
       const att = sess.attendance;
-      const r = att && att.records[s.id];
+      const r = att && att.records && att.records[s.id];
       let cellStatus = 'pending';
       if (r) cellStatus = attScreenStatus(r, sess, g);   /* ★ คิดจากเวลาจริง ไม่ใช่ค่าที่บันทึกไว้ */
       const tier = attendTier(r, sess, g);          // '' | 'ontime' | 'soft'
