@@ -7453,8 +7453,10 @@ function pasteParse() {
        จะไม่บันทึกเงียบ ๆ — ขึ้นให้ครูยืนยันหรือแก้ก่อนเสมอ */
     const many       = blocks.length > 1;
     const chapterRaw = meta.chapter || '';
-    const chapter    = many ? (chapterRaw || e.chapter) : (e.chapter || chapterRaw);
-    const chapterDiff = !!(chapterRaw && chapter && chapterKeyTD(chapterRaw) !== chapterKeyTD(chapter));
+    /* ★ 13 พ.ย. 69 — บทที่ครูเลือกไว้ช่องบนชนะเสมอ (ทั้งคนเดียวและหลายคน)
+       บทในข้อความใช้เมื่อครูยังไม่ได้เลือก · ถ้าไม่ตรงกันจะขึ้นเตือนให้ยืนยัน */
+    const chapter    = e.chapter || chapterRaw;
+    const chapterDiff = !!(chapterRaw && chapter && dupChKey(chapterRaw) !== dupChKey(chapter));   /* "ชุดรวม 8" = "ชุดรวม 08" */
     const filled  = st.filter(Boolean).length;
     const score   = st.filter(v => v.indexOf('ถูก') !== -1).length;
     const dt      = pasteDate(meta.date, e.date);
@@ -7509,7 +7511,7 @@ function pasteSetChapter(i, ch) {
   const r = (state.entry.parsed || [])[i]; if (!r) return;
   r.chapter = ch;
   r.stdChapter = isStdChapter(ch);
-  r.chapterDiff = !!(r.chapterRaw && chapterKeyTD(r.chapterRaw) !== chapterKeyTD(ch));
+  r.chapterDiff = !!(r.chapterRaw && dupChKey(r.chapterRaw) !== dupChKey(ch));
   /* ครูเลือกบทเองแล้ว = ตัดสินใจแล้ว ไม่ต้องถามเรื่อง "ไม่ตรงกับข้อความ" ซ้ำอีก
      (แต่ถ้าเลือกบทนอกรายการมาตรฐาน ยังต้องเตือน — นักเรียนจะกรองไม่เจอจริง ๆ) */
   r.issues = r.issues.filter(x => x.indexOf('บทในข้อความ') !== 0 && x.indexOf('ชื่อบทไม่อยู่') !== 0);
@@ -7565,8 +7567,17 @@ function pasteEntryHtml(d, e) {
               </td>
               <td style="padding:7px 8px;">
                 <select onchange="pasteSetChapter(${i}, this.value)" style="max-width:200px; padding:4px 6px; border:1px solid ${r.stdChapter && !r.chapterDiff ? 'var(--line)' : 'var(--orange)'}; border-radius:6px; font-size:12px;">
-                  ${CHAPTERS.map(c => `<option value="${c.replace(/"/g, '&quot;')}" ${c === r.chapter ? 'selected' : ''}>${c}</option>`).join('')}
-                  ${isStdChapter(r.chapter) ? '' : `<option value="${String(r.chapter).replace(/"/g, '&quot;')}" selected>⚠️ ${r.chapter}</option>`}
+                  ${(() => {
+                    /* ★ 13 พ.ย. 69 — ตัวเลือกเหมือนช่อง "บท" ด้านบน (บทมาตรฐาน + สนามสอบ/ข้อสอบจริง)
+                       เดิมมีแต่บทมาตรฐาน → A-Level 66 ไม่อยู่ในรายการ ช่องจึงโชว์ "เซต" ทั้งที่บันทึกเป็น A-Level 66 */
+                    const ck = dupChKey(r.chapter);
+                    let hit = false;
+                    const opt = c => { const sel = !hit && dupChKey(c) === ck; if (sel) hit = true;
+                      return `<option value="${c.replace(/"/g, '&quot;')}" ${sel ? 'selected' : ''}>${c}</option>`; };
+                    const std = CHAPTERS.map(opt).join(''), mock = MOCK_CHAPTERS.map(opt).join('');
+                    return `<optgroup label="บทมาตรฐาน">${std}</optgroup><optgroup label="สนามสอบ / ข้อสอบจริง">${mock}</optgroup>`
+                      + (hit ? '' : `<option value="${String(r.chapter || '').replace(/"/g, '&quot;')}" selected>⚠️ ${r.chapter || '— ยังไม่เลือกบท —'}</option>`);
+                  })()}
                   ${r.chapterRaw && !isStdChapter(r.chapterRaw) && r.chapterRaw !== r.chapter ? `<option value="${r.chapterRaw.replace(/"/g, '&quot;')}">⚠️ ตามข้อความ: ${r.chapterRaw}</option>` : ''}
                 </select>
               </td>
