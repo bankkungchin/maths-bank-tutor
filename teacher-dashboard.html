@@ -1118,6 +1118,10 @@ input, select { font-family: inherit; font-size: 14px; color: var(--black); }
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
         รอตรวจ<span id="pendingBadge"></span><span id="gradeBadge"></span>
       </button>
+      <button class="btn btn--ghost btn--sm" id="btnBooking" style="flex:1 1 100%;" title="คิวจองของผู้ปกครอง (แทน Goodnotes)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+        คิวจอง
+      </button>
     </div>
 
     <div class="sidebar__section-label">
@@ -1240,7 +1244,9 @@ const GS_SAFE_ACTIONS = [
   /* ★ 24 ก.ย. 69 — ใบตรวจ PDF: gradeSave/gradeNoteSave ส่งรหัสที่หน้าเว็บสร้างไปด้วย
      เซิร์ฟเวอร์เจอรหัสเดิม = ไม่ทำซ้ำ → ยิงซ้ำได้ปลอดภัย (ไม่เกิดคะแนนซ้ำแถว) */
   'gradeSave', 'gradeNoteSave', 'gradeList', 'gradeNotes', 'gradeRevert', 'gradeLock', 'gradeNoteClear',
-  'gradeAck'     /* ★ 25 ก.ย. 69 — รับทราบซ้ำได้ผลเท่าเดิม */
+  'gradeAck',    /* ★ 25 ก.ย. 69 — รับทราบซ้ำได้ผลเท่าเดิม */
+  /* ★ 17 พ.ย. 69 — คิวจอง: บันทึกแบบ upsert ตาม id ที่หน้าเว็บสร้าง / ลบตาม id → ยิงซ้ำได้ผลเท่าเดิม */
+  'bookingList', 'bookingSave', 'bookingDelete'
 ];
 
 /* หาชื่อ action จาก body (POST) ก่อน ถ้าไม่มีค่อยดูใน query string (GET) */
@@ -2213,6 +2219,13 @@ function renderMain() {
     eyebrow.textContent = 'Online Check-in';
     title.textContent = 'เช็คชื่อออนไลน์ — Real-time';
     renderOnlineCheckin(body);
+    return;
+  }
+
+  if (state.view === 'booking') {           /* ★ 17 พ.ย. 69 — คิวจองของผู้ปกครอง */
+    eyebrow.textContent = 'Booking Queue';
+    title.textContent = 'คิวจองของผู้ปกครอง';
+    renderBooking(body);
     return;
   }
 
@@ -11582,6 +11595,757 @@ function exportData() {
   toast('Export ข้อมูลแล้ว', 'success');
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   📋 คิวจองของผู้ปกครอง — 17 พ.ย. 69
+   แทน Goodnotes: ชื่อไลน์ผู้ปกครอง · ชื่อนักเรียน · รร. · ชั้น · วันที่ติดต่อ
+   - วางข้อความจากไลน์ / วางรูปแคปจอ (⌘V) / ลากรูป → อ่านตัวอักษร (Tesseract ในเบราว์เซอร์)
+     → แยกช่องให้เอง → ครูตรวจ → บันทึก
+   - แบบฟอร์มให้ผู้ปกครองกรอก (ปุ่มคัดลอก) — ข้อความที่ตอบกลับมาแยกช่องได้แม่นที่สุด
+   - เก็บที่ชีต bookings (Booking.gs) · สำรองในเครื่องไว้ดูตอนเน็ตหลุด
+   ═══════════════════════════════════════════════════════════════ */
+const BK_CACHE_KEY = 'mathsBankBookings';
+const BK_STATUS = {
+  wait:      { label: 'รอคิว',            color: 'var(--gray-dark)', bg: 'var(--bg-soft)' },
+  contacted: { label: 'ติดต่อกลับแล้ว',    color: '#9A4A00',          bg: '#FFF4E0' },
+  enrolled:  { label: 'ได้ที่เรียนแล้ว ✓', color: 'var(--success)',   bg: 'var(--success-bg)' },
+  cancel:    { label: 'ยกเลิก',            color: 'var(--danger)',    bg: 'var(--danger-bg)' }
+};
+const BK_TESS = {
+  src: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js',
+  workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+  corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1'
+  /* langPath ไม่ใส่ → tesseract.js ดึง tha / eng จาก @tesseract.js-data ของแต่ละภาษาเอง */
+};
+
+function bkEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function bkState() {
+  if (!state.booking) {
+    state.booking = {
+      items: null, loading: false, err: '', q: '', status: 'active', cohort: 'all',
+      draft: null, raw: '', img: '', ocrBusy: false, ocrMsg: '',
+      lineName: '', contactDate: (typeof todayStr === 'function' ? todayStr() : dateToStr(new Date())),
+      showTpl: false
+    };
+    try {
+      const c = JSON.parse(localStorage.getItem(BK_CACHE_KEY) || 'null');
+      if (c && Array.isArray(c.items)) { state.booking.items = c.items; state.booking.cachedAt = c.at; }
+    } catch (e) {}
+  }
+  return state.booking;
+}
+
+/* ───────── ปีการศึกษา · ชั้น · รุ่น ───────── */
+/* ปีการศึกษาไทยเริ่ม พ.ค. → ม.ค.–เม.ย. ยังเป็นปีการศึกษาก่อนหน้า */
+function bkAY(dateStr) {
+  const d = parseDate(dateStr || dateToStr(new Date()));
+  return d.getFullYear() + 543 - (d.getMonth() < 4 ? 1 : 0);
+}
+function bkNormGrade(s) {
+  s = String(s || '');
+  if (/ซิ่ว|จบ\s*ม\.?\s*6/.test(s)) return 'ซิ่ว';
+  let m = s.match(/(?:มัธยม(?:ศึกษา)?(?:ปี(?:ที่)?)?|ม)\s*\.?\s*([1-6])(?![0-9])/);
+  if (m) return 'ม.' + m[1];
+  m = s.match(/(?:ประถม(?:ศึกษา)?(?:ปี(?:ที่)?)?|ป)\s*\.?\s*([1-6])(?![0-9])/);
+  if (m) return 'ป.' + m[1];
+  m = s.match(/(?:grade|g)\s*([1-9]|1[0-2])\b/i);
+  if (m) { const n = +m[1]; return n >= 7 ? 'ม.' + (n - 6) : 'ป.' + n; }
+  return '';
+}
+function bkNextGrade(g) {
+  const m = String(g).match(/^(ม|ป)\.(\d)$/);
+  if (!m) return g;
+  const n = +m[2];
+  if (m[1] === 'ป') return n === 6 ? 'ม.1' : 'ป.' + (n + 1);
+  return n === 6 ? 'ซิ่ว' : 'ม.' + (n + 1);
+}
+/* เดารุ่น: ติดต่อช่วง ต.ค.–เม.ย. = จองคอร์สปีการศึกษาหน้า (ชั้นถัดไป)
+   ติดต่อช่วง พ.ค.–ก.ย. = จองคอร์สปีนี้ (ชั้นเดิม)
+   isTarget = ผู้ปกครองบอกชั้นที่ "จะขึ้น" มาแล้ว → ไม่ต้องเลื่อนชั้น */
+function bkCohortGuess(grade, isTarget, contactDate) {
+  const g = bkNormGrade(grade);
+  if (!g) return '';
+  const d = parseDate(contactDate || dateToStr(new Date()));
+  const ay = bkAY(contactDate);
+  const nextSeason = d.getMonth() >= 9 || d.getMonth() < 4;
+  const tg = nextSeason ? (isTarget ? g : bkNextGrade(g)) : g;
+  const y = nextSeason ? ay + 1 : ay;
+  return tg + ' ' + String(y % 100).padStart(2, '0');
+}
+function bkCohortKey(c) {
+  const m = String(c || '').match(/^(ป|ม)\.(\d)\s+(\d{2})$|^(ซิ่ว)\s+(\d{2})$/);
+  if (!m) return [999, 9, String(c || '')];
+  const y = +(m[3] || m[5]);
+  const lv = m[4] ? 20 : (m[1] === 'ป' ? 0 : 10) + (+m[2]);
+  return [-y, lv, ''];
+}
+function bkCohortSort(a, b) {
+  const x = bkCohortKey(a), y = bkCohortKey(b);
+  return x[0] - y[0] || x[1] - y[1] || x[2].localeCompare(y[2], 'th');
+}
+
+/* ───────── แยกข้อความ → ช่องข้อมูล ───────── */
+const BK_SCHOOL_RX = /(สาธิต\s?[ก-๙A-Za-z.]*(?:\s?(?:จุฬา\S*|ปทุมวัน|มศว\S*|เกษตร\S*|ประสานมิตร|ธรรมศาสตร์|ลาดกระบัง|รามคำแหง|ศิลปากร))?|เตรียมอุดม\S*|มหิดลวิทยานุสรณ์|กำเนิดวิทย์|สวนกุหลาบ\S*|บดินทรเดชา\S*|สตรีวิทยา\S*|อัสสัมชัญ\S*|เซนต์\S+|กรุงเทพคริสเตียน\S*|ราชวินิต\S*|หอวัง|ศึกษานารี|เบญจมราชาลัย|เทพศิรินทร์\S*|ภ\.?ป\.?ร\.?\S*|โยธินบูรณะ|นวมินทราชินูทิศ\S*|มาแตร์\S*|เซนต์โยเซฟ\S*|วัฒนาวิทยาลัย|ราชินี\S*|\bTU\b|\bMWIT\b|\bKVIS\b|\bSJC\b|\bBCC\b|\bACS?\b|\bMO\b)/;
+const BK_CHAT_RX = /(ค่ะ|คะ|ครับ|คับ|นะ(?:คะ|ครับ)?$|จ้า|จ้ะ|ขอบคุณ|สวัสดี|สะดวก|ได้เลย|รบกวน|โอเค|ok\b|thank|อ่านแล้ว)/i;
+const BK_PHONE_RX = /(0[689]\d[-\s]?\d{3}[-\s]?\d{4}|0[2-7][-\s]?\d{3}[-\s]?\d{4})/;
+
+function bkCleanLine(l) {
+  return String(l || '')
+    .replace(/\r/g, '')
+    .replace(/(^|\s)\d{1,2}[.:]\d{2}\s*(น\.?)?(?=\s|$)/g, ' ')   /* เวลาในไลน์ 14.04 น. / 14:04 */
+    .replace(/อ่านแล้ว|Read\b/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+}
+function bkStripPrefix(n) {
+  return String(n || '')
+    .replace(/^[\s:：\-–•·*]+/, '')
+    .replace(/^(ชื่อ(?:จริง)?|ด\.?\s?ช\.?|ด\.?\s?ญ\.?|เด็กชาย|เด็กหญิง|นางสาว|น\.ส\.|นาย|Mr\.?|Ms\.?|Miss)\s*/i, '')
+    .replace(/[\s,;:：\-–]+$/, '')
+    .trim();
+}
+function bkLetters(s) { return (String(s).match(/[ก-๙A-Za-z]/g) || []).length; }
+
+/* อ่านบรรทัดเดียวแบบอิสระ → { name, nickname, grade, isTarget, school, phone } */
+function bkParseFree(line) {
+  let s = ' ' + line + ' ';
+  const o = { name: '', nickname: '', grade: '', isTarget: false, school: '', phone: '' };
+  let m = s.match(BK_PHONE_RX);
+  if (m) { o.phone = m[1].replace(/[\s]/g, ''); s = s.replace(m[0], ' '); }
+  m = s.match(/\(([^()]{1,24})\)/);
+  if (m) { o.nickname = m[1].trim(); s = s.replace(m[0], ' '); }
+  m = s.match(/((?:จะ)?(?:ขึ้น|เข้า)\s*)?((?:มัธยม(?:ศึกษา)?(?:ปี(?:ที่)?)?|ประถม(?:ศึกษา)?(?:ปี(?:ที่)?)?|ม|ป)\s*\.?\s*[1-6](?![0-9])|เด็กซิ่ว|ซิ่ว|จบ\s*ม\.?\s*6|grade\s*(?:1[0-2]|[1-9])\b)/i);
+  if (m) {
+    const before = s.slice(0, m.index);
+    /* "ม4" ที่ติดท้ายคำไทยโดยไม่มีจุด (เช่น "สาม4") ไม่นับ — ต้องขึ้นต้นคำหรือมีจุด */
+    if (/[ก-๙]$/.test(before) && !m[1] && !/\./.test(m[2]) && /^[มป]\s*[1-6]/.test(m[2])) {
+      /* ข้าม */
+    } else {
+      o.grade = bkNormGrade(m[2]);
+      o.isTarget = !!m[1];
+      s = s.slice(0, m.index) + ' ' + s.slice(m.index + m[0].length);
+    }
+  }
+  m = s.match(/(?:โรงเรียน|(?:^|\s)(?:ร\.ร\.|รร\.|รร(?=\s)))\s*([^,\n()]+)/);   /* "รร" ต้องเป็นคำ ไม่ใช่ใน "ธรรม" */
+  if (m) { o.school = m[1].trim(); s = s.replace(m[0], ' '); }
+  else {
+    m = s.match(BK_SCHOOL_RX);
+    if (m) { o.school = m[1].trim(); s = s.replace(m[0], ' '); }
+  }
+  s = s.replace(/\s+/g, ' ').trim();
+  m = s.match(/^น้อง\s*([ก-๙A-Za-z]+)$/);
+  if (m && !o.nickname) { o.nickname = m[1]; s = ''; }
+  s = s.replace(/^(น้อง)\s+/, '');
+  o.name = bkStripPrefix(s);
+  if (bkLetters(o.name) < 2) o.name = '';
+  return o;
+}
+
+const BK_KEYS = [
+  ['lineName', /^(ชื่อ\s*(?:ใน)?\s*(?:ไลน์|line)(?:\s*ผู้ปกครอง)?|ชื่อผู้ปกครอง(?:\s*\(.*?\))?|ผู้ปกครอง)\s*[:：]/i],
+  ['nickname', /^(ชื่อเล่น(?:นักเรียน)?)\s*[:：]/],
+  ['student_name', /^(ชื่อ\s*[-–]?\s*(?:นามสกุล)?\s*(?:นักเรียน|น้อง|ลูก)?|ชื่อจริง(?:\s*[-–]?\s*นามสกุล)?|นักเรียน)\s*[:：]/],
+  ['school', /^(โรงเรียน|ร\.ร\.|รร\.?|school)\s*[:：]/i],
+  ['grade', /^((?:ระดับ)?ชั้น(?:ปัจจุบัน)?(?:\s*\(.*?\))?|ระดับ|grade)\s*[:：]/i],
+  ['phone', /^(เบอร์(?:โทร)?(?:ศัพท์)?(?:ติดต่อ)?|โทร(?:ศัพท์)?|tel|phone)\s*[:：]/i],
+  ['ref', /^(รู้จักครูจาก.*?|ใครแนะนำ|แนะนำโดย)\s*[:：]/],
+  ['note', /^(หมายเหตุ|เพิ่มเติม|note)\s*[:：]/i]
+];
+
+/* ข้อความทั้งก้อน → { lineName, rows:[{student_name,nickname,school,grade,isTarget,phone,note}] } */
+function bkParseText(text) {
+  const out = { lineName: '', rows: [] };
+  const raw = String(text || '').split(/\n/);
+  const lines = [];
+  raw.forEach(l => {
+    /* ข้อความที่ก๊อปจากไลน์คอม: "14:04<TAB>ชื่อคนส่ง<TAB>ข้อความ" */
+    const tabs = l.split('\t');
+    if (tabs.length >= 3 && /^\d{1,2}[.:]\d{2}/.test(tabs[0].trim())) {
+      if (!out.lineName && tabs[1].trim()) out.lineName = tabs[1].trim();
+      l = tabs.slice(2).join(' ');
+    }
+    const c = bkCleanLine(l);
+    if (c) lines.push(c);
+  });
+
+  const isKeyed = lines.filter(l => BK_KEYS.some(k => k[1].test(l))).length >= 2;
+  let cur = null;
+  const newRow = () => { cur = { student_name: '', nickname: '', school: '', grade: '', isTarget: false, phone: '', note: '' }; out.rows.push(cur); return cur; };
+  let sharedPhone = '', sharedNote = [];
+
+  if (isKeyed) {
+    lines.forEach(l => {
+      const k = BK_KEYS.find(x => x[1].test(l));
+      if (!k) {
+        if (cur && /^\s*(?:ม|ป)\s*\.?\s*[1-6]/.test(l) && !cur.grade) { cur.grade = bkNormGrade(l); }
+        return;
+      }
+      const v = l.replace(k[1], '').trim();
+      if (!v) return;
+      const f = k[0];
+      if (f === 'lineName') { if (!out.lineName) out.lineName = v; return; }
+      if (f === 'phone') { const m = v.match(BK_PHONE_RX); const p = m ? m[1].replace(/\s/g, '') : v; if (cur) cur.phone = p; else sharedPhone = p; return; }
+      if (f === 'ref') { const t = 'แนะนำโดย ' + v; if (cur) cur.note = [cur.note, t].filter(Boolean).join(' · '); else sharedNote.push(t); return; }
+      if (f === 'note') { if (cur) cur.note = [cur.note, v].filter(Boolean).join(' · '); else sharedNote.push(v); return; }
+      if (f === 'student_name') {
+        if (!cur || cur.student_name) newRow();
+        const p = bkParseFree(v);
+        cur.student_name = p.name || bkStripPrefix(v);
+        if (p.nickname && !cur.nickname) cur.nickname = p.nickname;
+        if (p.grade && !cur.grade) { cur.grade = p.grade; cur.isTarget = p.isTarget; }
+        if (p.school && !cur.school) cur.school = p.school;
+        return;
+      }
+      if (!cur) newRow();
+      if (f === 'nickname') { if (cur.nickname && cur.student_name) newRow(); cur.nickname = v.replace(/^น้อง\s*/, '').replace(/[()]/g, '').trim(); return; }
+      if (f === 'grade') { cur.grade = bkNormGrade(v) || v; cur.isTarget = /ขึ้น|เข้า/.test(v); return; }
+      if (f === 'school') { cur.school = v.replace(/^(โรงเรียน|รร\.?)\s*/, ''); return; }
+    });
+  } else {
+    lines.forEach(l => {
+      const p = bkParseFree(l);
+      const hasInfo = p.grade || p.school || p.nickname || p.phone;
+      const twoWords = /^[ก-๙A-Za-z.]{2,}(\s[ก-๙A-Za-z.]{2,}){1,2}$/.test(p.name);
+      if (!hasInfo) {
+        if (!p.name || BK_CHAT_RX.test(l) || !twoWords) return;      /* คุยเล่น / เศษจากการอ่านรูป */
+      }
+      if (p.phone && !p.name && !p.grade && !p.school && !p.nickname) { sharedPhone = p.phone; return; }
+      if (BK_CHAT_RX.test(p.name) && !p.grade && !p.school) p.name = '';
+      const startsNew = !cur || (p.name && cur.student_name) || (p.nickname && cur.nickname && !p.name);
+      if (startsNew) newRow();
+      if (p.name && !cur.student_name) cur.student_name = p.name;
+      if (p.nickname && !cur.nickname) cur.nickname = p.nickname;
+      if (p.grade && !cur.grade) { cur.grade = p.grade; cur.isTarget = p.isTarget; }
+      if (p.school && !cur.school) cur.school = p.school;
+      if (p.phone && !cur.phone) cur.phone = p.phone;
+    });
+  }
+  out.rows = out.rows.filter(r => r.student_name || r.nickname);
+  out.rows.forEach(r => {
+    if (!r.phone && sharedPhone) r.phone = sharedPhone;
+    if (sharedNote.length) r.note = [r.note].concat(sharedNote).filter(Boolean).join(' · ');
+    r.school = String(r.school || '').replace(/\s+/g, ' ').trim();
+  });
+  return out;
+}
+
+/* ───────── คุยกับ Apps Script ───────── */
+async function bkCall(payload) {
+  const res = await gsFetch(SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(Object.assign({ token: teacherToken() }, payload))
+  });
+  const j = await res.json();
+  if (!j.ok) {
+    if (j.needLogin) authFailed(j);
+    if (/unknown (POST|booking) action|unknown POST/.test(j.error || ''))
+      throw new Error('Apps Script ยังไม่มีระบบคิวจอง — ต้องเพิ่มไฟล์ Booking.gs + Deploy ก่อน');
+    throw new Error(j.error || 'ไม่สำเร็จ');
+  }
+  return j;
+}
+function bkCacheSave() {
+  const b = bkState();
+  try { localStorage.setItem(BK_CACHE_KEY, JSON.stringify({ at: new Date().toISOString(), items: b.items || [] })); } catch (e) {}
+}
+async function bkLoad(force) {
+  const b = bkState();
+  if (b.loading) return;
+  if (b.loadedOnce && !force) return;
+  b.loading = true; b.err = '';
+  try {
+    const j = await bkCall({ action: 'bookingList' });
+    b.items = j.items || [];
+    b.loadedOnce = true; b.cachedAt = null;
+    bkCacheSave();
+  } catch (e) {
+    b.err = e.message || String(e);
+  }
+  b.loading = false;
+  if (state.view === 'booking') renderMain();
+}
+async function bkSaveItems(items) {
+  const b = bkState();
+  const j = await bkCall({ action: 'bookingSave', items: items });
+  const saved = j.saved || [];
+  if (!b.items) b.items = [];
+  saved.forEach(o => {
+    const i = b.items.findIndex(x => x.id === o.id);
+    if (i >= 0) b.items[i] = o; else b.items.push(o);
+  });
+  bkCacheSave();
+  return saved;
+}
+
+/* ───────── รูปจากไลน์ → ตัวอักษร ───────── */
+function bkLoadTess() {
+  if (window.Tesseract) return Promise.resolve();
+  if (bkLoadTess._p) return bkLoadTess._p;
+  bkLoadTess._p = new Promise((ok, no) => {
+    const s = document.createElement('script');
+    s.src = BK_TESS.src; s.onload = ok;
+    s.onerror = () => { bkLoadTess._p = null; no(new Error('โหลดตัวอ่านตัวอักษรไม่ได้ (เช็คเน็ต)')); };
+    document.head.appendChild(s);
+  });
+  return bkLoadTess._p;
+}
+/* ขยาย 2 เท่า + ขาวดำ (ไลน์โหมดมืดกลับสีให้ก่อน) — ทดสอบกับแคปจริงแล้วอ่านชื่อไทยแม่นขึ้น */
+function bkPrepImage(dataUrl) {
+  return new Promise((ok, no) => {
+    const im = new Image();
+    im.onload = () => {
+      const sc = im.width < 1600 ? 2 : 1;
+      const c = document.createElement('canvas');
+      c.width = im.width * sc; c.height = im.height * sc;
+      const g = c.getContext('2d');
+      g.imageSmoothingQuality = 'high';
+      g.drawImage(im, 0, 0, c.width, c.height);
+      const d = g.getImageData(0, 0, c.width, c.height), p = d.data;
+      let sum = 0;
+      for (let i = 0; i < p.length; i += 4) sum += 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2];
+      const dark = sum / (p.length / 4) < 110;
+      for (let i = 0; i < p.length; i += 4) {
+        let y = 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2];
+        if (dark) y = 255 - y;
+        const v = y > 150 ? 255 : 0;
+        p[i] = p[i + 1] = p[i + 2] = v;
+      }
+      g.putImageData(d, 0, 0);
+      ok(c);
+    };
+    im.onerror = () => no(new Error('เปิดรูปไม่ได้'));
+    im.src = dataUrl;
+  });
+}
+async function bkOcrFile(file) {
+  const b = bkState();
+  if (!file || !/^image\//.test(file.type || '')) { toast('ไฟล์นี้ไม่ใช่รูป', 'error'); return; }
+  const dataUrl = await new Promise((ok, no) => {
+    const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => no(r.error); r.readAsDataURL(file);
+  });
+  b.img = dataUrl; b.ocrBusy = true; b.ocrMsg = 'กำลังอ่านตัวอักษรจากรูป… (ครั้งแรกโหลดภาษาไทย ~2 MB)';
+  if (state.view === 'booking') renderMain();
+  try {
+    await bkLoadTess();
+    const canvas = await bkPrepImage(dataUrl);
+    if (!bkOcrFile._w) {
+      bkOcrFile._w = await window.Tesseract.createWorker(['tha', 'eng'], 1,
+        { workerPath: BK_TESS.workerPath, corePath: BK_TESS.corePath });
+      await bkOcrFile._w.setParameters({ tessedit_pageseg_mode: '6', preserve_interword_spaces: '1' });
+    }
+    const r = await bkOcrFile._w.recognize(canvas);
+    const txt = String((r && r.data && r.data.text) || '')
+      .replace(/([ก-๙])\s+([ะ-ฺ็-๎])/g, '$1$2')        /* สระ/วรรณยุกต์หลุดช่องว่าง */
+      .split('\n').map(l => l.replace(/^\s*(\S{1}\s+)+/, '')        /* ตัวอักษรเดี่ยวหน้าบรรทัด = รูปโปรไฟล์ */
+        .replace(/^\s*[a-z]{2,4}\s+(?=[ก-๙])/, '')).join('\n');      /* เศษ "eee" หน้าข้อความไทย */
+    const box = document.getElementById('bkRaw');
+    if (box) b.raw = box.value;                       /* เก็บที่ครูพิมพ์ค้างไว้ก่อน */
+    b.raw = (b.raw ? b.raw.trim() + '\n' : '') + txt.trim();
+    b.ocrMsg = 'อ่านรูปแล้ว — ตรวจชื่อกับรูปอีกครั้งนะครับ (ตัวสะกดแปลก ๆ เช่น ฏ ฐ ฬ มักอ่านพลาด)';
+    bkDoParse(true);
+  } catch (e) {
+    b.ocrMsg = '❌ ' + (e.message || e) + ' — พิมพ์/วางข้อความเองได้เลย';
+  }
+  b.ocrBusy = false;
+  if (state.view === 'booking') renderMain();
+}
+function bkInstallPaste() {
+  if (bkInstallPaste._on) return;
+  bkInstallPaste._on = true;
+  document.addEventListener('paste', e => {
+    if (state.view !== 'booking') return;
+    const items = (e.clipboardData && e.clipboardData.items) || [];
+    for (const it of items) {
+      if (it.kind === 'file' && /^image\//.test(it.type)) {
+        e.preventDefault();
+        bkOcrFile(it.getAsFile());
+        return;
+      }
+    }
+  });
+}
+function bkDrop(e) {
+  e.preventDefault();
+  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) bkOcrFile(f);
+}
+
+/* ───────── ร่างก่อนบันทึก ───────── */
+function bkDupOf(r) {
+  const b = bkState();
+  const nk = s => String(s || '').replace(/\s+/g, '').toLowerCase();
+  const n = nk(r.student_name), k = nk(r.nickname), sc = nk(r.school);
+  return (b.items || []).find(x =>
+    (n && n.length > 3 && nk(x.student_name) === n) ||
+    (k && sc && nk(x.nickname) === k && nk(x.school) === sc));
+}
+function bkDoParse(fromOcr) {
+  const b = bkState();
+  const box = document.getElementById('bkRaw');
+  if (box && !fromOcr) b.raw = box.value;          /* มาจากรูป = ข้อความอยู่ใน state แล้ว (ช่องบนจอยังเป็นของเก่า) */
+  const keepLine = fromOcr;
+  const p = bkParseText(b.raw);
+  if (p.lineName && (!b.lineName || !keepLine)) b.lineName = p.lineName;
+  b.draft = p.rows.map(r => ({
+    id: uid('bk'),
+    student_name: r.student_name, nickname: r.nickname, school: r.school, grade: r.grade,
+    phone: r.phone, note: r.note,
+    cohort: bkCohortGuess(r.grade, r.isTarget, b.contactDate),
+    cohortHint: r.grade ? (r.isTarget ? 'จะขึ้น ' + r.grade : 'ตอนนี้ ' + r.grade) : '',
+    status: 'wait'
+  }));
+  if (!b.draft.length) b.draft = [bkBlankRow()];
+  if (state.view === 'booking') renderMain();
+}
+function bkBlankRow() {
+  return { id: uid('bk'), student_name: '', nickname: '', school: '', grade: '', phone: '', note: '', cohort: '', status: 'wait' };
+}
+function bkDraftSet(i, k, v) {
+  const b = bkState();
+  const r = b.draft && b.draft[i];
+  if (!r) return;
+  r[k] = v;
+  if (k === 'grade' && !r._cohortTouched) {
+    r.cohort = bkCohortGuess(v, false, b.contactDate);
+    const el = document.getElementById('bkCo' + i); if (el) el.value = r.cohort;
+  }
+  if (k === 'cohort') r._cohortTouched = true;
+}
+function bkDraftAdd() { const b = bkState(); (b.draft = b.draft || []).push(bkBlankRow()); renderMain(); }
+function bkDraftDel(i) { const b = bkState(); b.draft.splice(i, 1); if (!b.draft.length) b.draft = null; renderMain(); }
+function bkClearDraft() { const b = bkState(); b.draft = null; b.raw = ''; b.img = ''; b.ocrMsg = ''; b.lineName = ''; b.contactDate = todayStr(); renderMain(); }
+async function bkSaveDraft() {
+  const b = bkState();
+  const rows = (b.draft || []).filter(r => String(r.student_name).trim() || String(r.nickname).trim());
+  if (!rows.length) { toast('ยังไม่มีชื่อนักเรียน', 'error'); return; }
+  const dups = rows.map(r => bkDupOf(r)).filter(Boolean);
+  if (dups.length && !confirm('มีชื่อซ้ำกับที่จองไว้แล้ว:\n' +
+      dups.map(d => '· ' + (d.nickname ? d.nickname + ' · ' : '') + d.student_name + ' (' + (d.cohort || '-') + ')').join('\n') +
+      '\n\nบันทึกเพิ่มอีกแถวอยู่ดีไหมครับ?')) return;
+  const items = rows.map(r => ({
+    id: r.id, contact_date: b.contactDate, line_name: b.lineName.trim(),
+    student_name: String(r.student_name).trim(), nickname: String(r.nickname).trim(),
+    school: String(r.school).trim(), grade: String(r.grade).trim(), cohort: String(r.cohort).trim(),
+    phone: String(r.phone).trim(), status: 'wait', note: String(r.note || '').trim(),
+    source_text: String(b.raw || '').slice(0, 2000)
+  }));
+  const btn = document.getElementById('bkSaveBtn'); if (btn) { btn.disabled = true; btn.textContent = 'กำลังบันทึก…'; }
+  try {
+    await bkSaveItems(items);
+    toast('บันทึกเข้าคิวแล้ว ' + items.length + ' คน', 'success');
+    b.lastCohort = items[0].cohort;
+    bkClearDraft();
+  } catch (e) {
+    toast('บันทึกไม่สำเร็จ: ' + e.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '💾 บันทึกเข้าคิว'; }
+  }
+}
+
+/* ───────── แบบฟอร์มส่งผู้ปกครอง ───────── */
+function bkTemplateText() {
+  const ay = bkAY(todayStr());
+  return 'สวัสดีครับ 🙏 รบกวนกรอกข้อมูลจองคิวเรียนคณิตกับครูแบงก์ตามนี้นะครับ\n' +
+    '(กดคัดลอกข้อความนี้ แล้วพิมพ์ต่อท้ายเครื่องหมาย : ได้เลยครับ)\n\n' +
+    'ชื่อผู้ปกครอง:\n' +
+    'เบอร์โทร:\n' +
+    'ชื่อ-นามสกุลนักเรียน:\n' +
+    'ชื่อเล่น:\n' +
+    'โรงเรียน:\n' +
+    'ชั้นปัจจุบัน (ปีการศึกษา ' + ay + '):\n' +
+    'รู้จักครูจาก/ใครแนะนำ:\n' +
+    'หมายเหตุ:\n\n' +
+    'ถ้ามีน้องมากกว่า 1 คน พิมพ์ "ชื่อ-นามสกุลนักเรียน:" ต่อด้านล่างได้เลยครับ';
+}
+async function bkCopy(text, msg) {
+  try { await navigator.clipboard.writeText(text); }
+  catch (e) {
+    const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select();
+    try { document.execCommand('copy'); } catch (e2) {} t.remove();
+  }
+  toast(msg || 'คัดลอกแล้ว', 'success');
+}
+
+/* ───────── แก้ / เปลี่ยนสถานะ / ลบ ───────── */
+async function bkSetStatus(id, st) {
+  const b = bkState();
+  const it = (b.items || []).find(x => x.id === id);
+  if (!it) return;
+  const old = it.status;
+  it.status = st; renderMain();
+  try { await bkSaveItems([Object.assign({}, it, { status: st })]); toast('เปลี่ยนเป็น "' + BK_STATUS[st].label + '"', 'success'); }
+  catch (e) { it.status = old; renderMain(); toast('บันทึกไม่สำเร็จ: ' + e.message, 'error'); }
+}
+function bkEdit(id) {
+  const b = bkState();
+  const it = (b.items || []).find(x => x.id === id);
+  if (!it) return;
+  const f = (k, label, type) => `<div class="form-field"><label>${label}</label>
+    <input id="bkE_${k}" type="${type || 'text'}" value="${bkEsc(it[k])}" ${k === 'cohort' ? 'list="bkCohortList"' : ''}></div>`;
+  const stSel = `<div class="form-field"><label>สถานะ</label><select id="bkE_status">${
+    Object.keys(BK_STATUS).map(k => `<option value="${k}" ${it.status === k ? 'selected' : ''}>${BK_STATUS[k].label}</option>`).join('')}</select></div>`;
+  showModal({
+    title: '✏️ แก้ข้อมูลคิวจอง',
+    body: `<div class="form-grid" style="grid-template-columns:1fr 1fr; gap:10px;">
+      ${f('student_name', 'ชื่อ-นามสกุลนักเรียน')}${f('nickname', 'ชื่อเล่น')}
+      ${f('school', 'โรงเรียน')}${f('grade', 'ชั้น (ตอนติดต่อ)')}
+      ${f('cohort', 'รุ่นที่จอง')}${stSel}
+      ${f('line_name', 'ชื่อไลน์ผู้ปกครอง')}${f('phone', 'เบอร์โทร')}
+      ${f('contact_date', 'วันที่ติดต่อ', 'date')}
+      <div class="form-field" style="grid-column:1/-1;"><label>หมายเหตุ</label><input id="bkE_note" value="${bkEsc(it.note)}"></div>
+    </div>${bkCohortDatalist()}
+    ${it.source_text ? `<details style="margin-top:10px; font-size:12px;"><summary style="cursor:pointer;">ข้อความต้นฉบับจากไลน์</summary><pre style="white-space:pre-wrap; background:var(--bg-soft); padding:8px; border-radius:8px; margin-top:6px;">${bkEsc(it.source_text)}</pre></details>` : ''}`,
+    actions: [
+      { label: '🗑 ลบ', class: 'btn--ghost', onClick: () => bkDelete(id) },
+      { label: 'ยกเลิก', class: 'btn--ghost', onClick: closeModal },
+      { label: '💾 บันทึก', class: 'btn--primary', onClick: async () => {
+          const o = Object.assign({}, it);
+          ['student_name', 'nickname', 'school', 'grade', 'cohort', 'line_name', 'phone', 'contact_date', 'note', 'status']
+            .forEach(k => { const el = document.getElementById('bkE_' + k); if (el) o[k] = el.value.trim(); });
+          if (!o.student_name && !o.nickname) { toast('ต้องมีชื่อหรือชื่อเล่น', 'error'); return; }
+          try { await bkSaveItems([o]); closeModal(); renderMain(); toast('บันทึกแล้ว', 'success'); }
+          catch (e) { toast('บันทึกไม่สำเร็จ: ' + e.message, 'error'); }
+        } }
+    ]
+  });
+  const m = document.getElementById('modalContent'); if (m) m.classList.add('bk-wide');
+}
+async function bkDelete(id) {
+  const b = bkState();
+  const it = (b.items || []).find(x => x.id === id);
+  if (!it || !confirm('ลบ "' + (it.nickname || it.student_name) + '" ออกจากคิว?\n(ถ้าแค่ไม่มาเรียน แนะนำเปลี่ยนสถานะเป็น "ยกเลิก" แทน จะได้มีประวัติ)')) return;
+  try {
+    await bkCall({ action: 'bookingDelete', id: id });
+    b.items = b.items.filter(x => x.id !== id);
+    bkCacheSave(); closeModal(); renderMain(); toast('ลบแล้ว', 'success');
+  } catch (e) { toast('ลบไม่สำเร็จ: ' + e.message, 'error'); }
+}
+
+/* ───────── วาดหน้า ───────── */
+function bkCohortsAll() {
+  const b = bkState();
+  const set = new Set((b.items || []).map(x => x.cohort || ''));
+  const ay = bkAY(todayStr());
+  ['ม.4', 'ม.5', 'ม.6', 'ซิ่ว'].forEach(g => { set.add(g + ' ' + String((ay + 1) % 100).padStart(2, '0')); });
+  return [...set].filter(Boolean).sort(bkCohortSort);
+}
+function bkCohortDatalist() {
+  return `<datalist id="bkCohortList">${bkCohortsAll().map(c => `<option value="${bkEsc(c)}">`).join('')}</datalist>`;
+}
+function bkAgo(d) {
+  if (!d) return '';
+  const n = Math.round((parseDate(todayStr()) - parseDate(d)) / 86400000);
+  if (n <= 0) return 'วันนี้';
+  if (n < 31) return n + ' วันก่อน';
+  if (n < 365) return Math.floor(n / 30) + ' เดือนก่อน';
+  return Math.floor(n / 365) + ' ปีก่อน';
+}
+function bkCss() {
+  if (document.getElementById('bkCss')) return;
+  const s = document.createElement('style'); s.id = 'bkCss';
+  s.textContent = `
+  .bk-drop{border:2px dashed var(--line);border-radius:14px;padding:14px;background:var(--bg-soft);display:grid;grid-template-columns:1fr;gap:10px}
+  .bk-drop.has-img{grid-template-columns:minmax(0,360px) 1fr}
+  .bk-drop img{max-width:100%;border-radius:10px;border:1px solid var(--line);background:#fff}
+  .bk-drop textarea{width:100%;min-height:110px;border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit;font-size:14px;background:var(--bg);resize:vertical}
+  .bk-row{display:grid;grid-template-columns:1.6fr .8fr 1.2fr .6fr .8fr .9fr 1.2fr auto;gap:6px;align-items:start;margin-bottom:6px}
+  .bk-row input{width:100%;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font-size:13px}
+  .bk-row .bk-h{font-size:10px;color:var(--gray-dark);letter-spacing:.04em}
+  .bk-dup{grid-column:1/-1;font-size:12px;color:var(--danger);margin-top:-2px}
+  .bk-chip{display:inline-flex;gap:6px;align-items:center;padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:var(--bg);font-size:12px;cursor:pointer;white-space:nowrap}
+  .bk-chip.on{background:var(--black);color:var(--bg);border-color:var(--black)}
+  .bk-chip b{font-family:var(--font-num)}
+  .bk-tbl{width:100%;border-collapse:collapse;font-size:13px}
+  .bk-tbl th{font-size:10px;letter-spacing:.06em;color:var(--gray-dark);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-weight:600}
+  .bk-tbl td{padding:8px;border-bottom:1px solid var(--bg-soft);vertical-align:top}
+  .bk-tbl tr.is-cancel td{color:var(--gray-soft)}
+  .bk-tbl tr.is-cancel .bk-nm{text-decoration:line-through}
+  .bk-tbl tr:hover td{background:var(--bg-soft)}
+  .bk-st{border-radius:999px;border:0;padding:4px 8px;font-size:12px;font-weight:600;cursor:pointer}
+  .bk-q{font-family:var(--font-num);font-weight:700;color:var(--orange)}
+  .bk-sub{font-size:11px;color:var(--gray-dark)}
+  #modalContent.bk-wide{max-width:640px}
+  @media (max-width:900px){
+    .bk-drop.has-img{grid-template-columns:1fr}
+    .bk-row{grid-template-columns:1fr 1fr}
+    .bk-row .bk-hrow{display:none}
+    .bk-tbl .bk-hide-m{display:none}
+  }`;
+  document.head.appendChild(s);
+  /* ปิดหน้าต่าง → คืนความกว้างปกติให้หน้าต่างอื่น */
+  const bd = document.getElementById('modalBackdrop');
+  if (bd && window.MutationObserver) new MutationObserver(() => {
+    if (!bd.classList.contains('is-open')) { const m = document.getElementById('modalContent'); if (m) m.classList.remove('bk-wide'); }
+  }).observe(bd, { attributes: true, attributeFilter: ['class'] });
+}
+
+function renderBooking(body) {
+  bkCss(); bkInstallPaste();
+  const b = bkState();
+  if (!b.loadedOnce && !b.loading && !b.err) bkLoad();
+
+  /* ── การ์ด: เพิ่มคิว ── */
+  const draftHTML = (b.draft || []).map((r, i) => {
+    const dup = bkDupOf(r);
+    const inp = (k, ph, extra) => `<input id="bk${k === 'cohort' ? 'Co' : k}${i}" value="${bkEsc(r[k])}" placeholder="${ph}" oninput="bkDraftSet(${i},'${k}',this.value)" ${extra || ''}>`;
+    return `<div class="bk-row">
+      ${inp('student_name', 'ชื่อ-นามสกุล')}
+      ${inp('nickname', 'ชื่อเล่น')}
+      ${inp('school', 'โรงเรียน')}
+      ${inp('grade', 'ชั้น')}
+      <div>${inp('cohort', 'รุ่นที่จอง', 'list="bkCohortList"')}${r.cohortHint ? `<div class="bk-sub">${bkEsc(r.cohortHint)} → เดารุ่น</div>` : ''}</div>
+      ${inp('phone', 'เบอร์')}
+      ${inp('note', 'หมายเหตุ')}
+      <button class="btn btn--ghost btn--sm" title="ลบแถวนี้" onclick="bkDraftDel(${i})">✕</button>
+      ${dup ? `<div class="bk-dup">⚠️ อาจซ้ำกับคิวเดิม: ${bkEsc(dup.nickname || '')} ${bkEsc(dup.student_name)} · ${bkEsc(dup.cohort || '-')} · ติดต่อ ${dup.contact_date ? thDate(dup.contact_date) : '-'}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  const addCard = `
+  <div class="card">
+    <div class="card__head">
+      <div class="card__title">➕ <b>เพิ่มคิวจากไลน์</b></div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap;">
+        <button class="btn btn--ghost btn--sm" onclick="bkState().showTpl=!bkState().showTpl; renderMain();">📝 แบบฟอร์มส่งผู้ปกครอง</button>
+        <button class="btn btn--primary btn--sm" onclick="bkCopy(bkTemplateText(), 'คัดลอกแบบฟอร์มแล้ว — วางในไลน์ส่งผู้ปกครองได้เลย')">📋 คัดลอกแบบฟอร์ม</button>
+      </div>
+    </div>
+    ${b.showTpl ? `<pre style="white-space:pre-wrap; background:var(--bg-soft); border-radius:10px; padding:12px; font-size:13px; margin:0 0 12px; line-height:1.7;">${bkEsc(bkTemplateText())}</pre>` : ''}
+    <div class="bk-drop ${b.img ? 'has-img' : ''}" ondragover="event.preventDefault()" ondrop="bkDrop(event)">
+      ${b.img ? `<div><img src="${b.img}" alt="รูปจากไลน์" style="cursor:zoom-in" title="กดเพื่อดูรูปเต็ม" onclick="const w=window.open();if(w)w.document.write('<img src=&quot;'+this.src+'&quot; style=&quot;max-width:100%&quot;>')"><div class="bk-sub" style="margin-top:4px;">ตรวจชื่อเทียบกับรูปนี้</div></div>` : ''}
+      <div>
+        <textarea id="bkRaw" placeholder="วางข้อความที่ผู้ปกครองส่งมาในไลน์ตรงนี้ (กดค้างที่ข้อความ → คัดลอก)&#10;หรือ ⌘V วางรูปแคปจอ · ลากรูปมาวาง · กดปุ่มเลือกรูปด้านล่าง">${bkEsc(b.raw)}</textarea>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px;">
+          <button class="btn btn--primary btn--sm" onclick="bkDoParse()">✨ แยกข้อมูลให้</button>
+          <label class="btn btn--ghost btn--sm" style="cursor:pointer;">🖼 เลือกรูป<input type="file" accept="image/*" style="display:none" onchange="bkOcrFile(this.files[0])"></label>
+          ${(b.raw || b.draft || b.img) ? `<button class="btn btn--ghost btn--sm" onclick="bkClearDraft()">ล้าง</button>` : ''}
+          ${b.ocrMsg ? `<span class="bk-sub" style="${b.ocrBusy ? 'color:var(--orange);' : ''}">${b.ocrBusy ? '⏳ ' : ''}${bkEsc(b.ocrMsg)}</span>` : ''}
+        </div>
+      </div>
+    </div>
+    ${b.draft ? `
+    <div style="margin-top:14px;">
+      <div class="form-grid" style="grid-template-columns:1fr 180px; gap:10px; margin-bottom:10px;">
+        <div class="form-field"><label>ชื่อไลน์ผู้ปกครอง</label><input id="bkLine" value="${bkEsc(b.lineName)}" placeholder="ชื่อที่โชว์ในไลน์ (ดูบนหัวแชท)" oninput="bkState().lineName=this.value"></div>
+        <div class="form-field"><label>วันที่ติดต่อ</label><input id="bkDate" type="date" value="${bkEsc(b.contactDate)}" onchange="bkState().contactDate=this.value"></div>
+      </div>
+      <div class="bk-row bk-hrow">${['ชื่อ-นามสกุล', 'ชื่อเล่น', 'โรงเรียน', 'ชั้น', 'รุ่นที่จอง', 'เบอร์', 'หมายเหตุ', ''].map(h => `<div class="bk-h">${h}</div>`).join('')}</div>
+      ${draftHTML}
+      ${bkCohortDatalist()}
+      <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+        <button class="btn btn--ghost btn--sm" onclick="bkDraftAdd()">+ เพิ่มน้องอีกคน</button>
+        <button class="btn btn--primary btn--sm" id="bkSaveBtn" onclick="bkSaveDraft()" style="margin-left:auto;">💾 บันทึกเข้าคิว</button>
+      </div>
+    </div>` : ''}
+  </div>`;
+
+  /* ── การ์ด: รายการคิว ── */
+  const all = b.items || [];
+  const q = b.q.trim().toLowerCase().replace(/\s+/g, '');
+  const matchQ = x => !q || [x.student_name, x.nickname, x.school, x.line_name, x.phone, x.note, x.cohort]
+    .join(' ').toLowerCase().replace(/\s+/g, '').indexOf(q) >= 0;
+  const matchSt = x => b.status === 'all' ? true : b.status === 'active' ? (x.status !== 'cancel' && x.status !== 'enrolled') : x.status === b.status;
+  const cnt = { all: all.length, active: 0, wait: 0, contacted: 0, enrolled: 0, cancel: 0 };
+  all.forEach(x => { cnt[x.status] = (cnt[x.status] || 0) + 1; if (x.status !== 'cancel' && x.status !== 'enrolled') cnt.active++; });
+
+  /* เลขคิวต่อรุ่น — เรียงตามวันที่ติดต่อ ไม่นับคนที่ยกเลิก */
+  const qno = {};
+  const byCo = {};
+  all.forEach(x => { (byCo[x.cohort || ''] = byCo[x.cohort || ''] || []).push(x); });
+  Object.keys(byCo).forEach(c => {
+    byCo[c].sort((a, z) => String(a.contact_date).localeCompare(String(z.contact_date)) || String(a.created_at).localeCompare(String(z.created_at)));
+    let n = 0; byCo[c].forEach(x => { if (x.status !== 'cancel') qno[x.id] = ++n; });
+  });
+  const cohorts = Object.keys(byCo).sort((a, z) => (a ? 0 : 1) - (z ? 0 : 1) || bkCohortSort(a, z));
+
+  const chip = (k, label, n) => `<span class="bk-chip ${b.status === k ? 'on' : ''}" onclick="bkState().status='${k}'; renderMain();">${label} <b>${n || 0}</b></span>`;
+  const coChip = c => {
+    const n = byCo[c].filter(x => matchSt(x)).length;
+    return `<span class="bk-chip ${b.cohort === c ? 'on' : ''}" onclick="bkState().cohort=${bkEsc(JSON.stringify(c))}; renderMain();">${bkEsc(c || 'ไม่ระบุรุ่น')} <b>${n}</b></span>`;
+  };
+
+  const sections = cohorts.filter(c => b.cohort === 'all' || b.cohort === c).map(c => {
+    const rows = byCo[c].filter(x => matchSt(x) && matchQ(x));
+    if (!rows.length) return '';
+    const live = byCo[c].filter(x => x.status !== 'cancel');
+    const enr = live.filter(x => x.status === 'enrolled').length;
+    const tr = rows.map(x => {
+      const st = BK_STATUS[x.status] || BK_STATUS.wait;
+      return `<tr class="${x.status === 'cancel' ? 'is-cancel' : ''}">
+        <td class="bk-q">${qno[x.id] || '–'}</td>
+        <td style="cursor:pointer;" title="กดเพื่อแก้ไข" onclick="bkEdit('${bkEsc(x.id)}')"><div class="bk-nm"><b>${bkEsc(x.nickname || '')}</b>${x.nickname && x.student_name ? ' · ' : ''}${bkEsc(x.student_name)}</div>
+            <div class="bk-sub">${bkEsc(x.school || '')}${x.grade ? ' · ' + bkEsc(x.grade) : ''}${x.note ? ' · ' + bkEsc(x.note) : ''}</div></td>
+        <td class="bk-hide-m">${bkEsc(x.line_name || '')}${x.phone ? `<div class="bk-sub">${bkEsc(x.phone)}</div>` : ''}</td>
+        <td style="white-space:nowrap;">${x.contact_date ? thDate(x.contact_date) : '-'}<div class="bk-sub">${bkAgo(x.contact_date)}</div></td>
+        <td><select class="bk-st" style="color:${st.color}; background:${st.bg};" onchange="bkSetStatus('${bkEsc(x.id)}', this.value)">${
+          Object.keys(BK_STATUS).map(k => `<option value="${k}" ${x.status === k ? 'selected' : ''}>${BK_STATUS[k].label}</option>`).join('')}</select></td>
+        <td><button class="btn btn--ghost btn--sm" onclick="bkEdit('${bkEsc(x.id)}')" title="แก้ไข">✏️</button></td>
+      </tr>`;
+    }).join('');
+    return `<div class="card">
+      <div class="card__head">
+        <div class="card__title">📌 รุ่น <b>${bkEsc(c || 'ยังไม่ระบุรุ่น')}</b></div>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <span class="card__count">จอง ${live.length} · ได้ที่ ${enr}</span>
+          <button class="btn btn--ghost btn--sm" onclick='bkCopyCohort(${bkEsc(JSON.stringify(c))})' title="คัดลอกรายชื่อรุ่นนี้">📋</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto;"><table class="bk-tbl">
+        <thead><tr><th>คิว</th><th>นักเรียน</th><th class="bk-hide-m">ผู้ปกครอง (ไลน์)</th><th>ติดต่อ</th><th>สถานะ</th><th></th></tr></thead>
+        <tbody>${tr}</tbody></table></div>
+    </div>`;
+  }).join('');
+
+  const listHead = `
+  <div class="card" style="padding:14px 18px;">
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <input id="bkQ" value="${bkEsc(b.q)}" placeholder="🔎 ค้นหา ชื่อ / ชื่อเล่น / รร. / ชื่อไลน์ / เบอร์"
+        style="flex:1 1 220px; padding:8px 12px; border:1px solid var(--line); border-radius:999px; background:var(--bg);"
+        oninput="bkState().q=this.value; clearTimeout(window._bkQT); window._bkQT=setTimeout(()=>{renderMain(); const e=document.getElementById('bkQ'); if(e){e.focus(); e.setSelectionRange(e.value.length,e.value.length);}},250);">
+      <button class="btn btn--ghost btn--sm" onclick="bkLoad(true)" title="ดึงจากชีตใหม่">${b.loading ? '⏳' : '↻'} โหลดใหม่</button>
+      <button class="btn btn--ghost btn--sm" onclick="bkExportCsv()" title="ดาวน์โหลดเป็น CSV เปิดใน Excel/Sheets">⬇︎ CSV</button>
+    </div>
+    <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:10px;">
+      ${chip('active', 'ยังรออยู่', cnt.active)}${chip('wait', 'รอคิว', cnt.wait)}${chip('contacted', 'ติดต่อกลับแล้ว', cnt.contacted)}${chip('enrolled', 'ได้ที่แล้ว', cnt.enrolled)}${chip('cancel', 'ยกเลิก', cnt.cancel)}${chip('all', 'ทั้งหมด', cnt.all)}
+    </div>
+    ${cohorts.length > 1 ? `<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">
+      <span class="bk-chip ${b.cohort === 'all' ? 'on' : ''}" onclick="bkState().cohort='all'; renderMain();">ทุกรุ่น</span>${cohorts.map(coChip).join('')}</div>` : ''}
+    ${b.err ? `<div style="margin-top:10px; color:var(--danger); font-size:13px;">⚠️ ${bkEsc(b.err)}${b.items && b.items.length ? ' · กำลังโชว์ข้อมูลที่สำรองไว้ในเครื่อง' : ''}</div>` : ''}
+    ${!b.err && b.cachedAt && b.loading ? `<div class="bk-sub" style="margin-top:8px;">กำลังดึงข้อมูลล่าสุด… (โชว์ของที่สำรองไว้ก่อน)</div>` : ''}
+  </div>`;
+
+  const empty = !all.length
+    ? `<div class="empty"><h3>${b.loading ? 'กำลังโหลด…' : 'ยังไม่มีคิวจอง'}</h3><p>วางข้อความ/รูปจากไลน์ด้านบน แล้วกด "แยกข้อมูลให้"</p></div>`
+    : (sections || `<div class="empty"><p>ไม่มีรายการตามตัวกรองนี้</p></div>`);
+
+  body.innerHTML = addCard + listHead + empty;
+}
+
+function bkCopyCohort(c) {
+  const b = bkState();
+  const rows = (b.items || []).filter(x => (x.cohort || '') === c && x.status !== 'cancel')
+    .sort((a, z) => String(a.contact_date).localeCompare(String(z.contact_date)));
+  const txt = 'คิวจอง รุ่น ' + (c || '-') + ' (' + rows.length + ' คน)\n' + rows.map((x, i) =>
+    (i + 1) + '. ' + [x.nickname, x.student_name].filter(Boolean).join(' · ') +
+    (x.school ? ' · ' + x.school : '') + (x.grade ? ' ' + x.grade : '') +
+    ' · ' + (x.contact_date ? thDate(x.contact_date) : '-') +
+    (x.status === 'enrolled' ? ' ✓' : x.status === 'contacted' ? ' (ติดต่อแล้ว)' : '')).join('\n');
+  bkCopy(txt, 'คัดลอกรายชื่อรุ่น ' + c + ' แล้ว');
+}
+function bkExportCsv() {
+  const b = bkState();
+  const head = ['คิว/รุ่น', 'ชื่อเล่น', 'ชื่อ-นามสกุล', 'โรงเรียน', 'ชั้น', 'ชื่อไลน์ผู้ปกครอง', 'เบอร์', 'วันที่ติดต่อ', 'สถานะ', 'หมายเหตุ'];
+  const rows = (b.items || []).slice().sort((a, z) => bkCohortSort(a.cohort, z.cohort) || String(a.contact_date).localeCompare(String(z.contact_date)))
+    .map(x => [x.cohort, x.nickname, x.student_name, x.school, x.grade, x.line_name, x.phone, x.contact_date, (BK_STATUS[x.status] || {}).label, x.note]);
+  const csv = '﻿' + [head].concat(rows).map(r => r.map(v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"').join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = 'คิวจอง-' + todayStr() + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+/* ★ END booking — 17 พ.ย. 69 */
+
 /* ===========================================================
    MODAL + TOAST
    =========================================================== */
@@ -11679,6 +12443,10 @@ function init() {
   document.getElementById('btnPending').addEventListener('click', () => {
     state.view = 'pending';
     state.pending.items = null;   // โหลดใหม่ทุกครั้งที่เข้าหน้านี้
+    renderAll();
+  });
+  document.getElementById('btnBooking').addEventListener('click', () => {
+    state.view = 'booking';
     renderAll();
   });
   document.getElementById('btnAddGroup').addEventListener('click', addGroup);
